@@ -401,24 +401,23 @@ class GitHubClient:
         console.print(f"[blue]Searching for workflow run with UUID: {workflow_uuid}[/blue]")
 
         for attempt in range(max_tries):
-            console.print(f"[dim]  Attempt {attempt + 1}/{max_tries}[/dim]")
+            time.sleep(2)
+            if attempt > 0:
+                console.print(f"[dim]  Attempt {attempt + 1}/{max_tries}[/dim]")
 
             runs = self._get_recent_workflow_runs(repo, workflow_file, limit=20)
 
             for run in runs:
-                # Extract UUID from the workflow run name and compare with our target UUID
                 extracted_uuid = self._extract_uuid(run.workflow_id)
                 if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
                     console.print(f"[green]Found matching workflow run: {run.run_id}[/green]")
                     console.print(f"[dim]  Workflow name: {run.workflow_id}[/dim]")
                     console.print(f"[dim]  Extracted UUID: {extracted_uuid}[/dim]")
-                    # Update the run with the UUID for tracking
                     run.workflow_uuid = workflow_uuid
                     return run
 
-            if attempt < max_tries - 1:  # Don't sleep on the last attempt
-                console.print("[dim]  No matching workflow found, waiting 2 seconds...[/dim]")
-                time.sleep(2)
+            console.print("[dim]  No matching workflow found, trying again...[/dim]")
+
 
         raise RuntimeError(
             f"Could not find workflow run with UUID {workflow_uuid} after {max_tries} attempts. "
