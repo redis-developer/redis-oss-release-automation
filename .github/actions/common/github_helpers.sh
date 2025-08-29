@@ -1,3 +1,6 @@
+# Merges branch --from into branch --to using github API
+# GITHUB_TOKEN must be set in the environment
+# This is the only way to create verified merge commits in CI
 github_create_verified_merge() {
     BASE_BRANCH=
     HEAD_BRANCH=
