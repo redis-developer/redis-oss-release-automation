@@ -20,8 +20,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Conigure Git Commiter
-      uses: ./.github/actions/configure_git_commiter
     - name: Ensure Release Branch
       id: ensure-branch
       env:
