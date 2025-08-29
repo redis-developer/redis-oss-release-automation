@@ -1,0 +1,31 @@
+inputs:
+  release_tag:
+    description: 'Release tag to build'
+    required: true
+  allow_modify:
+    description: 'Allow modifying the repository'
+    default: false
+  gh_token:
+    description: 'GitHub token to use'
+    required: true
+
+outputs:
+  release_version_branch:
+    description: 'The release version branch name, e.g.: 8.X.X-int1'
+    value: ${{ steps.ensure-branch.outputs.release_version_branch }}
+  release_branch:
+    description: 'The release branch name, e.g.: release/8.X'
+    value: ${{ steps.ensure-branch.outputs.release_branch }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Conigure Git Commiter
+      uses: ./.github/actions/configure_git_commiter
+    - name: Ensure Release Branch
+      id: ensure-branch
+      env:
+        GITHUB_TOKEN: ${{ inputs.gh_token }}
+      shell: bash
+      run: |
+        ${{ github.action_path }}/ensure-release-branch.sh ${{ inputs.allow_modify == 'true' && '--allow-modify' || '' }} ${{ inputs.release_tag }}

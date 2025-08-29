@@ -1,0 +1,12 @@
+inputs:
+  release_tag:
+    description: 'Release tag to build'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Ensure Release Branch
+      shell: bash
+      run: |
+        ${{ github.action_path }}/validate-redis-release-archive.sh ${{ inputs.release_tag }}
