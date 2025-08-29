@@ -64,3 +64,4 @@ if [ "$FROM_SHA" = "$TO_SHA" ]; then
 fi
 
 execute_command github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH"
+console_output 1 gray "$last_cmd_stdout"
