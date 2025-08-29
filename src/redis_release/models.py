@@ -42,6 +42,7 @@ class WorkflowRun(BaseModel):
 
     repo: str
     workflow_id: str
+    workflow_uuid: Optional[str] = None
     run_id: Optional[int] = None
     status: Optional[WorkflowStatus] = None
     conclusion: Optional[WorkflowConclusion] = None

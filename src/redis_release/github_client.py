@@ -1,6 +1,8 @@
 """GitHub API client for workflow operations."""
 
+import re
 import time
+import uuid
 from typing import Dict, List, Optional
 import requests
 
@@ -39,9 +41,13 @@ class GitHubClient:
         Returns:
             WorkflowRun object with run information
         """
+        # Generate a unique UUID for this workflow run
+        workflow_uuid = str(uuid.uuid4())
+
         console.print(f"[blue] Triggering workflow {workflow_file} in {repo}[/blue]")
         console.print(f"[dim] Inputs: {inputs}[/dim]")
         console.print(f"[dim] Ref: {ref}[/dim]")
+        console.print(f"[dim] Workflow UUID: {workflow_uuid}[/dim]")
 
         if self.dry_run:
             console.print("[yellow]   (DRY RUN - not actually triggered)[/yellow]")
@@ -51,6 +57,7 @@ class GitHubClient:
             return WorkflowRun(
                 repo=repo,
                 workflow_id=workflow_file,
+                workflow_uuid=workflow_uuid,
                 run_id=run_id,
                 status=WorkflowStatus.PENDING,
             )
@@ -62,7 +69,11 @@ class GitHubClient:
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
-        payload = {"ref": ref, "inputs": inputs}
+        # Add the workflow UUID to inputs so it appears in the workflow run name
+        enhanced_inputs = inputs.copy()
+        enhanced_inputs["workflow_uuid"] = workflow_uuid
+
+        payload = {"ref": ref, "inputs": enhanced_inputs}
 
         try:
             response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -70,32 +81,12 @@ class GitHubClient:
 
             console.print(f"[green]Workflow triggered successfully[/green]")
 
-            # GitHub API doesn't return run_id immediately, so we need to find it
-            # wait a moment for the workflow to appear
-            time.sleep(2)
-
-            # get recent workflow runs to find our triggered run
-            runs = self._get_recent_workflow_runs(repo, workflow_file, limit=5)
-
-            if runs:
-                # take the most recent run
-                latest_run = runs[0]
-                console.print(f"[dim]   Run ID: {latest_run.run_id}[/dim]")
-                console.print(
-                    f"[dim]   URL: https://github.com/{repo}/actions/runs/{latest_run.run_id}[/dim]"
-                )
-                return latest_run
-            else:
-                # fallback: create a workflow run object without run_id
-                console.print(
-                    "[yellow]   Could not find triggered workflow run[/yellow]"
-                )
-                return WorkflowRun(
-                    repo=repo,
-                    workflow_id=workflow_file,
-                    run_id=None,
-                    status=WorkflowStatus.PENDING,
-                )
+            workflow_run = self._identify_workflow(repo, workflow_file, workflow_uuid)
+            console.print(f"[dim]   Run ID: {workflow_run.run_id}[/dim]")
+            console.print(
+                f"[dim]   URL: https://github.com/{repo}/actions/runs/{workflow_run.run_id}[/dim]"
+            )
+            return workflow_run
 
         except requests.exceptions.RequestException as e:
             console.print(f"[red]Failed to trigger workflow: {e}[/red]")
@@ -115,6 +106,7 @@ class GitHubClient:
             return WorkflowRun(
                 repo=repo,
                 workflow_id="mock.yml",
+                workflow_uuid=None,  # No UUID for mock runs
                 run_id=run_id,
                 status=WorkflowStatus.COMPLETED,
                 conclusion=WorkflowConclusion.SUCCESS,
@@ -150,9 +142,13 @@ class GitHubClient:
             elif github_conclusion == "failure":
                 conclusion = WorkflowConclusion.FAILURE
 
+            workflow_name = data.get("name", "unknown")
+            workflow_uuid = self._extract_uuid(workflow_name)
+
             return WorkflowRun(
                 repo=repo,
-                workflow_id=data.get("name", "unknown"),
+                workflow_id=workflow_name,
+                workflow_uuid=workflow_uuid,
                 run_id=data.get("id"),
                 status=status,
                 conclusion=conclusion,
@@ -236,6 +232,7 @@ class GitHubClient:
                 return WorkflowRun(
                     repo=repo,
                     workflow_id="mock.yml",
+                    workflow_uuid=None,  # No UUID for mock runs
                     run_id=run_id,
                     status=WorkflowStatus.COMPLETED,
                     conclusion=WorkflowConclusion.SUCCESS,
@@ -348,10 +345,14 @@ class GitHubClient:
                 elif github_conclusion == "failure":
                     conclusion = WorkflowConclusion.FAILURE
 
+                workflow_name = run_data.get("name", workflow_file)
+                workflow_uuid = self._extract_uuid(workflow_name)
+
                 runs.append(
                     WorkflowRun(
                         repo=repo,
-                        workflow_id=run_data.get("name", workflow_file),
+                        workflow_id=workflow_name,
+                        workflow_uuid=workflow_uuid,
                         run_id=run_data.get("id"),
                         status=status,
                         conclusion=conclusion,
@@ -363,6 +364,65 @@ class GitHubClient:
         except requests.exceptions.RequestException as e:
             console.print(f"[red]Failed to get workflow runs: {e}[/red]")
             return []
+
+    def _extract_uuid(self, text: str) -> Optional[str]:
+        """Extract UUID from a string if present.
+
+        Args:
+            text: String to search for UUID pattern
+
+        Returns:
+            UUID string if found, None otherwise
+        """
+        if not text:
+            return None
+
+        uuid_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+        uuid_match = re.search(uuid_pattern, text, re.IGNORECASE)
+        return uuid_match.group() if uuid_match else None
+
+    def _identify_workflow(
+        self, repo: str, workflow_file: str, workflow_uuid: str, max_tries: int = 10
+    ) -> WorkflowRun:
+        """Identify a specific workflow run by UUID in its name.
+
+        Args:
+            repo: Repository name
+            workflow_file: Workflow file name
+            workflow_uuid: UUID to search for in workflow run names
+            max_tries: Maximum number of attempts to find the workflow
+
+        Returns:
+            WorkflowRun object with matching UUID
+
+        Raises:
+            RuntimeError: If workflow run cannot be found after max_tries
+        """
+        console.print(f"[blue]Searching for workflow run with UUID: {workflow_uuid}[/blue]")
+
+        for attempt in range(max_tries):
+            time.sleep(2)
+            if attempt > 0:
+                console.print(f"[dim]  Attempt {attempt + 1}/{max_tries}[/dim]")
+
+            runs = self._get_recent_workflow_runs(repo, workflow_file, limit=20)
+
+            for run in runs:
+                extracted_uuid = self._extract_uuid(run.workflow_id)
+                if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
+                    console.print(f"[green]Found matching workflow run: {run.run_id}[/green]")
+                    console.print(f"[dim]  Workflow name: {run.workflow_id}[/dim]")
+                    console.print(f"[dim]  Extracted UUID: {extracted_uuid}[/dim]")
+                    run.workflow_uuid = workflow_uuid
+                    return run
+
+            console.print("[dim]  No matching workflow found, trying again...[/dim]")
+
+
+        raise RuntimeError(
+            f"Could not find workflow run with UUID {workflow_uuid} after {max_tries} attempts. "
+            f"The workflow may have failed to start or there may be a delay in GitHub's API."
+        )
 
     def check_workflow_exists(self, repo: str, workflow_file: str) -> bool:
         """Check if a workflow file exists and is accessible.
