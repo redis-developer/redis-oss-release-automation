@@ -37,10 +37,14 @@ execute_command() {
 
     if [ "$last_cmd_result" -ne 0 ]; then
         console_output 0 red "Command failed with exit code $last_cmd_result"
-        console_output 0 red "Standard Output:"
-        console_output 0 red "$last_cmd_stdout"
-        console_output 0 red "Standard Error:"
-        console_output 0 red "$last_cmd_stderr"
+        if [ -n "$last_cmd_stderr" ]; then
+            console_output 0 red "Standard Error:"
+            console_output 0 red "$last_cmd_stderr"
+        fi
+        if [ -n "$last_cmd_stdout" ]; then
+            console_output 0 red "Standard Output:"
+            console_output 0 red "$last_cmd_stdout"
+        fi
     fi
 
     # Clean up temporary files

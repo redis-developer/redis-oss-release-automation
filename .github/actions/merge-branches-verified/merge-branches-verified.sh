@@ -51,11 +51,12 @@ execute_command git rev-parse "origin/$TO_BRANCH"
 TO_SHA=$last_cmd_stdout
 
 # Check if FROM_BRANCH is already merged into TO_BRANCH
-execute_command git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH"
+execute_command git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH" || :
 if [ $last_cmd_result -eq 0 ]; then
     echo "Branch '$FROM_BRANCH' is already merged into '$TO_BRANCH' - no merge required"
     exit 0
 fi
+
 # Check if the branches are identical
 if [ "$FROM_SHA" = "$TO_SHA" ]; then
     echo "Branches '$FROM_BRANCH' and '$TO_BRANCH' are identical - no merge required"
