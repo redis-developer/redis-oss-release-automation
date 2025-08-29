@@ -1,3 +1,8 @@
+#!/bin/bash
+git_fetch_unshallow() {
+    git fetch --unshallow "$@" 2>/dev/null || git fetch "$@"
+}
+
 # Merges branch --from into branch --to using github API
 # GITHUB_TOKEN must be set in the environment
 # This is the only way to create verified merge commits in CI

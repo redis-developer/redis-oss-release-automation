@@ -50,10 +50,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-git_fetch_unshallow() {
-    git fetch --unshallow "$@" 2>/dev/null || git fetch "$@"
-}
-
 if [ -z "$TAG" ]; then
     echo "Error: TAG is required as argument"
     echo "Usage: $0 [--allow-modify] <TAG>"
