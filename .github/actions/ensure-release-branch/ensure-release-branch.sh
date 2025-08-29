@@ -1,12 +1,8 @@
 #!/bin/bash
 
 # This script ensures that a release branch and release version branch exist for a given release tag.
-# It allow-modifys and pushes both branches if they do not exist.
-# It also checks out the release version branch at the end.
-# https://redislabs.atlassian.net/wiki/spaces/RED/pages/5293342875/Redis+OSS+release+automation
 
 set -e
-#set -x
 
 # shellcheck disable=SC2034
 last_cmd_stdout=""
@@ -16,7 +12,6 @@ last_cmd_stderr=""
 last_cmd_result=0
 # shellcheck disable=SC2034
 VERBOSITY=1
-
 
 SCRIPT_DIR="$(dirname -- "$( readlink -f -- "$0"; )")"
 # shellcheck disable=SC1091
