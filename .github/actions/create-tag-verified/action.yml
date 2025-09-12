@@ -1,0 +1,23 @@
+inputs:
+  gh_token:
+    description: 'GitHub token to use'
+    required: true
+  tag_name:
+    description: 'Tag name to create'
+    required: true
+  ref_sha:
+    description: 'SHA of the commit to tag'
+    required: true
+  tag_message:
+    description: 'Tag message (defaults to tag name)'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create verified tag
+      env:
+        GITHUB_TOKEN: ${{ inputs.gh_token }}
+      shell: bash
+      run: |
+        ${{ github.action_path }}/create-tag-verified.sh --ref ${{ inputs.ref_sha }} ${{ inputs.tag_message && format('--message "{0}"', inputs.tag_message) || '' }} ${{ inputs.tag_name }}

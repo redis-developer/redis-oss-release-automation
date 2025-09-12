@@ -9,6 +9,10 @@ inputs:
     description: 'Branch to merge into'
     required: true
 
+outputs:
+  merge_commit_sha:
+    description: 'SHA of the merge commit if merge was performed'
+
 runs:
   using: "composite"
   steps:
@@ -17,4 +21,7 @@ runs:
         GITHUB_TOKEN: ${{ inputs.gh_token }}
       shell: bash
       run: |
-        ${{ github.action_path }}/merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }}
+        output=$(${{ github.action_path }}/merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }})
+        if [ $? -eq 0 ] && [ -n "$output" ]; then
+          echo "merge_commit_sha=$output" >> $GITHUB_OUTPUT
+        fi

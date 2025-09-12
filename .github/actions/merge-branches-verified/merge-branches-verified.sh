@@ -64,4 +64,7 @@ if [ "$FROM_SHA" = "$TO_SHA" ]; then
 fi
 
 execute_command github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH"
-console_output 1 gray "$last_cmd_stdout"
+if [ $last_cmd_result -eq 0 ] && [ -n "$last_cmd_stdout" ]; then
+    # Output the merge commit SHA for the GitHub Action to capture
+    echo "$last_cmd_stdout"
+fi
