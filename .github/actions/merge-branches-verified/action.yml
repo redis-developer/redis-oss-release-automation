@@ -22,7 +22,6 @@ runs:
       shell: bash
       run: |
         output=$(${{ github.action_path }}/merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }})
-        if [ $? -eq 0 ] && [ -n "$output" ] && echo "$output" | grep -Pq '^[0-9a-fA-F]\{40,\}$'; then
-          echo "Merge commit SHA: $output"
+        if [ $? -eq 0 ] && [ -n "$output" ] && echo "$output" | grep -Pq '^[0-9a-fA-F]{40,}$'; then
           echo "merge_commit_sha=$output" >> $GITHUB_OUTPUT
         fi
