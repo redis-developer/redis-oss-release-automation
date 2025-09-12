@@ -44,14 +44,14 @@ fi
 
 echo "Checking if merge is required from '$FROM_BRANCH' to '$TO_BRANCH'..."
 
-execute_command git_fetch_unshallow origin "$FROM_BRANCH" "$TO_BRANCH"
-execute_command git rev-parse "origin/$FROM_BRANCH"
+execute_command --no-std -- git_fetch_unshallow origin "$FROM_BRANCH" "$TO_BRANCH"
+execute_command --no-std -- git rev-parse "origin/$FROM_BRANCH"
 FROM_SHA=$last_cmd_stdout
-execute_command git rev-parse "origin/$TO_BRANCH"
+execute_command --no-std -- git rev-parse "origin/$TO_BRANCH"
 TO_SHA=$last_cmd_stdout
 
 # Check if FROM_BRANCH is already merged into TO_BRANCH
-execute_command git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH" || :
+execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH"
 if [ $last_cmd_result -eq 0 ]; then
     echo "Branch '$FROM_BRANCH' is already merged into '$TO_BRANCH' - no merge required"
     exit 0
@@ -63,7 +63,7 @@ if [ "$FROM_SHA" = "$TO_SHA" ]; then
     exit 0
 fi
 
-execute_command github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH"
+execute_command --no-std -- github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH"
 if [ $last_cmd_result -eq 0 ] && [ -n "$last_cmd_stdout" ]; then
     # Output the merge commit SHA for the GitHub Action to capture
     echo "$last_cmd_stdout"

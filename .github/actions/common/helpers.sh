@@ -104,9 +104,6 @@ execute_command() {
     last_cmd_stdout=$(cat "$stdout_file")
     last_cmd_stderr=$(cat "$stderr_file")
 
-    echo $last_cmd_stdout >> /tmp/t
-    echo $last_cmd_stderr >> /tmp/t
-
     if [ -z "$no_std" ]; then
         cat "$stdout_file"
         cat "$stderr_file" >&2
