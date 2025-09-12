@@ -123,6 +123,7 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
             fi
 
             github_create_verified_merge --from "$RELEASE_BRANCH" --to "$RELEASE_VERSION_BRANCH"
+        fi
     fi
 
     execute_command --no-std -- git_fetch_unshallow origin "$RELEASE_VERSION_BRANCH"
