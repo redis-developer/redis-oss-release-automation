@@ -95,6 +95,7 @@ execute_command() {
     fi
     increase_indent_level
 
+    set +eu
     (set -euo pipefail; "${cmd[@]}" >"$stdout_file" 2>"$stderr_file")
     last_cmd_result=$?
     eval "$eval_set"
