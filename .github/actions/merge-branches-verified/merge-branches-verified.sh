@@ -31,18 +31,18 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Error: Unknown argument $1"
+            echo "Error: Unknown argument $1" >&2
             exit 1
             ;;
     esac
 done
 
 if [ -z "$FROM_BRANCH" ] || [ -z "$TO_BRANCH" ]; then
-    echo "Error: Missing required arguments --from and --to"
+    echo "Error: Missing required arguments --from and --to" >&2
     exit 1
 fi
 
-echo "Checking if merge is required from '$FROM_BRANCH' to '$TO_BRANCH'..."
+echo "Checking if merge is required from '$FROM_BRANCH' to '$TO_BRANCH'..." >&2
 
 execute_command --no-std -- git_fetch_unshallow origin "$FROM_BRANCH" "$TO_BRANCH"
 execute_command --no-std -- git rev-parse "origin/$FROM_BRANCH"
@@ -51,15 +51,22 @@ execute_command --no-std -- git rev-parse "origin/$TO_BRANCH"
 TO_SHA=$last_cmd_stdout
 
 # Check if FROM_BRANCH is already merged into TO_BRANCH
-execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH"
+execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH" || :
 if [ $last_cmd_result -eq 0 ]; then
-    echo "Branch '$FROM_BRANCH' is already merged into '$TO_BRANCH' - no merge required"
+    echo "Branch '$FROM_BRANCH' is already merged into '$TO_BRANCH' - no merge required" >&2
     exit 0
 fi
+if [ $last_cmd_result -gt 1 ]; then
+    echo "Error: git merge-base failed with exit code $last_cmd_result" >&2
+    echo "Stderr: $last_cmd_stderr" >&2
+    echo "Stdout: $last_cmd_stdout" >&2
+    exit 1
+fi
+
 
 # Check if the branches are identical
 if [ "$FROM_SHA" = "$TO_SHA" ]; then
-    echo "Branches '$FROM_BRANCH' and '$TO_BRANCH' are identical - no merge required"
+    echo "Branches '$FROM_BRANCH' and '$TO_BRANCH' are identical - no merge required" >&2
     exit 0
 fi
 
