@@ -16,6 +16,8 @@ SCRIPT_DIR="$(dirname -- "$( readlink -f -- "$0"; )")"
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/../common/github_helpers.sh"
 
+init_console_output
+
 FROM_BRANCH=
 TO_BRANCH=
 while [[ $# -gt 0 ]]; do
@@ -51,18 +53,11 @@ execute_command --no-std -- git rev-parse "origin/$TO_BRANCH"
 TO_SHA=$last_cmd_stdout
 
 # Check if FROM_BRANCH is already merged into TO_BRANCH
-execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH" || :
+execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH"
 if [ $last_cmd_result -eq 0 ]; then
     echo "Branch '$FROM_BRANCH' is already merged into '$TO_BRANCH' - no merge required" >&2
     exit 0
 fi
-if [ $last_cmd_result -gt 1 ]; then
-    echo "Error: git merge-base failed with exit code $last_cmd_result" >&2
-    echo "Stderr: $last_cmd_stderr" >&2
-    echo "Stdout: $last_cmd_stdout" >&2
-    exit 1
-fi
-
 
 # Check if the branches are identical
 if [ "$FROM_SHA" = "$TO_SHA" ]; then

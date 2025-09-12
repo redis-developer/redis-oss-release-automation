@@ -112,7 +112,12 @@ execute_command() {
     # Clean up temporary files
     rm -f "$stdout_file" "$stderr_file"
 
-    if [ "$last_cmd_result" -ne 0 ] && [ -z "$ignore_any_error" ] && [[ ! " ${ignore_exit_codes[*]} " =~ [[:space:]]${last_cmd_result}[[:space:]] ]] && [ -z "$quiet" ]; then
+    local ignore_current_error
+    if [ -n "$ignore_any_error" ] || [[ " ${ignore_exit_codes[*]} " =~ [[:space:]]${last_cmd_result}[[:space:]] ]]; then
+        ignore_current_error=1
+    fi
+
+    if [ "$last_cmd_result" -ne 0 ] && [ -z "$ignore_current_error" ] && [ -z "$quiet" ]; then
         console_output 0 red "Command failed with exit code $last_cmd_result"
         if [ -n "$last_cmd_stderr" ]; then
             console_output 0 red "Standard Error:"
@@ -125,6 +130,9 @@ execute_command() {
     fi
 
     decrease_indent_level
+    if [ -n "$ignore_current_error" ]; then
+        return 0
+    fi
     return $last_cmd_result
 }
 

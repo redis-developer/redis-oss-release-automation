@@ -104,12 +104,11 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
     # Check if there are changes in release branch that are not in release version branch
     echo "Checking for differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH..."
     execute_command --no-std -- git_fetch_unshallow origin "$RELEASE_BRANCH"
-    # Compare the two branches to see if there are commits in release branch not in release version branch
-    execute_command --no-std -- git rev-list --count "origin/$RELEASE_VERSION_BRANCH..origin/$RELEASE_BRANCH"
-    COMMITS_BEHIND=$(echo "$last_cmd_stdout" | tr -d '[:space:]')
-    if [ "$COMMITS_BEHIND" -gt 0 ]; then
-        echo "Found $COMMITS_BEHIND commit(s) in $RELEASE_BRANCH that are not in $RELEASE_VERSION_BRANCH:"
-        execute_command --no-std -- git log --oneline "origin/$RELEASE_VERSION_BRANCH..origin/$RELEASE_BRANCH"
+    # Compare the two branches to see if there are actual file differences
+    execute_command --ignore-exit-code 1 --no-std -- git diff --quiet "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
+    if [ "$last_cmd_result" -eq 1 ]; then
+        echo "Found file differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH"
+        execute_command --no-std -- git diff --name-only "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
         console_output 1 gray "$last_cmd_stdout"
 
         if [ -z "$ALLOW_MODIFY" ]; then

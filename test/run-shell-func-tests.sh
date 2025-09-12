@@ -91,6 +91,8 @@ test_execute_command_ignore_error_code() {
     stdout_file=$(mktemp)
     stderr_file=$(mktemp)
     execute_command --no-std --ignore-exit-code 111 -- tfun 1>"$stdout_file" 2>"$stderr_file"
+    res=$?
+    assertEquals "return value" 0 "$res"
     assertEquals "last_cmd_result" 111 "$last_cmd_result"
     # Read captured output
     stdout=$(cat "$stdout_file")
@@ -105,6 +107,8 @@ test_execute_command_ignore_error_code() {
     stdout_file=$(mktemp)
     stderr_file=$(mktemp)
     execute_command --no-std -c 111 -- tfun
+    res=$?
+    assertEquals "return value" 0 "$res"
     assertEquals "last_cmd_result" 111 "$last_cmd_result" 1>"$stdout_file" 2>"$stderr_file"
     # Read captured output
     stdout=$(cat "$stdout_file")
@@ -127,6 +131,8 @@ test_execute_command_ignore_error_code_fail() {
     stdout_file=$(mktemp)
     stderr_file=$(mktemp)
     execute_command --no-std --ignore-exit-code 222 -- tfun 1>"$stdout_file" 2>"$stderr_file"
+    res=$?
+    assertEquals "return value" 111 "$res"
     assertEquals "last_cmd_result" 111 "$last_cmd_result"
     # Read captured output
     stdout=$(cat "$stdout_file")
@@ -141,6 +147,8 @@ test_execute_command_ignore_error_code_fail() {
     stdout_file=$(mktemp)
     stderr_file=$(mktemp)
     execute_command --no-std -c 222 -- tfun 1>"$stdout_file" 2>"$stderr_file"
+    res=$?
+    assertEquals "return value" 111 "$res"
     assertEquals "last_cmd_result" 111 "$last_cmd_result"
     # Read captured output
     stdout=$(cat "$stdout_file")
