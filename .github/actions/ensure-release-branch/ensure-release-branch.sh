@@ -104,19 +104,25 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
     # Check if there are changes in release branch that are not in release version branch
     echo "Checking for differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH..."
     execute_command --no-std -- git_fetch_unshallow origin "$RELEASE_BRANCH"
-    # Compare the two branches to see if there are actual file differences
-    execute_command --ignore-exit-code 1 --no-std -- git diff --quiet "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
-    if [ "$last_cmd_result" -eq 1 ]; then
-        echo "Found file differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH"
-        execute_command --no-std -- git diff --name-only "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
-        console_output 1 gray "$last_cmd_stdout"
 
-        if [ -z "$ALLOW_MODIFY" ]; then
-            echo "Changes detected but refusing to merge without --allow-modify option"
-            exit 1
-        fi
+    # Check if there are commits in RELEASE_BRANCH that are not in RELEASE_VERSION_BRANCH
+    execute_command --no-std -- git rev-list --count "origin/$RELEASE_VERSION_BRANCH..origin/$RELEASE_BRANCH"
+    COMMITS_TO_MERGE=$(echo "$last_cmd_stdout" | tr -d '[:space:]')
 
-        github_create_verified_merge --from "$RELEASE_BRANCH" --to "$RELEASE_VERSION_BRANCH"
+    if [ "$COMMITS_TO_MERGE" -gt 0 ]; then
+        # Compare the two branches to see if there are actual file differences
+        execute_command --ignore-exit-code 1 --no-std -- git diff --quiet "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
+        if [ "$last_cmd_result" -eq 1 ]; then
+            echo "Found file differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH"
+            execute_command --no-std -- git diff --name-only "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
+            console_output 1 gray "$last_cmd_stdout"
+
+            if [ -z "$ALLOW_MODIFY" ]; then
+                echo "Changes detected but refusing to merge without --allow-modify option"
+                exit 1
+            fi
+
+            github_create_verified_merge --from "$RELEASE_BRANCH" --to "$RELEASE_VERSION_BRANCH"
     fi
 
     execute_command --no-std -- git_fetch_unshallow origin "$RELEASE_VERSION_BRANCH"
