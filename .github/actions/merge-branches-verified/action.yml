@@ -29,4 +29,4 @@ runs:
         GITHUB_TOKEN: ${{ inputs.gh_token }}
       shell: bash
       run: |
-        merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }}
+        ${{ github.action_path }}/merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }}
