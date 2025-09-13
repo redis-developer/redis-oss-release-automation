@@ -52,6 +52,11 @@ FROM_SHA=$last_cmd_stdout
 execute_command --no-std -- git rev-parse "origin/$TO_BRANCH"
 TO_SHA=$last_cmd_stdout
 
+if [ -n "$GITHUB_OUTPUT" ]; then
+    echo "target_before_merge_sha=$TO_SHA" >> "$GITHUB_OUTPUT"
+    echo "source_commit_sha=$FROM_SHA" >> "$GITHUB_OUTPUT"
+fi
+
 # Check if FROM_BRANCH is already merged into TO_BRANCH
 execute_command --ignore-exit-code 1 --no-std -- git merge-base --is-ancestor "origin/$FROM_BRANCH" "origin/$TO_BRANCH"
 if [ $last_cmd_result -eq 0 ]; then
@@ -70,6 +75,4 @@ if [ -n "$GITHUB_OUTPUT" ]; then
     if echo "$merge_commit_sha" | grep -Pq '^[0-9a-fA-F]{40,}\s*$'; then
         echo "merge_commit_sha=$merge_commit_sha" >> "$GITHUB_OUTPUT"
     fi
-    echo "target_before_merge_sha=$TO_SHA" >> "$GITHUB_OUTPUT"
-    echo "source_commit_sha=$FROM_SHA" >> "$GITHUB_OUTPUT"
 fi
