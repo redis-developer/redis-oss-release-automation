@@ -55,6 +55,7 @@ TO_SHA=$last_cmd_stdout
 if [ -n "$GITHUB_OUTPUT" ]; then
     echo "target_before_merge_sha=$TO_SHA" >> "$GITHUB_OUTPUT"
     echo "source_commit_sha=$FROM_SHA" >> "$GITHUB_OUTPUT"
+    cat "$GITHUB_OUTPUT"
 fi
 
 # Check if FROM_BRANCH is already merged into TO_BRANCH
