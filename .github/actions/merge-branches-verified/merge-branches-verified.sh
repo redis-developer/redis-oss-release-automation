@@ -65,4 +65,11 @@ if [ "$FROM_SHA" = "$TO_SHA" ]; then
     exit 0
 fi
 
-execute_command github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH"
+merge_commit_sha=$(execute_command github_create_verified_merge --from "$FROM_BRANCH" --to "$TO_BRANCH")
+if [ -n "$GITHUB_OUTPUT" ]; then
+    if echo "$merge_commit_sha" | grep -Pq '^[0-9a-fA-F]{40,}\s*$'; then
+        echo "merge_commit_sha=$merge_commit_sha" >> "$GITHUB_OUTPUT"
+    fi
+    echo "target_before_merge_sha=$TO_SHA" >> "$GITHUB_OUTPUT"
+    echo "source_commit_sha=$FROM_SHA" >> "$GITHUB_OUTPUT"
+fi

@@ -13,6 +13,12 @@ outputs:
   merge_commit_sha:
     description: 'SHA of the merge commit if merge was performed'
     value: ${{ steps.merge-branches.outputs.merge_commit_sha }}
+  target_before_merge_sha:
+    description: 'SHA of the target branch BEFORE merge'
+    value: ${{ steps.merge-branches.outputs.target_commit_sha }}
+  source_commit_sha:
+    description: 'SHA of the source branch'
+    value: ${{ steps.merge-branches.outputs.source_commit_sha }}
 
 runs:
   using: "composite"
@@ -23,10 +29,4 @@ runs:
         GITHUB_TOKEN: ${{ inputs.gh_token }}
       shell: bash
       run: |
-        output=$(${{ github.action_path }}/merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }})
-        if echo "$output" | grep -Pq '^[0-9a-fA-F]{40,}\s*$'; then
-          echo "merge_commit_sha=$output" >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
-        else
-          echo "No merge commit created"
-        fi
+        merge-branches-verified.sh --from ${{ inputs.from_branch }} --to ${{ inputs.to_branch }})
