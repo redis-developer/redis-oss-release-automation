@@ -12,6 +12,7 @@ from .models import (
     ReleaseState,
     ReleaseType,
     WorkflowConclusion,
+    WorkflowRun,
 )
 from .state_manager import StateManager
 
@@ -216,35 +217,24 @@ class ReleaseOrchestrator:
                     )
             else:
                 docker_state = state.packages.get(PackageType.DOCKER)
-                if docker_state and docker_state.build_completed:
-                    if (
-                        docker_state.build_workflow
-                        and docker_state.build_workflow.conclusion
-                    ):
-                        conclusion = docker_state.build_workflow.conclusion.value
-                        if conclusion == "success":
-                            console.print(
-                                "[green] Build phase already completed successfully[/green]"
-                            )
-                            console.print(
-                                "[dim]   Skipping workflow execution - Docker build is done[/dim]"
-                            )
-                        else:
-                            console.print(
-                                f"[yellow] Build phase already completed with status: {conclusion}[/yellow]"
-                            )
-                            console.print(
-                                "[dim]   Skipping workflow execution - use --force-rebuild to retry[/dim]"
-                            )
-                    else:
-                        console.print("[yellow] Build phase already completed[/yellow]")
-                        console.print(
-                            "[dim]   Skipping workflow execution - use --force-rebuild to retry[/dim]"
-                        )
-                else:
-                    console.print("[blue] No build phase needed[/blue]")
+                self._print_completed_state_phase(
+                    phase_completed=docker_state.build_completed if docker_state else False,
+                    workflow=docker_state.build_workflow if docker_state else None,
+                    name="Build"
+                )
 
             state_manager.save_state(state)
+
+            # Execute publish phase if needed
+            if self._should_run_publish_phase(state):
+                console.print("[blue]Starting publish phase...[/blue]")
+                if not self._execute_publish_phase(state, github_client):
+                    return ReleaseResult(
+                        success=False, message="Publish phase failed", state=state
+                    )
+
+                # Save state after publish phase
+                state_manager.save_state(state)
 
             if state.is_build_phase_complete():
                 return ReleaseResult(
@@ -267,6 +257,47 @@ class ReleaseOrchestrator:
 
         docker_state = state.packages.get(PackageType.DOCKER)
         return not docker_state or not docker_state.build_completed
+
+    def _should_run_publish_phase(self, state: ReleaseState) -> bool:
+        """Check if publish phase should be executed."""
+        # Only run publish phase if build phase is complete
+        if not state.is_build_phase_complete():
+            return False
+
+        # Only run publish phase for public releases
+        return state.release_type == ReleaseType.PUBLIC
+
+    def _print_completed_state_phase(
+        self,
+        phase_completed: bool,
+        workflow: Optional[WorkflowRun],
+        name: str
+    ) -> None:
+        """Print the current phase state when phase is already completed."""
+        if phase_completed:
+            if workflow and workflow.conclusion:
+                conclusion = workflow.conclusion.value
+                if conclusion == "success":
+                    console.print(
+                        f"[green] {name} phase already completed successfully[/green]"
+                    )
+                    console.print(
+                        f"[dim]   Skipping workflow execution - {name} is done[/dim]"
+                    )
+                else:
+                    console.print(
+                        f"[yellow] {name} phase already completed with status: {conclusion}[/yellow]"
+                    )
+                    console.print(
+                        "[dim]   Skipping workflow execution - use --force-rebuild to retry[/dim]"
+                    )
+            else:
+                console.print(f"[yellow] {name} phase already completed[/yellow]")
+                console.print(
+                    "[dim]   Skipping workflow execution - use --force-rebuild to retry[/dim]"
+                )
+        else:
+            console.print(f"[blue] No {name.lower()} phase needed[/blue]")
 
     def _execute_build_phase(
         self, state: ReleaseState, github_client: GitHubClient
@@ -365,6 +396,25 @@ class ReleaseOrchestrator:
                 console.print(f"[red]Docker build failed: {e}[/red]")
                 return False
 
+        return True
+
+    def _execute_publish_phase(
+        self, state: ReleaseState, github_client: GitHubClient
+    ) -> bool:
+        """Execute publish phase for all packages.
+
+        Returns:
+            True if all publishes succeeded
+
+        Raises:
+            RuntimeError: If release_handle doesn't exist in state
+        """
+        docker_state = state.packages.get(PackageType.DOCKER)
+        if not docker_state or not docker_state.release_handle:
+            raise RuntimeError("release_handle doesn't exist in state - cannot proceed with publish phase")
+
+        # For now, just return True
+        console.print("[green]Publish phase ready - release_handle found[/green]")
         return True
 
     def get_release_status(

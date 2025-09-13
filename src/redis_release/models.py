@@ -57,6 +57,11 @@ class PackageState(BaseModel):
     release_handle: Optional[Dict[str, Any]] = None
     build_completed: bool = False
 
+    # Publish phase information
+    publish_workflow: Optional[WorkflowRun] = None
+    publish_completed: bool = False
+    publish_info: Optional[Dict[str, Any]] = None
+
 
 class ReleaseState(BaseModel):
     """Complete state of a release process."""
@@ -96,5 +101,33 @@ class ReleaseState(BaseModel):
             pkg.build_completed
             and pkg.build_workflow
             and pkg.build_workflow.conclusion != WorkflowConclusion.SUCCESS
+            for pkg in self.packages.values()
+        )
+
+    def is_publish_phase_complete(self) -> bool:
+        """Check if all publish workflows are completed successfully."""
+        if not self.packages:
+            return False
+        return all(
+            pkg.publish_completed
+            and pkg.publish_workflow
+            and pkg.publish_workflow.conclusion == WorkflowConclusion.SUCCESS
+            for pkg in self.packages.values()
+        )
+
+    def is_publish_phase_finished(self) -> bool:
+        """Check if all publish workflows are finished (successfully or not)."""
+        if not self.packages:
+            return False
+        return all(pkg.publish_completed for pkg in self.packages.values())
+
+    def has_publish_failures(self) -> bool:
+        """Check if any publish workflows failed or were cancelled."""
+        if not self.packages:
+            return False
+        return any(
+            pkg.publish_completed
+            and pkg.publish_workflow
+            and pkg.publish_workflow.conclusion != WorkflowConclusion.SUCCESS
             for pkg in self.packages.values()
         )
