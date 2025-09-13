@@ -126,8 +126,8 @@ def status(
             else:
                 build_status = "[yellow]Cancelled[/yellow]"
 
-            if pkg_state.artifact_urls:
-                artifacts = f"[green]{len(pkg_state.artifact_urls)} artifacts[/green]"
+            if pkg_state.artifacts:
+                artifacts = f"[green]{len(pkg_state.artifacts)} artifacts[/green]"
             else:
                 artifacts = "[dim]None[/dim]"
 

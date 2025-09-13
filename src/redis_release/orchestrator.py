@@ -326,7 +326,17 @@ class ReleaseOrchestrator:
                     artifacts = github_client.get_workflow_artifacts(
                         completed_run.repo, completed_run.run_id
                     )
-                    docker_state.artifact_urls = artifacts
+                    docker_state.artifacts = artifacts
+
+                    # Extract release_handle from artifacts
+                    release_handle = github_client.extract_release_handle(
+                        completed_run.repo, artifacts
+                    )
+                    if release_handle is None:
+                        console.print("[red]Failed to extract release_handle from artifacts[/red]")
+                        return False
+
+                    docker_state.release_handle = release_handle
                     console.print("[green]Docker build completed successfully[/green]")
                 elif completed_run.conclusion == WorkflowConclusion.FAILURE:
                     docker_state.build_completed = True  # completed, but failed

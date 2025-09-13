@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,7 +53,8 @@ class PackageState(BaseModel):
 
     package_type: PackageType
     build_workflow: Optional[WorkflowRun] = None
-    artifact_urls: List[str] = Field(default_factory=list)
+    artifacts: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    release_handle: Optional[Dict[str, Any]] = None
     build_completed: bool = False
 
 

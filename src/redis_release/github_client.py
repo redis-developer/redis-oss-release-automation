@@ -1,9 +1,10 @@
 """GitHub API client for workflow operations."""
 
+import json
 import re
 import time
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import requests
 
 from rich.console import Console
@@ -238,22 +239,41 @@ class GitHubClient:
                     conclusion=WorkflowConclusion.SUCCESS,
                 )
 
-    def get_workflow_artifacts(self, repo: str, run_id: int) -> List[str]:
-        """Get artifact URLs from a completed workflow.
+    def get_workflow_artifacts(self, repo: str, run_id: int) -> Dict[str, Dict]:
+        """Get artifacts from a completed workflow.
 
         Args:
             repo: Repository name
             run_id: Workflow run ID
 
         Returns:
-            List of artifact URLs
+            Dictionary with artifact names as keys and artifact details as values.
+            Each artifact dictionary contains: id, archive_download_url, created_at,
+            expires_at, updated_at, size_in_bytes, digest
         """
         console.print(f"[blue]Getting artifacts for workflow {run_id} in {repo}[/blue]")
 
         if self.dry_run:
-            return [
-                f"https://github.com/{repo}/actions/runs/{run_id}/artifacts/mock-artifact"
-            ]
+            return {
+                "release_handle": {
+                    "id": 12345,
+                    "archive_download_url": f"https://api.github.com/repos/{repo}/actions/artifacts/12345/zip",
+                    "created_at": "2023-01-01T00:00:00Z",
+                    "expires_at": "2023-01-31T00:00:00Z",
+                    "updated_at": "2023-01-01T00:00:00Z",
+                    "size_in_bytes": 1048576,
+                    "digest": "sha256:mock-digest"
+                },
+                "mock-artifact": {
+                    "id": 67890,
+                    "archive_download_url": f"https://api.github.com/repos/{repo}/actions/artifacts/67890/zip",
+                    "created_at": "2023-01-01T00:00:00Z",
+                    "expires_at": "2023-01-31T00:00:00Z",
+                    "updated_at": "2023-01-01T00:00:00Z",
+                    "size_in_bytes": 2048576,
+                    "digest": "sha256:mock-digest-2"
+                }
+            }
 
         # Real GitHub API call to get artifacts
         url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
@@ -268,22 +288,29 @@ class GitHubClient:
             response.raise_for_status()
 
             data = response.json()
-            artifacts = []
+            artifacts = {}
 
             for artifact_data in data.get("artifacts", []):
                 artifact_name = artifact_data.get("name", "unknown")
-                artifact_id = artifact_data.get("id")
-                size_mb = round(
-                    artifact_data.get("size_in_bytes", 0) / (1024 * 1024), 2
-                )
 
-                artifact_url = f"https://github.com/{repo}/actions/runs/{run_id}/artifacts/{artifact_id}"
-                artifacts.append(f"{artifact_name} ({size_mb}MB) - {artifact_url}")
+                # Extract the required fields from the GitHub API response
+                artifact_info = {
+                    "id": artifact_data.get("id"),
+                    "archive_download_url": artifact_data.get("archive_download_url"),
+                    "created_at": artifact_data.get("created_at"),
+                    "expires_at": artifact_data.get("expires_at"),
+                    "updated_at": artifact_data.get("updated_at"),
+                    "size_in_bytes": artifact_data.get("size_in_bytes"),
+                    "digest": artifact_data.get("workflow_run", {}).get("head_sha")  # Using head_sha as digest
+                }
+
+                artifacts[artifact_name] = artifact_info
 
             if artifacts:
                 console.print(f"[green]Found {len(artifacts)} artifacts[/green]")
-                for artifact in artifacts:
-                    console.print(f"[dim]   {artifact}[/dim]")
+                for artifact_name, artifact_info in artifacts.items():
+                    size_mb = round(artifact_info.get("size_in_bytes", 0) / (1024 * 1024), 2)
+                    console.print(f"[dim]   {artifact_name} ({size_mb}MB) - ID: {artifact_info.get('id')}[/dim]")
             else:
                 console.print(
                     "[yellow]No artifacts found for this workflow run[/yellow]"
@@ -293,7 +320,79 @@ class GitHubClient:
 
         except requests.exceptions.RequestException as e:
             console.print(f"[red]Failed to get artifacts: {e}[/red]")
-            return []
+            return {}
+
+    def extract_release_handle(self, repo: str, artifacts: Dict[str, Dict]) -> Optional[Dict[str, Any]]:
+        """Extract release_handle JSON from artifacts.
+
+        Args:
+            repo: Repository name
+            artifacts: Dictionary of artifacts from get_workflow_artifacts
+
+        Returns:
+            Parsed JSON content from release_handle.json file, or None if not found
+        """
+        if "release_handle" not in artifacts:
+            console.print("[yellow]No release_handle artifact found[/yellow]")
+            return None
+
+        release_handle_artifact = artifacts["release_handle"]
+        artifact_id = release_handle_artifact.get("id")
+
+        if not artifact_id:
+            console.print("[red]release_handle artifact has no ID[/red]")
+            return None
+
+        console.print(f"[blue]Extracting release_handle from artifact {artifact_id}[/blue]")
+
+        if self.dry_run:
+            console.print("[yellow]   (DRY RUN - returning mock release_handle)[/yellow]")
+            return {
+                "mock": True,
+                "version": "1.0.0",
+                "build_info": {
+                    "timestamp": "2023-01-01T00:00:00Z",
+                    "commit": "mock-commit-hash"
+                }
+            }
+
+        # Download the artifact and extract release_handle.json
+        download_url = release_handle_artifact.get("archive_download_url")
+        if not download_url:
+            console.print("[red]release_handle artifact has no download URL[/red]")
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        try:
+            # Download the artifact zip file
+            response = requests.get(download_url, headers=headers, timeout=30)
+            response.raise_for_status()
+
+            # Extract release_handle.json from the zip
+            import zipfile
+            import io
+
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
+                if "release_handle.json" in zip_file.namelist():
+                    with zip_file.open("release_handle.json") as json_file:
+                        release_handle_data = json.load(json_file)
+                        console.print("[green]Successfully extracted release_handle.json[/green]")
+                        return release_handle_data
+                else:
+                    console.print("[red]release_handle.json not found in artifact[/red]")
+                    return None
+
+        except requests.exceptions.RequestException as e:
+            console.print(f"[red]Failed to download release_handle artifact: {e}[/red]")
+            return None
+        except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
+            console.print(f"[red]Failed to extract release_handle.json: {e}[/red]")
+            return None
 
     def _get_recent_workflow_runs(
         self, repo: str, workflow_file: str, limit: int = 10
