@@ -194,7 +194,7 @@ class ReleaseOrchestrator:
                 console.print("[blue]Creating new release state[/blue]")
                 try:
                     state = self._create_initial_state(
-                        tag, actual_release_type, force_rebuild, github_client
+                        tag, actual_release_type, github_client
                     )
                 except ValueError as e:
                     console.print(f"[red]Release validation failed: {e}[/red]")
