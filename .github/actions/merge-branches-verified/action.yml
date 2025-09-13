@@ -15,7 +15,7 @@ outputs:
     value: ${{ steps.merge-branches.outputs.merge_commit_sha }}
   target_before_merge_sha:
     description: 'SHA of the target branch BEFORE merge'
-    value: ${{ steps.merge-branches.outputs.target_commit_sha }}
+    value: ${{ steps.merge-branches.outputs.target_before_merge_sha }}
   source_commit_sha:
     description: 'SHA of the source branch'
     value: ${{ steps.merge-branches.outputs.source_commit_sha }}
