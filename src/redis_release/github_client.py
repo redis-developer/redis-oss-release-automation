@@ -264,9 +264,18 @@ class GitHubClient:
                     "size_in_bytes": 1048576,
                     "digest": "sha256:mock-digest"
                 },
-                "mock-artifact": {
+                "release_info": {
                     "id": 67890,
                     "archive_download_url": f"https://api.github.com/repos/{repo}/actions/artifacts/67890/zip",
+                    "created_at": "2023-01-01T00:00:00Z",
+                    "expires_at": "2023-01-31T00:00:00Z",
+                    "updated_at": "2023-01-01T00:00:00Z",
+                    "size_in_bytes": 2097152,
+                    "digest": "sha256:mock-digest-info"
+                },
+                "mock-artifact": {
+                    "id": 11111,
+                    "archive_download_url": f"https://api.github.com/repos/{repo}/actions/artifacts/11111/zip",
                     "created_at": "2023-01-01T00:00:00Z",
                     "expires_at": "2023-01-31T00:00:00Z",
                     "updated_at": "2023-01-01T00:00:00Z",
@@ -322,31 +331,33 @@ class GitHubClient:
             console.print(f"[red]Failed to get artifacts: {e}[/red]")
             return {}
 
-    def extract_release_handle(self, repo: str, artifacts: Dict[str, Dict]) -> Optional[Dict[str, Any]]:
-        """Extract release_handle JSON from artifacts.
+    def extract_result(self, repo: str, artifacts: Dict[str, Dict], artifact_name: str, json_file_name: str) -> Optional[Dict[str, Any]]:
+        """Extract JSON result from artifacts.
 
         Args:
             repo: Repository name
             artifacts: Dictionary of artifacts from get_workflow_artifacts
+            artifact_name: Name of the artifact to extract from
+            json_file_name: Name of the JSON file within the artifact
 
         Returns:
-            Parsed JSON content from release_handle.json file, or None if not found
+            Parsed JSON content from the specified file, or None if not found
         """
-        if "release_handle" not in artifacts:
-            console.print("[yellow]No release_handle artifact found[/yellow]")
+        if artifact_name not in artifacts:
+            console.print(f"[yellow]No {artifact_name} artifact found[/yellow]")
             return None
 
-        release_handle_artifact = artifacts["release_handle"]
-        artifact_id = release_handle_artifact.get("id")
+        target_artifact = artifacts[artifact_name]
+        artifact_id = target_artifact.get("id")
 
         if not artifact_id:
-            console.print("[red]release_handle artifact has no ID[/red]")
+            console.print(f"[red]{artifact_name} artifact has no ID[/red]")
             return None
 
-        console.print(f"[blue]Extracting release_handle from artifact {artifact_id}[/blue]")
+        console.print(f"[blue]Extracting {json_file_name} from artifact {artifact_id}[/blue]")
 
         if self.dry_run:
-            console.print("[yellow]   (DRY RUN - returning mock release_handle)[/yellow]")
+            console.print(f"[yellow]   (DRY RUN - returning mock {json_file_name})[/yellow]")
             return {
                 "mock": True,
                 "version": "1.0.0",
@@ -356,10 +367,10 @@ class GitHubClient:
                 }
             }
 
-        # Download the artifact and extract release_handle.json
-        download_url = release_handle_artifact.get("archive_download_url")
+        # Download the artifact and extract JSON file
+        download_url = target_artifact.get("archive_download_url")
         if not download_url:
-            console.print("[red]release_handle artifact has no download URL[/red]")
+            console.print(f"[red]{artifact_name} artifact has no download URL[/red]")
             return None
 
         headers = {
@@ -373,26 +384,40 @@ class GitHubClient:
             response = requests.get(download_url, headers=headers, timeout=30)
             response.raise_for_status()
 
-            # Extract release_handle.json from the zip
+            # Extract JSON file from the zip
             import zipfile
             import io
 
             with zipfile.ZipFile(io.BytesIO(response.content)) as zip_file:
-                if "release_handle.json" in zip_file.namelist():
-                    with zip_file.open("release_handle.json") as json_file:
-                        release_handle_data = json.load(json_file)
-                        console.print("[green]Successfully extracted release_handle.json[/green]")
-                        return release_handle_data
+                if json_file_name in zip_file.namelist():
+                    with zip_file.open(json_file_name) as json_file:
+                        result_data = json.load(json_file)
+                        console.print(f"[green]Successfully extracted {json_file_name}[/green]")
+                        return result_data
                 else:
-                    console.print("[red]release_handle.json not found in artifact[/red]")
+                    console.print(f"[red]{json_file_name} not found in artifact[/red]")
                     return None
 
         except requests.exceptions.RequestException as e:
-            console.print(f"[red]Failed to download release_handle artifact: {e}[/red]")
+            console.print(f"[red]Failed to download {artifact_name} artifact: {e}[/red]")
             return None
         except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
-            console.print(f"[red]Failed to extract release_handle.json: {e}[/red]")
+            console.print(f"[red]Failed to extract {json_file_name}: {e}[/red]")
             return None
+
+    def extract_release_handle(self, repo: str, artifacts: Dict[str, Dict]) -> Optional[Dict[str, Any]]:
+        """Extract release_handle JSON from artifacts.
+
+        This is a backward compatibility wrapper around extract_result.
+
+        Args:
+            repo: Repository name
+            artifacts: Dictionary of artifacts from get_workflow_artifacts
+
+        Returns:
+            Parsed JSON content from release_handle.json file, or None if not found
+        """
+        return self.extract_result(repo, artifacts, "release_handle", "release_handle.json")
 
     def _get_recent_workflow_runs(
         self, repo: str, workflow_file: str, limit: int = 10

@@ -15,6 +15,7 @@ from .models import (
     WorkflowRun,
 )
 from .state_manager import StateManager
+from .workflow_executor import BuildPhase, PhaseExecutor, PublishPhase
 
 console = Console()
 
@@ -110,14 +111,12 @@ class ReleaseOrchestrator:
         self,
         tag: str,
         release_type: ReleaseType,
-        force_rebuild: bool,
         github_client: GitHubClient = None,
     ) -> ReleaseState:
         """Create initial release state."""
         state = ReleaseState(
             tag=tag,
             release_type=release_type,
-            force_rebuild=force_rebuild,
         )
 
         if github_client:
@@ -207,7 +206,7 @@ class ReleaseOrchestrator:
             else:
                 console.print("[blue]Loaded existing release state[/blue]")
 
-            if self._should_run_build_phase(state):
+            if force_rebuild or self._should_run_build_phase(state):
                 console.print("[bold blue] Starting build phase[/bold blue]")
                 build_result = self._execute_build_phase(state, github_client)
                 if not build_result:
@@ -226,17 +225,23 @@ class ReleaseOrchestrator:
             state_manager.save_state(state)
 
             # Execute publish phase if needed
-            if self._should_run_publish_phase(state):
+            if force_rebuild or self._should_run_publish_phase(state):
                 console.print("[blue]Starting publish phase...[/blue]")
                 if not self._execute_publish_phase(state, github_client):
                     return ReleaseResult(
                         success=False, message="Publish phase failed", state=state
                     )
+            else:
+                docker_state = state.packages.get(PackageType.DOCKER)
+                self._print_completed_state_phase(
+                    phase_completed=docker_state.publish_completed if docker_state else False,
+                    workflow=docker_state.publish_workflow if docker_state else None,
+                    name="Publish"
+                )
 
-                # Save state after publish phase
-                state_manager.save_state(state)
+            state_manager.save_state(state)
 
-            if state.is_build_phase_complete():
+            if state.is_build_successful() and state.is_publish_successful():
                 return ReleaseResult(
                     success=True,
                     message=f"Release {tag} completed successfully!",
@@ -248,24 +253,21 @@ class ReleaseOrchestrator:
                 )
 
         finally:
+            state_manager.save_state(state)
             state_manager.release_lock(tag, lock_owner)
 
     def _should_run_build_phase(self, state: ReleaseState) -> bool:
         """Check if build phase should be executed."""
-        if state.force_rebuild:
-            return True
-
         docker_state = state.packages.get(PackageType.DOCKER)
-        return not docker_state or not docker_state.build_completed
+        return not docker_state or not docker_state.is_build_phase_successful()
 
     def _should_run_publish_phase(self, state: ReleaseState) -> bool:
         """Check if publish phase should be executed."""
         # Only run publish phase if build phase is complete
-        if not state.is_build_phase_complete():
-            return False
-
-        # Only run publish phase for public releases
-        return state.release_type == ReleaseType.PUBLIC
+        docker_state = state.packages.get(PackageType.DOCKER)
+        docker_state = state.packages.get(PackageType.DOCKER)
+        if not docker_state or not docker_state.is_publish_phase_successful():
+            return state.release_type == ReleaseType.PUBLIC
 
     def _print_completed_state_phase(
         self,
@@ -307,96 +309,17 @@ class ReleaseOrchestrator:
         Returns:
             True if all builds succeeded
         """
-        docker_state = state.packages[PackageType.DOCKER]
+        repo = self._get_docker_repo()
 
-        if docker_state.build_completed and not state.force_rebuild:
-            console.print("[yellow]Skipping Docker - already built[/yellow]")
-        else:
-            repo = self._get_docker_repo()
-            workflow_file = self.docker_config["workflow"]
-            branch = self._get_docker_branch(state.tag)
+        build_phase = BuildPhase(
+            state=state,
+            repo=repo,
+            orchestrator_config=self.docker_config,
+            timeout_minutes=45
+        )
 
-            inputs = {
-                "release_tag": state.tag,
-            }
-
-            console.print(f"[dim]Using branch: {branch}[/dim]")
-
-            if not github_client.check_workflow_exists(repo, workflow_file):
-                console.print(
-                    f"[red]Workflow '{workflow_file}' not found in {repo}[/red]"
-                )
-                console.print(
-                    f"[yellow]Make sure the workflow file exists in branch '{branch}'[/yellow]"
-                )
-                return False
-
-            try:
-                workflow_run = github_client.trigger_workflow(
-                    repo, workflow_file, inputs, ref=branch
-                )
-                docker_state.build_workflow = workflow_run
-
-            except Exception as e:
-                console.print(f"[red]Failed to trigger Docker build: {e}[/red]")
-                return False
-
-        if docker_state.build_workflow and not docker_state.build_completed:
-            try:
-                console.print("[blue]Waiting for Docker build to complete...[/blue]")
-                completed_run = github_client.wait_for_workflow_completion(
-                    docker_state.build_workflow.repo,
-                    docker_state.build_workflow.run_id,
-                    timeout_minutes=45,
-                )
-
-                docker_state.build_workflow = completed_run
-
-                if completed_run.conclusion == WorkflowConclusion.SUCCESS:
-                    docker_state.build_completed = True
-                    artifacts = github_client.get_workflow_artifacts(
-                        completed_run.repo, completed_run.run_id
-                    )
-                    docker_state.artifacts = artifacts
-
-                    # Extract release_handle from artifacts
-                    release_handle = github_client.extract_release_handle(
-                        completed_run.repo, artifacts
-                    )
-                    if release_handle is None:
-                        console.print("[red]Failed to extract release_handle from artifacts[/red]")
-                        return False
-
-                    docker_state.release_handle = release_handle
-                    console.print("[green]Docker build completed successfully[/green]")
-                elif completed_run.conclusion == WorkflowConclusion.FAILURE:
-                    docker_state.build_completed = True  # completed, but failed
-                    console.print("[red]Docker build failed[/red]")
-                    return False
-                else:
-                    docker_state.build_completed = True  # completed, but not successful
-                    conclusion_text = (
-                        completed_run.conclusion.value
-                        if completed_run.conclusion
-                        else "cancelled/skipped"
-                    )
-                    if conclusion_text in ["cancelled", "cancelled/skipped"]:
-                        status_color = "yellow"
-                    elif conclusion_text in ["skipped"]:
-                        status_color = "blue"
-                    else:
-                        status_color = "red"
-
-                    console.print(
-                        f"[dim]Docker build completed with status:[/dim] [{status_color}]{conclusion_text}[/{status_color}]"
-                    )
-                    return False
-
-            except Exception as e:
-                console.print(f"[red]Docker build failed: {e}[/red]")
-                return False
-
-        return True
+        executor = PhaseExecutor()
+        return executor.execute_phase(build_phase, github_client)
 
     def _execute_publish_phase(
         self, state: ReleaseState, github_client: GitHubClient
@@ -407,15 +330,19 @@ class ReleaseOrchestrator:
             True if all publishes succeeded
 
         Raises:
-            RuntimeError: If release_handle doesn't exist in state
+            RuntimeError: If release_handle doesn't exist in state (raised by PublishPhase)
         """
-        docker_state = state.packages.get(PackageType.DOCKER)
-        if not docker_state or not docker_state.release_handle:
-            raise RuntimeError("release_handle doesn't exist in state - cannot proceed with publish phase")
+        repo = self._get_docker_repo()
 
-        # For now, just return True
-        console.print("[green]Publish phase ready - release_handle found[/green]")
-        return True
+        publish_phase = PublishPhase(
+            state=state,
+            repo=repo,
+            orchestrator_config=self.docker_config,
+            timeout_minutes=30  # Publish might be faster than build
+        )
+
+        executor = PhaseExecutor()
+        return executor.execute_phase(publish_phase, github_client)
 
     def get_release_status(
         self, tag: str, dry_run: bool = False

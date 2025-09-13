@@ -53,7 +53,7 @@ class PackageState(BaseModel):
 
     package_type: PackageType
     build_workflow: Optional[WorkflowRun] = None
-    artifacts: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    build_artifacts: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     release_handle: Optional[Dict[str, Any]] = None
     build_completed: bool = False
 
@@ -61,6 +61,23 @@ class PackageState(BaseModel):
     publish_workflow: Optional[WorkflowRun] = None
     publish_completed: bool = False
     publish_info: Optional[Dict[str, Any]] = None
+    publish_artifacts: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+
+    def is_build_phase_successful(self) -> bool:
+        """Check if build workflow is completed successfully."""
+        return (
+            self.build_completed
+            and self.build_workflow is not None
+            and self.build_workflow.conclusion == WorkflowConclusion.SUCCESS
+        )
+
+    def is_publish_phase_successful(self) -> bool:
+        """Check if publish workflow is completed successfully."""
+        return (
+            self.publish_completed
+            and self.publish_workflow is not None
+            and self.publish_workflow.conclusion == WorkflowConclusion.SUCCESS
+        )
 
 
 class ReleaseState(BaseModel):
@@ -76,14 +93,12 @@ class ReleaseState(BaseModel):
     redis_tag_commit: Optional[str] = None  # Redis tag commit hash
     docker_repo_commit: Optional[str] = None  # Docker repo latest commit hash
 
-    def is_build_phase_complete(self) -> bool:
+    def is_build_successful(self) -> bool:
         """Check if all build workflows are completed successfully."""
         if not self.packages:
             return False
         return all(
-            pkg.build_completed
-            and pkg.build_workflow
-            and pkg.build_workflow.conclusion == WorkflowConclusion.SUCCESS
+            pkg.is_build_phase_successful()
             for pkg in self.packages.values()
         )
 
@@ -104,14 +119,12 @@ class ReleaseState(BaseModel):
             for pkg in self.packages.values()
         )
 
-    def is_publish_phase_complete(self) -> bool:
+    def is_publish_successful(self) -> bool:
         """Check if all publish workflows are completed successfully."""
         if not self.packages:
             return False
         return all(
-            pkg.publish_completed
-            and pkg.publish_workflow
-            and pkg.publish_workflow.conclusion == WorkflowConclusion.SUCCESS
+            pkg.is_publish_phase_successful()
             for pkg in self.packages.values()
         )
 

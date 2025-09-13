@@ -111,9 +111,12 @@ def status(
         table = Table(title=f"Release Status: {tag}")
         table.add_column("Package", style="cyan")
         table.add_column("Build Status", style="magenta")
-        table.add_column("Artifacts", style="blue")
+        table.add_column("Publish Status", style="green")
+        table.add_column("Build Artifacts", style="blue")
+        table.add_column("Publish Artifacts", style="yellow")
 
         for pkg_type, pkg_state in state.packages.items():
+            # Build status
             if not pkg_state.build_completed:
                 build_status = "[blue]In Progress[/blue]"
             elif pkg_state.build_workflow and pkg_state.build_workflow.conclusion:
@@ -126,12 +129,32 @@ def status(
             else:
                 build_status = "[yellow]Cancelled[/yellow]"
 
-            if pkg_state.artifacts:
-                artifacts = f"[green]{len(pkg_state.artifacts)} artifacts[/green]"
+            # Publish status
+            if not pkg_state.publish_completed:
+                publish_status = "[blue]In Progress[/blue]" if pkg_state.publish_workflow else "[dim]Not Started[/dim]"
+            elif pkg_state.publish_workflow and pkg_state.publish_workflow.conclusion:
+                if pkg_state.publish_workflow.conclusion.value == "success":
+                    publish_status = "[green]Success[/green]"
+                elif pkg_state.publish_workflow.conclusion.value == "failure":
+                    publish_status = "[red]Failed[/red]"
+                else:
+                    publish_status = "[yellow]Cancelled[/yellow]"
             else:
-                artifacts = "[dim]None[/dim]"
+                publish_status = "[yellow]Cancelled[/yellow]"
 
-            table.add_row(pkg_type.value, build_status, artifacts)
+            # Build artifacts
+            if pkg_state.build_artifacts:
+                build_artifacts = f"[green]{len(pkg_state.build_artifacts)}[/green]"
+            else:
+                build_artifacts = "[dim]None[/dim]"
+
+            # Publish artifacts
+            if pkg_state.publish_artifacts:
+                publish_artifacts = f"[green]{len(pkg_state.publish_artifacts)}[/green]"
+            else:
+                publish_artifacts = "[dim]None[/dim]"
+
+            table.add_row(pkg_type.value, build_status, publish_status, build_artifacts, publish_artifacts)
 
         console.print(table)
 
@@ -146,16 +169,6 @@ def status(
                     f"  Docker repo: [cyan]{state.docker_repo_commit[:8]}[/cyan]"
                 )
 
-        if state.is_build_phase_complete():
-            console.print("[green]Release is complete![/green]")
-        elif state.has_build_failures():
-            console.print(
-                "[red]Release failed - build phase completed with errors[/red]"
-            )
-        elif state.is_build_phase_finished():
-            console.print("[yellow]Release completed but not successful[/yellow]")
-        else:
-            console.print("[blue]Building Docker image...[/blue]")
 
     except Exception as e:
         console.print(f"[red] Failed to get status: {e}[/red]")
