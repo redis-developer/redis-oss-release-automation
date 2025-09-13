@@ -22,6 +22,7 @@ class StateManager:
         bucket_name: Optional[str] = None,
         dry_run: bool = False,
         aws_region: str = "us-east-1",
+        aws_profile: Optional[str] = None,
     ):
         """Initialize state manager.
 
@@ -29,12 +30,14 @@ class StateManager:
             bucket_name: S3 bucket name for state storage
             dry_run: If True, simulate operations without making real S3 calls
             aws_region: AWS region for S3 bucket
+            aws_profile: AWS profile name to use for authentication
         """
         self.bucket_name = bucket_name or os.getenv(
             "REDIS_RELEASE_STATE_BUCKET", "redis-release-state"
         )
         self.dry_run = dry_run
         self.aws_region = aws_region
+        self.aws_profile = aws_profile or os.getenv("AWS_PROFILE")
         self._s3_client = None
 
         # AWS credentials from environment variables only
@@ -50,46 +53,41 @@ class StateManager:
         """Lazy initialization of S3 client."""
         if self._s3_client is None and not self.dry_run:
             try:
-                if not self.aws_access_key_id or not self.aws_secret_access_key:
-                    console.print("[red]AWS credentials not found[/red]")
-                    console.print(
-                        "[yellow]Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables[/yellow]"
+                # Try profile-based authentication first
+                if self.aws_profile:
+                    console.print(f"[blue]Using AWS profile: {self.aws_profile}[/blue]")
+                    session = boto3.Session(profile_name=self.aws_profile)
+                    self._s3_client = session.client("s3", region_name=self.aws_region)
+                # Fall back to environment variables
+                elif self.aws_access_key_id and self.aws_secret_access_key:
+                    console.print("[blue]Using AWS credentials from environment variables[/blue]")
+                    self._s3_client = boto3.client(
+                        "s3",
+                        aws_access_key_id=self.aws_access_key_id,
+                        aws_secret_access_key=self.aws_secret_access_key,
+                        aws_session_token=self.aws_session_token,
+                        region_name=self.aws_region,
                     )
+                else:
+                    console.print("[red]AWS credentials not found[/red]")
+                    console.print("[yellow]Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables[/yellow]")
                     raise NoCredentialsError()
 
-                console.print(
-                    "[blue]Using AWS credentials from environment variables[/blue]"
-                )
-                self._s3_client = boto3.client(
-                    "s3",
-                    aws_access_key_id=self.aws_access_key_id,
-                    aws_secret_access_key=self.aws_secret_access_key,
-                    aws_session_token=self.aws_session_token,
-                    region_name=self.aws_region,
-                )
+                # Test connection
+                self._s3_client.head_bucket(Bucket=self.bucket_name)
+                console.print(f"[green]Connected to S3 bucket: {self.bucket_name}[/green]")
 
-                try:
-                    self._s3_client.head_bucket(Bucket=self.bucket_name)
-                    console.print(
-                        f"[green]Connected to S3 bucket: {self.bucket_name}[/green]"
-                    )
-                except ClientError as e:
-                    if e.response["Error"]["Code"] == "404":
-                        console.print(
-                            f"[yellow]S3 bucket not found: {self.bucket_name}[/yellow]"
-                        )
-                        self._create_bucket()
-                    else:
-                        raise
-
-            except NoCredentialsError:
-                console.print("[red]AWS credentials not found[/red]")
-                console.print(
-                    "[yellow]Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables[/yellow]"
-                )
-                raise
             except ClientError as e:
-                console.print(f"[red]S3 error: {e}[/red]")
+                if e.response["Error"]["Code"] == "404":
+                    console.print(f"[yellow]S3 bucket not found: {self.bucket_name}[/yellow]")
+                    self._create_bucket()
+                else:
+                    console.print(f"[red]S3 error: {e}[/red]")
+                    raise
+            except NoCredentialsError:
+                raise
+            except Exception as e:
+                console.print(f"[red]AWS authentication error: {e}[/red]")
                 raise
 
         return self._s3_client
