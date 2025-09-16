@@ -34,11 +34,6 @@ jobs:
           role-to-assume: ${{ vars.AWS_IAM_ROLE_ARN }}
           aws-region: us-east-1
 
-      - name: Sts GetCallerIdentity
-        run: |
-          aws sts get-caller-identity
-          exit 1
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -64,6 +59,8 @@ jobs:
           cmd="redis-release release"
           env
           ls -al /home/runner/work/redis-oss-release-automation/redis-oss-release-automation/venv/bin
+
+          ./venv/bin/redis-release release ${{ inputs.release_tag }} || :
 
           if [ "${{ inputs.force_rebuild }}" = "true" ]; then
             cmd="$cmd --force-rebuild"
