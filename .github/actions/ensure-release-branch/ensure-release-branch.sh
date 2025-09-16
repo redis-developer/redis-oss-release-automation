@@ -111,8 +111,14 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
 
     if [ "$COMMITS_TO_MERGE" -gt 0 ]; then
         # Compare the two branches to see if there are actual file differences
-        execute_command --ignore-exit-code 1 --no-std -- git diff --quiet "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
-        if [ "$last_cmd_result" -eq 1 ]; then
+        # The reliable way to check the differences ignoring merges from version
+        # branch into release branch is to perform a merge and check the result
+        execute_command --no-std -- git switch -c tmp-rvb "origin/$RELEASE_VERSION_BRANCH"
+        execute_command --no-std -- git merge --no-commit --no-ff "origin/$RELEASE_BRANCH"
+        execute_command --ignore-exit-code 1 --no-std -- git diff --quiet --cached "origin/$RELEASE_VERSION_BRANCH"
+        diff_result=$last_cmd_result
+        execute_command --ignore-errors --no-std -- git merge --abort
+        if [ "$diff_result" -eq 1 ]; then
             echo "Found file differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH"
             execute_command --no-std -- git diff --name-only "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
             console_output 1 gray "$last_cmd_stdout"
