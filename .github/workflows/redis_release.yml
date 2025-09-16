@@ -54,6 +54,8 @@ jobs:
           FORCE_COLOR: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          aws s3 ls s3://redis-release-state/release-state/8.2.1
+
           . venv/bin/activate
           cmd=("redis-release" "release")
 
