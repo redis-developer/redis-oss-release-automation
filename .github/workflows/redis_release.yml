@@ -54,7 +54,6 @@ jobs:
           FORCE_COLOR: 1
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN_FOR_WORKFLOW_DISPATCH }}
         run: |
-          aws s3 ls s3://redis-release-state/release-state/8.2.1
 
           . venv/bin/activate
           cmd=("redis-release" "release")
@@ -66,6 +65,8 @@ jobs:
           if [ -n "${{ inputs.release_type }}" ]; then
             cmd+=("--release-type=${{ inputs.release_type }}")
           fi
+
+          cmd+=("--github-token=$GITHUB_TOKEN")
 
           cmd+=("${{ inputs.release_tag }}")
 
