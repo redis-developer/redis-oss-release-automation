@@ -49,28 +49,22 @@ jobs:
           pip install -e .
 
       - name: Redis release
+        shell: bash
         env:
           FORCE_COLOR: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ls -al
-          env
-          . venv/bin/activate
-          cmd="redis-release release"
-          env
-          ls -al /home/runner/work/redis-oss-release-automation/redis-oss-release-automation/venv/bin
-
-          ./venv/bin/redis-release release ${{ inputs.release_tag }} || :
+          cmd=("redis-release" "release")
 
           if [ "${{ inputs.force_rebuild }}" = "true" ]; then
-            cmd="$cmd --force-rebuild"
+            cmd+=("--force-rebuild")
           fi
 
           if [ -n "${{ inputs.release_type }}" ]; then
-            cmd="$cmd --release-type=${{ inputs.release_type }}"
+            cmd+=("--release-type=${{ inputs.release_type }}")
           fi
 
-          cmd="$cmd ${{ inputs.release_tag }}"
+          cmd+=("${{ inputs.release_tag }}")
 
-          echo "Running command: $cmd"
-          "$cmd"
+          echo "Running command: ${cmd[*]}"
+          "${cmd[@]}"
