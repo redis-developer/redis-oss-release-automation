@@ -28,7 +28,7 @@ jobs:
       contents: read
 
     steps:
-      - name: configure aws credentials
+      - name: Configure aws credentials
         uses: aws-actions/configure-aws-credentials@v1.7.0
         with:
           role-to-assume: ${{ vars.AWS_IAM_ROLE_ARN }}
@@ -42,7 +42,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install package in development mode
+      - name: Install redis-release package with PIP
         run: |
           python -m venv venv
           . venv/bin/activate
