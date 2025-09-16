@@ -33,18 +33,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install package in development mode
-        run: |
-          python -m venv venv
-          . venv/bin/activate
-          pip install -e .
-
-      - name: Redis release
+      - name: Install package and run Redis release
         env:
           FORCE_COLOR: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          . venv/bin/activate
+          # Create and activate virtual environment
+          python -m venv venv
+          source venv/bin/activate
+
+          # Install package in development mode
+          pip install -e .
+
+          # Build command
           cmd="redis-release release"
 
           if [ "${{ inputs.force_rebuild }}" = "true" ]; then
@@ -58,4 +59,4 @@ jobs:
           cmd="$cmd ${{ inputs.release_tag }}"
 
           echo "Running command: $cmd"
-          "$cmd"
+          eval "$cmd"
