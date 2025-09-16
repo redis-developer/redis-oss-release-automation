@@ -23,8 +23,24 @@ on:
 jobs:
   redis-release:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
+      # The ${AWS_IAM_ROLE_ARN} variable created on step 2.c.
+      - name: configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v1.7.0
+        with:
+          role-to-assume: ${AWS_IAM_ROLE_ARN} #
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: us-east-1 # IAM is a global service
+
+      - name: Sts GetCallerIdentity
+        run: |
+          aws sts get-caller-identity
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
