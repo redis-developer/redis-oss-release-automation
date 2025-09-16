@@ -28,13 +28,16 @@ jobs:
       contents: read
 
     steps:
-      # The ${AWS_IAM_ROLE_ARN} variable created on step 2.c.
+      - name: Print arn
+        shell: bash
+        run: |
+          echo "arn: ${AWS_IAM_ROLE_ARN}""
+
       - name: configure aws credentials
         uses: aws-actions/configure-aws-credentials@v1.7.0
         with:
-          role-to-assume: ${AWS_IAM_ROLE_ARN} #
-          role-session-name: GitHub_to_AWS_via_FederatedOIDC
-          aws-region: us-east-1 # IAM is a global service
+          role-to-assume: ${AWS_IAM_ROLE_ARN}
+          aws-region: us-east-1
 
       - name: Sts GetCallerIdentity
         run: |
