@@ -31,7 +31,7 @@ jobs:
       - name: Print arn
         shell: bash
         run: |
-          echo "arn: ${AWS_IAM_ROLE_ARN}""
+          echo "arn: ${AWS_IAM_ROLE_ARN}"
 
       - name: configure aws credentials
         uses: aws-actions/configure-aws-credentials@v1.7.0
