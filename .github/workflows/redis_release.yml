@@ -1,0 +1,58 @@
+name: Redis Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g., 8.2.1)'
+        required: true
+        type: string
+      force_rebuild:
+        description: 'Force rebuild even if already exists'
+        required: false
+        type: boolean
+        default: false
+      release_type:
+        description: 'Release type'
+        required: false
+        type: choice
+        options:
+          - public
+          - private
+
+jobs:
+  redis-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install package in development mode
+        run: |
+          pip install -e .
+
+      - name: Redis release
+        environment:
+          FORCE_COLOR: 1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cmd="redis-release release"
+
+          if [ "${{ inputs.force_rebuild }}" = "true" ]; then
+            cmd="$cmd --force-rebuild"
+          fi
+
+          if [ -n "${{ inputs.release_type }}" ]; then
+            cmd="$cmd --release-type=${{ inputs.release_type }}"
+          fi
+
+          cmd="$cmd ${{ inputs.release_tag }}"
+
+          echo "Running command: $cmd"
+          "$cmd"
