@@ -83,6 +83,7 @@ def release(
             )
             if result.message:
                 console.print(f"[yellow]{result.message}[/yellow]")
+            raise typer.Exit(1)
 
     except Exception as e:
         console.print(f"[red] Release {tag} failed: {e}[/red]")
