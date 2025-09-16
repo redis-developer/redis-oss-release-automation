@@ -54,6 +54,7 @@ jobs:
           FORCE_COLOR: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          . venv/bin/activate
           cmd=("redis-release" "release")
 
           if [ "${{ inputs.force_rebuild }}" = "true" ]; then
