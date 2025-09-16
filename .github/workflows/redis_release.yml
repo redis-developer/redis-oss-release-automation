@@ -23,6 +23,9 @@ on:
 jobs:
   redis-release:
     runs-on: ubuntu-latest
+    environment:
+      FORCE_COLOR: 1
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -38,9 +41,6 @@ jobs:
           pip install -e .
 
       - name: Redis release
-        environment:
-          FORCE_COLOR: 1
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cmd="redis-release release"
 
