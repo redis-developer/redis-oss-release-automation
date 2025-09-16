@@ -52,7 +52,7 @@ jobs:
         shell: bash
         env:
           FORCE_COLOR: 1
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN_FOR_WORKFLOW_DISPATCH }}
         run: |
           aws s3 ls s3://redis-release-state/release-state/8.2.1
 
