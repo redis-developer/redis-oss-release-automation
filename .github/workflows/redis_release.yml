@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       force_rebuild:
-        description: 'Force rebuild even if already exists'
+        description: 'Force rebuild even if already built'
         required: false
         type: boolean
         default: false
