@@ -50,7 +50,7 @@ class ReleaseOrchestrator:
         self._state_manager: Optional[StateManager] = None
 
         self.docker_config = {
-            "repo": "Peter-Sh/docker-library-redis",
+            "repo": "redis/docker-library-redis",
             "workflow": "release_build_and_test.yml",
         }
 
