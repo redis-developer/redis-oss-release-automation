@@ -13,8 +13,8 @@ if [ -z "$TAG" ]; then
 fi
 
 # Construct Redis archive URL
-#REDIS_ARCHIVE_URL="https://github.com/redis/redis/archive/refs/tags/${TAG}.tar.gz"
-REDIS_ARCHIVE_URL="https://download.redis.io/releases/redis-${TAG}.tar.gz"
+REDIS_ARCHIVE_URL="https://github.com/redis/redis/archive/refs/tags/${TAG}.tar.gz"
+#REDIS_ARCHIVE_URL="https://download.redis.io/releases/redis-${TAG}.tar.gz"
 echo "REDIS_ARCHIVE_URL: $REDIS_ARCHIVE_URL"
 
 # Download the Redis archive
