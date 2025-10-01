@@ -1,5 +1,5 @@
 """Main orchestration logic for Redis release automation."""
-
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -11,7 +11,6 @@ from .models import (
     PackageType,
     ReleaseState,
     ReleaseType,
-    WorkflowConclusion,
     WorkflowRun,
 )
 from .state_manager import StateManager
@@ -94,13 +93,14 @@ class ReleaseOrchestrator:
         Returns:
             Branch name to use for workflow trigger
         """
-        # extract major.minor version from tag
+        # Extract major.minor version from tag
         # examples: "8.2.1" -> "8.2", "8.4-m01" -> "8.4"
-        if "." in tag:
-            parts = tag.split(".")
-            if len(parts) >= 2:
-                major_minor = f"{parts[0]}.{parts[1]}"
-                return f"release/{major_minor}"
+        match = re.match(r"^(\d+)\.(\d+)", tag)
+        if match:
+            major = match.group(1)
+            minor = match.group(2)
+            major_minor = f"{major}.{minor}"
+            return f"release/{major_minor}"
 
         console.print(
             f"[yellow]Warning: Could not determine branch for tag '{tag}', using 'main'[/yellow]"
@@ -219,7 +219,7 @@ class ReleaseOrchestrator:
                 self._print_completed_state_phase(
                     phase_completed=docker_state.build_completed if docker_state else False,
                     workflow=docker_state.build_workflow if docker_state else None,
-                    name="Build"
+                    name="Build",
                 )
 
             state_manager.save_state(state)
@@ -236,7 +236,7 @@ class ReleaseOrchestrator:
                 self._print_completed_state_phase(
                     phase_completed=docker_state.publish_completed if docker_state else False,
                     workflow=docker_state.publish_workflow if docker_state else None,
-                    name="Publish"
+                    name="Publish",
                 )
 
             state_manager.save_state(state)
@@ -315,7 +315,7 @@ class ReleaseOrchestrator:
             state=state,
             repo=repo,
             orchestrator_config=self.docker_config,
-            timeout_minutes=45
+            timeout_minutes=45,
         )
 
         executor = PhaseExecutor()
@@ -338,7 +338,7 @@ class ReleaseOrchestrator:
             state=state,
             repo=repo,
             orchestrator_config=self.docker_config,
-            timeout_minutes=30  # Publish might be faster than build
+            timeout_minutes=30,  # Publish might be faster than build
         )
 
         executor = PhaseExecutor()
