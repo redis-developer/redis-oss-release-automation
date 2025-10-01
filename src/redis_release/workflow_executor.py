@@ -1,4 +1,5 @@
 """Workflow execution classes for Redis release automation."""
+
 import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -6,7 +7,13 @@ from typing import Any, Dict, Optional
 from rich.console import Console
 
 from .github_client import GitHubClient
-from .models import PackageState, PackageType, ReleaseState, WorkflowConclusion, WorkflowRun
+from .models import (
+    PackageState,
+    PackageType,
+    ReleaseState,
+    WorkflowConclusion,
+    WorkflowRun,
+)
 
 console = Console()
 
@@ -19,7 +26,7 @@ class Phase(ABC):
         state: ReleaseState,
         repo: str,
         orchestrator_config: Dict[str, Any],
-        timeout_minutes: int = 45
+        timeout_minutes: int = 45,
     ):
         self.state = state
         self.repo = repo
@@ -87,7 +94,9 @@ class Phase(ABC):
         pass
 
     @abstractmethod
-    def extract_result(self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def extract_result(
+        self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
         """Extract phase-specific result data from artifacts."""
         pass
 
@@ -104,14 +113,18 @@ class Phase(ABC):
         """
         tag_parts = self.state.tag.split(".")
         if len(tag_parts) < 2:
-            raise ValueError(f"Invalid tag format '{self.state.tag}': expected at least major.minor version")
+            raise ValueError(
+                f"Invalid tag format '{self.state.tag}': expected at least major.minor version"
+            )
 
         try:
             # Validate that major and minor are numeric
             int(tag_parts[0])
             int(tag_parts[1])
         except ValueError:
-            raise ValueError(f"Invalid tag format '{self.state.tag}': major and minor versions must be numeric")
+            raise ValueError(
+                f"Invalid tag format '{self.state.tag}': major and minor versions must be numeric"
+            )
 
         major_minor = f"{tag_parts[0]}.{tag_parts[1]}"
         return f"release/{major_minor}"
@@ -163,9 +176,13 @@ class BuildPhase(Phase):
     def set_result(self, result_data: Dict[str, Any]) -> None:
         self.package_state.release_handle = result_data
 
-    def extract_result(self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def extract_result(
+        self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
         """Extract release_handle from artifacts."""
-        result = github_client.extract_result(self.repo, artifacts, "release_handle", "release_handle.json")
+        result = github_client.extract_result(
+            self.repo, artifacts, "release_handle", "release_handle.json"
+        )
         if result is None:
             console.print("[red]Failed to extract release_handle from artifacts[/red]")
         return result
@@ -200,7 +217,9 @@ class PublishPhase(Phase):
             RuntimeError: If release_handle is not available in package state
         """
         if not self.package_state.release_handle:
-            raise RuntimeError("release_handle is required for publish phase but not found in package state")
+            raise RuntimeError(
+                "release_handle is required for publish phase but not found in package state"
+            )
 
         return {
             "release_handle": json.dumps(self.package_state.release_handle),
@@ -224,9 +243,13 @@ class PublishPhase(Phase):
     def set_result(self, result_data: Dict[str, Any]) -> None:
         self.package_state.publish_info = result_data
 
-    def extract_result(self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def extract_result(
+        self, github_client: GitHubClient, artifacts: Dict[str, Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
         """Extract release_info from artifacts."""
-        result = github_client.extract_result(self.repo, artifacts, "release_info", "release_info.json")
+        result = github_client.extract_result(
+            self.repo, artifacts, "release_info", "release_info.json"
+        )
         if result is None:
             console.print("[red]Failed to extract release_info from artifacts[/red]")
         return result
@@ -277,7 +300,9 @@ class PhaseExecutor:
             console.print(f"[red]Failed to trigger {phase.phase_name}: {e}[/red]")
             return False
 
-    def _wait_for_completion(self, phase: Phase, github_client: GitHubClient, workflow: WorkflowRun) -> bool:
+    def _wait_for_completion(
+        self, phase: Phase, github_client: GitHubClient, workflow: WorkflowRun
+    ) -> bool:
         """Wait for workflow completion and handle results."""
         try:
             console.print(f"[blue]Waiting for {phase.phase_name} to complete...[/blue]")
@@ -302,7 +327,9 @@ class PhaseExecutor:
             console.print(f"[red]{phase.phase_name} failed: {e}[/red]")
             return False
 
-    def _handle_success(self, phase: Phase, github_client: GitHubClient, completed_run: WorkflowRun) -> bool:
+    def _handle_success(
+        self, phase: Phase, github_client: GitHubClient, completed_run: WorkflowRun
+    ) -> bool:
         """Handle successful workflow completion."""
         phase.set_completed(True)
 
@@ -321,7 +348,9 @@ class PhaseExecutor:
         console.print(f"[green]{phase.phase_name} completed successfully[/green]")
         return True
 
-    def _handle_other_conclusion(self, phase: Phase, completed_run: WorkflowRun) -> bool:
+    def _handle_other_conclusion(
+        self, phase: Phase, completed_run: WorkflowRun
+    ) -> bool:
         """Handle non-success, non-failure conclusions."""
         phase.set_completed(True)  # completed, but not successful
         conclusion_text = (

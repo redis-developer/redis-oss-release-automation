@@ -97,10 +97,7 @@ class ReleaseState(BaseModel):
         """Check if all build workflows are completed successfully."""
         if not self.packages:
             return False
-        return all(
-            pkg.is_build_phase_successful()
-            for pkg in self.packages.values()
-        )
+        return all(pkg.is_build_phase_successful() for pkg in self.packages.values())
 
     def is_build_phase_finished(self) -> bool:
         """Check if all build workflows are finished (successfully or not)."""
@@ -123,10 +120,7 @@ class ReleaseState(BaseModel):
         """Check if all publish workflows are completed successfully."""
         if not self.packages:
             return False
-        return all(
-            pkg.is_publish_phase_successful()
-            for pkg in self.packages.values()
-        )
+        return all(pkg.is_publish_phase_successful() for pkg in self.packages.values())
 
     def is_publish_phase_finished(self) -> bool:
         """Check if all publish workflows are finished (successfully or not)."""

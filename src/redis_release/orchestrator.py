@@ -217,9 +217,11 @@ class ReleaseOrchestrator:
             else:
                 docker_state = state.packages.get(PackageType.DOCKER)
                 self._print_completed_state_phase(
-                    phase_completed=docker_state.build_completed if docker_state else False,
+                    phase_completed=(
+                        docker_state.build_completed if docker_state else False
+                    ),
                     workflow=docker_state.build_workflow if docker_state else None,
-                    name="Build"
+                    name="Build",
                 )
 
             state_manager.save_state(state)
@@ -234,9 +236,11 @@ class ReleaseOrchestrator:
             else:
                 docker_state = state.packages.get(PackageType.DOCKER)
                 self._print_completed_state_phase(
-                    phase_completed=docker_state.publish_completed if docker_state else False,
+                    phase_completed=(
+                        docker_state.publish_completed if docker_state else False
+                    ),
                     workflow=docker_state.publish_workflow if docker_state else None,
-                    name="Publish"
+                    name="Publish",
                 )
 
             state_manager.save_state(state)
@@ -270,10 +274,7 @@ class ReleaseOrchestrator:
             return state.release_type == ReleaseType.PUBLIC
 
     def _print_completed_state_phase(
-        self,
-        phase_completed: bool,
-        workflow: Optional[WorkflowRun],
-        name: str
+        self, phase_completed: bool, workflow: Optional[WorkflowRun], name: str
     ) -> None:
         """Print the current phase state when phase is already completed."""
         if phase_completed:
@@ -315,7 +316,7 @@ class ReleaseOrchestrator:
             state=state,
             repo=repo,
             orchestrator_config=self.docker_config,
-            timeout_minutes=45
+            timeout_minutes=45,
         )
 
         executor = PhaseExecutor()
@@ -338,7 +339,7 @@ class ReleaseOrchestrator:
             state=state,
             repo=repo,
             orchestrator_config=self.docker_config,
-            timeout_minutes=30  # Publish might be faster than build
+            timeout_minutes=30,  # Publish might be faster than build
         )
 
         executor = PhaseExecutor()

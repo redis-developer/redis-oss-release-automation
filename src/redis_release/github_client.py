@@ -82,7 +82,7 @@ class GitHubClient:
 
             console.print(f"[green]Workflow triggered successfully[/green]")
 
-            workflow_run = self._identify_workflow(repo, workflow_file, workflow_uuid)
+            workflow_run = self.identify_workflow(repo, workflow_file, workflow_uuid)
             console.print(f"[dim]   Run ID: {workflow_run.run_id}[/dim]")
             console.print(
                 f"[dim]   URL: https://github.com/{repo}/actions/runs/{workflow_run.run_id}[/dim]"
@@ -262,7 +262,7 @@ class GitHubClient:
                     "expires_at": "2023-01-31T00:00:00Z",
                     "updated_at": "2023-01-01T00:00:00Z",
                     "size_in_bytes": 1048576,
-                    "digest": "sha256:mock-digest"
+                    "digest": "sha256:mock-digest",
                 },
                 "release_info": {
                     "id": 67890,
@@ -271,7 +271,7 @@ class GitHubClient:
                     "expires_at": "2023-01-31T00:00:00Z",
                     "updated_at": "2023-01-01T00:00:00Z",
                     "size_in_bytes": 2097152,
-                    "digest": "sha256:mock-digest-info"
+                    "digest": "sha256:mock-digest-info",
                 },
                 "mock-artifact": {
                     "id": 11111,
@@ -280,8 +280,8 @@ class GitHubClient:
                     "expires_at": "2023-01-31T00:00:00Z",
                     "updated_at": "2023-01-01T00:00:00Z",
                     "size_in_bytes": 2048576,
-                    "digest": "sha256:mock-digest-2"
-                }
+                    "digest": "sha256:mock-digest-2",
+                },
             }
 
         # Real GitHub API call to get artifacts
@@ -310,7 +310,9 @@ class GitHubClient:
                     "expires_at": artifact_data.get("expires_at"),
                     "updated_at": artifact_data.get("updated_at"),
                     "size_in_bytes": artifact_data.get("size_in_bytes"),
-                    "digest": artifact_data.get("workflow_run", {}).get("head_sha")  # Using head_sha as digest
+                    "digest": artifact_data.get("workflow_run", {}).get(
+                        "head_sha"
+                    ),  # Using head_sha as digest
                 }
 
                 artifacts[artifact_name] = artifact_info
@@ -318,8 +320,12 @@ class GitHubClient:
             if artifacts:
                 console.print(f"[green]Found {len(artifacts)} artifacts[/green]")
                 for artifact_name, artifact_info in artifacts.items():
-                    size_mb = round(artifact_info.get("size_in_bytes", 0) / (1024 * 1024), 2)
-                    console.print(f"[dim]   {artifact_name} ({size_mb}MB) - ID: {artifact_info.get('id')}[/dim]")
+                    size_mb = round(
+                        artifact_info.get("size_in_bytes", 0) / (1024 * 1024), 2
+                    )
+                    console.print(
+                        f"[dim]   {artifact_name} ({size_mb}MB) - ID: {artifact_info.get('id')}[/dim]"
+                    )
             else:
                 console.print(
                     "[yellow]No artifacts found for this workflow run[/yellow]"
@@ -331,7 +337,13 @@ class GitHubClient:
             console.print(f"[red]Failed to get artifacts: {e}[/red]")
             return {}
 
-    def extract_result(self, repo: str, artifacts: Dict[str, Dict], artifact_name: str, json_file_name: str) -> Optional[Dict[str, Any]]:
+    def extract_result(
+        self,
+        repo: str,
+        artifacts: Dict[str, Dict],
+        artifact_name: str,
+        json_file_name: str,
+    ) -> Optional[Dict[str, Any]]:
         """Extract JSON result from artifacts.
 
         Args:
@@ -354,17 +366,21 @@ class GitHubClient:
             console.print(f"[red]{artifact_name} artifact has no ID[/red]")
             return None
 
-        console.print(f"[blue]Extracting {json_file_name} from artifact {artifact_id}[/blue]")
+        console.print(
+            f"[blue]Extracting {json_file_name} from artifact {artifact_id}[/blue]"
+        )
 
         if self.dry_run:
-            console.print(f"[yellow]   (DRY RUN - returning mock {json_file_name})[/yellow]")
+            console.print(
+                f"[yellow]   (DRY RUN - returning mock {json_file_name})[/yellow]"
+            )
             return {
                 "mock": True,
                 "version": "1.0.0",
                 "build_info": {
                     "timestamp": "2023-01-01T00:00:00Z",
-                    "commit": "mock-commit-hash"
-                }
+                    "commit": "mock-commit-hash",
+                },
             }
 
         # Download the artifact and extract JSON file
@@ -392,20 +408,26 @@ class GitHubClient:
                 if json_file_name in zip_file.namelist():
                     with zip_file.open(json_file_name) as json_file:
                         result_data = json.load(json_file)
-                        console.print(f"[green]Successfully extracted {json_file_name}[/green]")
+                        console.print(
+                            f"[green]Successfully extracted {json_file_name}[/green]"
+                        )
                         return result_data
                 else:
                     console.print(f"[red]{json_file_name} not found in artifact[/red]")
                     return None
 
         except requests.exceptions.RequestException as e:
-            console.print(f"[red]Failed to download {artifact_name} artifact: {e}[/red]")
+            console.print(
+                f"[red]Failed to download {artifact_name} artifact: {e}[/red]"
+            )
             return None
         except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
             console.print(f"[red]Failed to extract {json_file_name}: {e}[/red]")
             return None
 
-    def extract_release_handle(self, repo: str, artifacts: Dict[str, Dict]) -> Optional[Dict[str, Any]]:
+    def extract_release_handle(
+        self, repo: str, artifacts: Dict[str, Dict]
+    ) -> Optional[Dict[str, Any]]:
         """Extract release_handle JSON from artifacts.
 
         This is a backward compatibility wrapper around extract_result.
@@ -417,9 +439,11 @@ class GitHubClient:
         Returns:
             Parsed JSON content from release_handle.json file, or None if not found
         """
-        return self.extract_result(repo, artifacts, "release_handle", "release_handle.json")
+        return self.extract_result(
+            repo, artifacts, "release_handle", "release_handle.json"
+        )
 
-    def _get_recent_workflow_runs(
+    def get_recent_workflow_runs(
         self, repo: str, workflow_file: str, limit: int = 10
     ) -> List[WorkflowRun]:
         """Get recent workflow runs for a specific workflow.
@@ -501,11 +525,11 @@ class GitHubClient:
         if not text:
             return None
 
-        uuid_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+        uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         uuid_match = re.search(uuid_pattern, text, re.IGNORECASE)
         return uuid_match.group() if uuid_match else None
 
-    def _identify_workflow(
+    def identify_workflow(
         self, repo: str, workflow_file: str, workflow_uuid: str, max_tries: int = 10
     ) -> WorkflowRun:
         """Identify a specific workflow run by UUID in its name.
@@ -522,26 +546,29 @@ class GitHubClient:
         Raises:
             RuntimeError: If workflow run cannot be found after max_tries
         """
-        console.print(f"[blue]Searching for workflow run with UUID: {workflow_uuid}[/blue]")
+        console.print(
+            f"[blue]Searching for workflow run with UUID: {workflow_uuid}[/blue]"
+        )
 
         for attempt in range(max_tries):
             time.sleep(2)
             if attempt > 0:
                 console.print(f"[dim]  Attempt {attempt + 1}/{max_tries}[/dim]")
 
-            runs = self._get_recent_workflow_runs(repo, workflow_file, limit=20)
+            runs = self.get_recent_workflow_runs(repo, workflow_file, limit=20)
 
             for run in runs:
                 extracted_uuid = self._extract_uuid(run.workflow_id)
                 if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
-                    console.print(f"[green]Found matching workflow run: {run.run_id}[/green]")
+                    console.print(
+                        f"[green]Found matching workflow run: {run.run_id}[/green]"
+                    )
                     console.print(f"[dim]  Workflow name: {run.workflow_id}[/dim]")
                     console.print(f"[dim]  Extracted UUID: {extracted_uuid}[/dim]")
                     run.workflow_uuid = workflow_uuid
                     return run
 
             console.print("[dim]  No matching workflow found, trying again...[/dim]")
-
 
         raise RuntimeError(
             f"Could not find workflow run with UUID {workflow_uuid} after {max_tries} attempts. "
@@ -607,7 +634,6 @@ class GitHubClient:
         """
         if self.dry_run:
             return f"mock-commit-{tag}"
-
 
         url = f"https://api.github.com/repos/{repo}/tags"
         headers = {

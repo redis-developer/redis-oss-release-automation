@@ -11,12 +11,12 @@ from rich.console import Console
 
 from .models import ReleaseState
 
+from builtins import NotImplementedError
+
 console = Console()
 
 
-class StateManager:
-    """Manages release state persistence in S3."""
-
+class S3Backed:
     def __init__(
         self,
         bucket_name: Optional[str] = None,
@@ -60,7 +60,9 @@ class StateManager:
                     self._s3_client = session.client("s3", region_name=self.aws_region)
                 # Fall back to environment variables
                 elif self.aws_access_key_id and self.aws_secret_access_key:
-                    console.print("[blue]Using AWS credentials from environment variables[/blue]")
+                    console.print(
+                        "[blue]Using AWS credentials from environment variables[/blue]"
+                    )
                     self._s3_client = boto3.client(
                         "s3",
                         aws_access_key_id=self.aws_access_key_id,
@@ -70,16 +72,22 @@ class StateManager:
                     )
                 else:
                     console.print("[red]AWS credentials not found[/red]")
-                    console.print("[yellow]Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables[/yellow]")
+                    console.print(
+                        "[yellow]Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables[/yellow]"
+                    )
                     raise NoCredentialsError()
 
                 # Test connection
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
-                console.print(f"[green]Connected to S3 bucket: {self.bucket_name}[/green]")
+                console.print(
+                    f"[green]Connected to S3 bucket: {self.bucket_name}[/green]"
+                )
 
             except ClientError as e:
                 if e.response["Error"]["Code"] == "404":
-                    console.print(f"[yellow]S3 bucket not found: {self.bucket_name}[/yellow]")
+                    console.print(
+                        f"[yellow]S3 bucket not found: {self.bucket_name}[/yellow]"
+                    )
                     self._create_bucket()
                 else:
                     console.print(f"[red]S3 error: {e}[/red]")
@@ -91,6 +99,94 @@ class StateManager:
                 raise
 
         return self._s3_client
+
+
+class BlackboardStorage(S3Backed):
+    def __init__(
+        self,
+        bucket_name: Optional[str] = None,
+        dry_run: bool = False,
+        aws_region: str = "us-east-1",
+        aws_profile: Optional[str] = None,
+    ):
+        super().__init__(bucket_name, dry_run, aws_region, aws_profile)
+
+    def get(self, tag: str) -> Optional[dict]:
+        """Load blackboard data from S3.
+
+        Args:
+            tag: Release tag
+
+        Returns:
+            ReleaseState object or None if not found
+        """
+        state_key = f"release-state/{tag}-blackboard.json"
+        console.print(f"[blue] Loading state for tag: {tag}[/blue]")
+
+        if self.dry_run:
+            raise NotImplementedError()
+
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=state_key)
+            state_data = json.loads(response["Body"].read().decode("utf-8"))
+
+            console.print(f"[green]State loaded successfully[/green]")
+
+            return state_data
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                console.print(
+                    f"[yellow] No existing blackboard found for tag: {tag}[/yellow]"
+                )
+                return None
+            else:
+                console.print(f"[red] Failed to load blackboard: {e}[/red]")
+                raise
+
+    def put(self, tag: str, state: dict) -> None:
+        """Save release state to S3.
+
+        Args:
+            state: ReleaseState object to save
+        """
+        state_key = f"release-state/{tag}-blackboard.json"
+        console.print(f"[blue] Saving blackboard for tag: {tag}[/blue]")
+
+        state_json = json.dumps(state, indent=2, default=str)
+
+        if self.dry_run:
+            raise NotImplementedError()
+
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=state_key,
+                Body=state_json,
+                ContentType="application/json",
+                Metadata={
+                    "tag": tag,
+                },
+            )
+
+            console.print(f"[green] Blackboard saved successfully[/green]")
+
+        except ClientError as e:
+            console.print(f"[red] Failed to save blackboard: {e}[/red]")
+            raise
+
+
+class StateManager:
+    """Manages release state persistence in S3."""
+
+    def __init__(
+        self,
+        bucket_name: Optional[str] = None,
+        dry_run: bool = False,
+        aws_region: str = "us-east-1",
+        aws_profile: Optional[str] = None,
+    ):
+        super().__init__(bucket_name, dry_run, aws_region, aws_profile)
 
     def _create_bucket(self) -> None:
         """Create S3 bucket if it doesn't exist."""
