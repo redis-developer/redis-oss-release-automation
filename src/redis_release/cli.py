@@ -13,7 +13,7 @@ from rich.table import Table
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
-from .tree import async_tick_tock2, testpt2
+from .tree import async_tick_tock, create_root_node
 
 app = typer.Typer(
     name="redis-release",
@@ -191,16 +191,18 @@ def status(
 
 
 @app.command()
-def release_btree() -> None:
+def release_bht() -> None:
+    """Run release using behaviour tree implementation."""
     setup_logging(logging.DEBUG)
-    root = testpt2()
+    root = create_root_node()
     tree = py_trees.trees.BehaviourTree(root)
-    asyncio.run(async_tick_tock2(tree))
+    asyncio.run(async_tick_tock(tree))
 
 
 @app.command()
-def release_print() -> None:
-    root = testpt2()
+def release_print_bht() -> None:
+    """Print and render (using graphviz) the release behaviour tree."""
+    root = create_root_node()
     py_trees.display.render_dot_tree(root)
     print(py_trees.display.unicode_tree(root))
 

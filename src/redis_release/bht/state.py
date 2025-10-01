@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from pydantic import BaseModel
-from pyparsing import Opt
 
 
 class Workflow(BaseModel):
@@ -12,6 +11,7 @@ class Workflow(BaseModel):
     ref: str = "main"
     uuid: Optional[str] = None
     triggered_at: Optional[datetime] = None
+    trigger_failed: bool = False
     started_at: Optional[datetime] = None
     run_id: Optional[int] = None
     url: Optional[str] = None

@@ -85,7 +85,6 @@ class ReleaseState(BaseModel):
 
     tag: str
     release_type: ReleaseType
-    force_rebuild: bool = False
     packages: Dict[PackageType, PackageState] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
 

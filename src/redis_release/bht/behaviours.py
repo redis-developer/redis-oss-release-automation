@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -9,6 +8,7 @@ import py_trees
 
 from ..github_client_async import GitHubClientAsync
 from ..models import WorkflowRun
+from .logging_wrapper import PyTreesLoggerWrapper
 from .state import Workflow
 
 logger = logging.getLogger(__name__)
@@ -22,36 +22,6 @@ def log_exception_and_return_failure(
     )
     logger.error(f"[red]Full traceback:[/red]", exc_info=True)
     return py_trees.common.Status.FAILURE
-
-
-class RedisReleaseBehaviour(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str) -> None:
-        random.seed()
-        print("wtf")
-        super().__init__(name=name)
-        self.release_state = self.attach_blackboard_client(
-            namespace="release_state/docker/build"
-        )
-        self.release_state.register_key(
-            key="workflow", access=py_trees.common.Access.WRITE
-        )
-        super(RedisReleaseBehaviour, self).__init__(name)
-
-    def initialise(self) -> None:
-        # print(f'init {self.blackboard.foo}')
-        if self.release_state.exists("workflow"):
-            print(f"exists {self.release_state.workflow}")
-        else:
-            # self.release_state.set("workflow", {})
-            self.release_state.set("workflow.uuid", random.randint(0, 10000))
-
-    def update(self) -> py_trees.common.Status:
-        print("update")
-        self.release_state.set("workflow.uuid", random.randint(0, 10000))
-        return py_trees.common.Status.RUNNING
-
-    def terminate(self, new_status: py_trees.common.Status) -> None:
-        print("terminate")
 
 
 class TriggerWorkflow(py_trees.behaviour.Behaviour):
@@ -80,7 +50,6 @@ class TriggerWorkflow(py_trees.behaviour.Behaviour):
         )
 
     def update(self) -> py_trees.common.Status:
-        print("foo")
         if self.task is None:
             logger.error("[red]Task is None - workflow was not initialized[/red]")
             return py_trees.common.Status.FAILURE
@@ -96,6 +65,7 @@ class TriggerWorkflow(py_trees.behaviour.Behaviour):
             )
             return py_trees.common.Status.SUCCESS
         except Exception as e:
+            self.workflow.trigger_failed = True
             return log_exception_and_return_failure("TriggerWorkflow", e)
 
     def terminate(self, new_status: py_trees.common.Status) -> None:
@@ -110,14 +80,18 @@ class IdentifyWorkflowByUUID(py_trees.behaviour.Behaviour):
         workflow: Workflow,
         github_client: GitHubClientAsync,
     ) -> None:
+
         self.github_client = github_client
         self.workflow = workflow
         self.task: Optional[asyncio.Task[Optional[WorkflowRun]]] = None
         super().__init__(name=name)
+        self.logger = PyTreesLoggerWrapper(logging.getLogger(self.name))
 
     def initialise(self) -> None:
         if self.workflow.uuid is None:
-            logger.error("[red]Workflow UUID is None - cannot identify workflow[/red]")
+            self.logger.error(
+                "[red]Workflow UUID is None - cannot identify workflow[/red]"
+            )
             return
 
         self.task = asyncio.create_task(
@@ -127,32 +101,32 @@ class IdentifyWorkflowByUUID(py_trees.behaviour.Behaviour):
         )
 
     def update(self) -> py_trees.common.Status:
-        logger.debug("IdentifyWorkflowByUUID: update")
+        self.logger.debug("IdentifyWorkflowByUUID: update")
         if self.task is None:
-            logger.error("[red]Task is None - behaviour was not initialized[/red]")
+            self.logger.error("red]Task is None - behaviour was not initialized[/red]")
             return py_trees.common.Status.FAILURE
 
         if not self.task.done():
-            logger.debug(
-                f"IdentifyWorkflowByUUID: Task not yet done {self.task.cancelled()} {self.task.done()} {self.task}"
+            self.logger.debug(
+                f"Task not yet done {self.task.cancelled()} {self.task.done()} {self.task}"
             )
             return py_trees.common.Status.RUNNING
 
         try:
-            logger.debug("IdentifyWorkflowByUUID: before result")
+            self.logger.debug("before result")
             result = self.task.result()
-            logger.debug(f"IdentifyWorkflowByUUID: result {result}")
+            self.logger.debug("result {result}")
             if result is None:
-                logger.error("[red]Workflow not found[/red]")
+                self.logger.error("[red]Workflow not found[/red]")
                 return py_trees.common.Status.FAILURE
 
             self.workflow.run_id = result.run_id
-            logger.info(
+            self.logger.info(
                 f"[green]Workflow found successfully:[/green] uuid: {self.workflow.uuid}, run_id: {self.workflow.run_id}"
             )
             return py_trees.common.Status.SUCCESS
         except Exception as e:
-            return log_exception_and_return_failure("TriggerWorkflow", e)
+            return log_exception_and_return_failure(f"{self.name} TriggerWorkflow", e)
 
 
 class Sleep(py_trees.behaviour.Behaviour):
@@ -175,6 +149,17 @@ class Sleep(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.RUNNING
 
         return py_trees.common.Status.SUCCESS
+
+
+class IsWorkflowTriggerFailed(py_trees.behaviour.Behaviour):
+    def __init__(self, name: str, workflow: Workflow) -> None:
+        self.workflow = workflow
+        super().__init__(name=name)
+
+    def update(self) -> py_trees.common.Status:
+        if self.workflow.trigger_failed:
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
 
 
 class IsWorkflowTriggered(py_trees.behaviour.Behaviour):

@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import re
-import uuid
 from typing import Dict, List, Optional
 
 import aiohttp

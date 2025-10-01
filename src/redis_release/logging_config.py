@@ -1,6 +1,7 @@
 """Logging configuration with Rich handler for beautiful colored output."""
 
 import logging
+
 from rich.logging import RichHandler
 
 
@@ -20,7 +21,7 @@ def setup_logging(level: int = logging.INFO, show_path: bool = True) -> None:
     """
     logging.basicConfig(
         level=level,
-        format="%(message)s",
+        format="[cyan1]%(name)s:[/cyan1] %(message)s",
         datefmt="[%X]",
         handlers=[
             RichHandler(
