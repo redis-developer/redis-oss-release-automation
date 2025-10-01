@@ -1,14 +1,19 @@
 """Redis OSS Release Automation CLI."""
 
+import asyncio
+import logging
 import os
 from typing import Optional
 
+import py_trees
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
+from .tree import async_tick_tock2, testpt2
 
 app = typer.Typer(
     name="redis-release",
@@ -132,7 +137,11 @@ def status(
 
             # Publish status
             if not pkg_state.publish_completed:
-                publish_status = "[blue]In Progress[/blue]" if pkg_state.publish_workflow else "[dim]Not Started[/dim]"
+                publish_status = (
+                    "[blue]In Progress[/blue]"
+                    if pkg_state.publish_workflow
+                    else "[dim]Not Started[/dim]"
+                )
             elif pkg_state.publish_workflow and pkg_state.publish_workflow.conclusion:
                 if pkg_state.publish_workflow.conclusion.value == "success":
                     publish_status = "[green]Success[/green]"
@@ -155,7 +164,13 @@ def status(
             else:
                 publish_artifacts = "[dim]None[/dim]"
 
-            table.add_row(pkg_type.value, build_status, publish_status, build_artifacts, publish_artifacts)
+            table.add_row(
+                pkg_type.value,
+                build_status,
+                publish_status,
+                build_artifacts,
+                publish_artifacts,
+            )
 
         console.print(table)
 
@@ -170,10 +185,24 @@ def status(
                     f"  Docker repo: [cyan]{state.docker_repo_commit[:8]}[/cyan]"
                 )
 
-
     except Exception as e:
         console.print(f"[red] Failed to get status: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def release_btree() -> None:
+    setup_logging(logging.DEBUG)
+    root = testpt2()
+    tree = py_trees.trees.BehaviourTree(root)
+    asyncio.run(async_tick_tock2(tree))
+
+
+@app.command()
+def release_print() -> None:
+    root = testpt2()
+    py_trees.display.render_dot_tree(root)
+    print(py_trees.display.unicode_tree(root))
 
 
 if __name__ == "__main__":
