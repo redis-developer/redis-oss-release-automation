@@ -1,4 +1,5 @@
 """Workflow execution classes for Redis release automation."""
+import re
 import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -6,7 +7,13 @@ from typing import Any, Dict, Optional
 from rich.console import Console
 
 from .github_client import GitHubClient
-from .models import PackageState, PackageType, ReleaseState, WorkflowConclusion, WorkflowRun
+from .models import (
+    PackageState,
+    PackageType,
+    ReleaseState,
+    WorkflowConclusion,
+    WorkflowRun,
+)
 
 console = Console()
 
@@ -19,7 +26,7 @@ class Phase(ABC):
         state: ReleaseState,
         repo: str,
         orchestrator_config: Dict[str, Any],
-        timeout_minutes: int = 45
+        timeout_minutes: int = 45,
     ):
         self.state = state
         self.repo = repo
@@ -94,7 +101,7 @@ class Phase(ABC):
     def _get_release_branch(self) -> str:
         """Get the release branch based on the release tag.
 
-        Extracts major.minor from tag (e.g., "8.2.1" -> "release/8.2").
+        Extracts major.minor from tag (e.g., "8.2.1" -> "release/8.2", "8.4-m01-int" -> "release/8.4").
 
         Returns:
             Release branch name
@@ -102,18 +109,17 @@ class Phase(ABC):
         Raises:
             ValueError: If tag format is invalid
         """
-        tag_parts = self.state.tag.split(".")
-        if len(tag_parts) < 2:
-            raise ValueError(f"Invalid tag format '{self.state.tag}': expected at least major.minor version")
+        # Extract major.minor version from the beginning of the tag
+        # This handles both "8.2.1" and "8.4-m01-int" formats
+        match = re.match(r"^(\d+)\.(\d+)", self.state.tag)
+        if not match:
+            raise ValueError(
+                f"Invalid tag format '{self.state.tag}': expected tag to start with major.minor version (e.g., '8.2.1' or '8.4-m01')"
+            )
 
-        try:
-            # Validate that major and minor are numeric
-            int(tag_parts[0])
-            int(tag_parts[1])
-        except ValueError:
-            raise ValueError(f"Invalid tag format '{self.state.tag}': major and minor versions must be numeric")
-
-        major_minor = f"{tag_parts[0]}.{tag_parts[1]}"
+        major = match.group(1)
+        minor = match.group(2)
+        major_minor = f"{major}.{minor}"
         return f"release/{major_minor}"
 
 
