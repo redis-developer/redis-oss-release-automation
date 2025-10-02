@@ -86,52 +86,6 @@ class GitHubClientAsync:
 
         return False
 
-    async def identify_workflow_loop(
-        self, repo: str, workflow_file: str, workflow_uuid: str, max_tries: int = 10
-    ) -> WorkflowRun:
-        """Identify a specific workflow run by UUID in its name.
-
-        Args:
-            repo: Repository name
-            workflow_file: Workflow file name
-            workflow_uuid: UUID to search for in workflow run names
-            max_tries: Maximum number of attempts to find the workflow
-
-        Returns:
-            WorkflowRun object with matching UUID
-
-        Raises:
-            RuntimeError: If workflow run cannot be found after max_tries
-        """
-        logger.info(
-            f"[blue]Searching for workflow run with UUID:[/blue] [cyan]{workflow_uuid}[/cyan]"
-        )
-
-        for attempt in range(max_tries):
-            await asyncio.sleep(2)
-            if attempt > 0:
-                logger.debug(f"Attempt {attempt + 1}/{max_tries}")
-
-            runs = await self.get_recent_workflow_runs(repo, workflow_file, limit=20)
-
-            for run in runs:
-                extracted_uuid = self._extract_uuid(run.workflow_id)
-                if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
-                    logger.info(
-                        f"[green]Found matching workflow run:[/green] {run.run_id}"
-                    )
-                    logger.debug(f"Workflow name: {run.workflow_id}")
-                    logger.debug(f"Extracted UUID: {extracted_uuid}")
-                    run.workflow_uuid = workflow_uuid
-                    return run
-
-            logger.debug("No matching workflow found, trying again...")
-
-        raise RuntimeError(
-            f"Could not find workflow run with UUID {workflow_uuid} after {max_tries} attempts. "
-            f"The workflow may have failed to start or there may be a delay in GitHub's API."
-        )
-
     async def identify_workflow(
         self, repo: str, workflow_file: str, workflow_uuid: str
     ) -> WorkflowRun | None:
@@ -150,6 +104,81 @@ class GitHubClientAsync:
                 run.workflow_uuid = workflow_uuid
                 return run
         return None
+
+    async def get_workflow_run(self, repo: str, run_id: int) -> WorkflowRun:
+        """Get workflow run status.
+
+        Args:
+            repo: Repository name
+            run_id: Workflow run ID
+
+        Returns:
+            Updated WorkflowRun object
+        """
+        url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status >= 400:
+                        # Read response body for error details
+                        try:
+                            error_body = await response.text()
+                            logger.error(
+                                f"[red]Failed to get workflow run:[/red] HTTP {response.status}"
+                            )
+                            logger.error(f"[red]Response body:[/red] {error_body}")
+                        except Exception:
+                            logger.error(
+                                f"[red]Failed to get workflow run:[/red] HTTP {response.status}"
+                            )
+                        response.raise_for_status()
+
+                    data = await response.json()
+
+            # Map GitHub API status to our enum
+            github_status = data.get("status", "unknown")
+            if github_status == "queued":
+                status = WorkflowStatus.QUEUED
+            elif github_status == "in_progress":
+                status = WorkflowStatus.IN_PROGRESS
+            elif github_status == "completed":
+                status = WorkflowStatus.COMPLETED
+            else:
+                status = WorkflowStatus.PENDING
+
+            # Map GitHub API conclusion to our enum
+            github_conclusion = data.get("conclusion")
+            conclusion = None
+            if github_conclusion == "success":
+                conclusion = WorkflowConclusion.SUCCESS
+            elif github_conclusion == "failure":
+                conclusion = WorkflowConclusion.FAILURE
+
+            workflow_name = data.get("name", "unknown")
+            workflow_uuid = self._extract_uuid(workflow_name)
+
+            return WorkflowRun(
+                repo=repo,
+                workflow_id=workflow_name,
+                workflow_uuid=workflow_uuid,
+                run_id=data.get("id"),
+                status=status,
+                conclusion=conclusion,
+            )
+
+        except aiohttp.ClientError as e:
+            logger.error(f"[red]Failed to get workflow run:[/red] {e}")
+            raise
 
     async def get_recent_workflow_runs(
         self, repo: str, workflow_file: str, limit: int = 10

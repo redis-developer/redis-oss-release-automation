@@ -3,6 +3,8 @@ from typing import Dict, Optional
 
 from pydantic import BaseModel
 
+from redis_release.models import WorkflowConclusion, WorkflowStatus
+
 
 class Workflow(BaseModel):
     repo: str
@@ -15,3 +17,6 @@ class Workflow(BaseModel):
     started_at: Optional[datetime] = None
     run_id: Optional[int] = None
     url: Optional[str] = None
+    status: Optional[WorkflowStatus] = None
+    conclusion: Optional[WorkflowConclusion] = None
+    timed_out: bool = False
