@@ -64,6 +64,8 @@ class GitHubClientAsync:
             if json is not None:
                 kwargs["json"] = json
 
+            logger.debug(f"Making request to {url} with params {params}")
+
             async with request_method(url, **kwargs) as response:
                 if response.status >= 400:
                     # Read response body for error details
@@ -80,9 +82,10 @@ class GitHubClientAsync:
                     response.raise_for_status()
 
                 # For methods that may not return content (like POST to workflow dispatch)
-                if response.status == 204 or not response.content_length:
+                if response.status == 204:
                     return {}
 
+                # logger.debug(f"Response: {await response.json()}")
                 return await response.json()
 
     async def github_request_paginated(
@@ -272,6 +275,7 @@ class GitHubClientAsync:
             f"[blue]Searching for workflow run with UUID:[/blue] [cyan]{workflow_uuid}[/cyan]"
         )
         runs = await self.get_recent_workflow_runs(repo, workflow_file, limit=20)
+        logger.debug(f"Found {runs} runs")
 
         for run in runs:
             extracted_uuid = self._extract_uuid(run.workflow_id)

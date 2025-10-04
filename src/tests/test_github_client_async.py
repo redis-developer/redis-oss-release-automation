@@ -10,7 +10,7 @@ from redis_release.github_client_async import GitHubClientAsync
 class TestGitHubClientAsync(AioHTTPTestCase):
     """Test cases for github_request_paginated method."""
 
-    async def get_application(self):
+    async def get_application(self) -> web.Application:
         """Create a test application with mock endpoints."""
         app = web.Application()
         app.router.add_get("/no-pagination", self.handle_no_pagination)
@@ -18,13 +18,13 @@ class TestGitHubClientAsync(AioHTTPTestCase):
         app.router.add_get("/dict-pagination", self.handle_dict_pagination)
         return app
 
-    async def handle_no_pagination(self, request):
+    async def handle_no_pagination(self, request: web.Request) -> web.Response:
         """Handle request without pagination (no Link header)."""
         return web.json_response(
             [{"id": 1, "name": "item1"}, {"id": 2, "name": "item2"}]
         )
 
-    async def handle_array_pagination(self, request):
+    async def handle_array_pagination(self, request: web.Request) -> web.Response:
         """Handle request with array response and pagination."""
         page = int(request.query.get("page", 1))
 
@@ -44,7 +44,7 @@ class TestGitHubClientAsync(AioHTTPTestCase):
         else:
             return web.json_response([])
 
-    async def handle_dict_pagination(self, request):
+    async def handle_dict_pagination(self, request: web.Request) -> web.Response:
         """Handle request with dict response and pagination."""
         page = int(request.query.get("page", 1))
 
@@ -73,7 +73,7 @@ class TestGitHubClientAsync(AioHTTPTestCase):
         else:
             return web.json_response({"total_count": 5, "artifacts": []})
 
-    async def test_no_link_header(self):
+    async def test_no_link_header(self) -> None:
         """Test pagination with no Link header (single page response)."""
         client = GitHubClientAsync(token="test-token")
         url = self.server.make_url("/no-pagination")
@@ -96,7 +96,7 @@ class TestGitHubClientAsync(AioHTTPTestCase):
         assert result[1]["id"] == 2
         assert result[1]["name"] == "item2"
 
-    async def test_array_pagination(self):
+    async def test_array_pagination(self) -> None:
         """Test pagination with array response across multiple pages."""
         client = GitHubClientAsync(token="test-token")
         url = self.server.make_url("/array-pagination")
@@ -120,7 +120,7 @@ class TestGitHubClientAsync(AioHTTPTestCase):
         assert result[3]["id"] == 4
         assert result[4]["id"] == 5
 
-    async def test_dict_pagination_with_merge_key(self):
+    async def test_dict_pagination_with_merge_key(self) -> None:
         """Test pagination with dict response and merge_key."""
         client = GitHubClientAsync(token="test-token")
         url = self.server.make_url("/dict-pagination")

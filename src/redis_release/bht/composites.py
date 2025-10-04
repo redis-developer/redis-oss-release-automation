@@ -2,22 +2,29 @@ from ast import Invert
 from socket import timeout
 from time import sleep
 
+import py_trees
 from py_trees.composites import Selector, Sequence
-from py_trees.decorators import Repeat, Retry
+from py_trees.decorators import Inverter, Repeat, Retry
 
 from ..github_client_async import GitHubClientAsync
+from .behaviours import IdentifyTargetRef as IdentifyTargetRefAction
 from .behaviours import (
     IdentifyWorkflowByUUID,
+    IsTargetRefIdentified,
     IsWorkflowCompleted,
     IsWorkflowIdentified,
+    IsWorkflowIdentifyFailed,
     IsWorkflowSuccessful,
     IsWorkflowTimedOut,
     IsWorkflowTriggered,
+    IsWorkflowTriggerFailed,
+    SetFlag,
     Sleep,
-    UpdateWorkflowStatus,
 )
+from .behaviours import TriggerWorkflow as TriggerWorkflow
+from .behaviours import UpdateWorkflowStatus
 from .decorators import TimeoutWithFlag
-from .state import Workflow
+from .state import PackageMeta, ReleaseMeta, Workflow
 
 
 class FindWorkflowByUUID(Sequence):
@@ -28,6 +35,7 @@ class FindWorkflowByUUID(Sequence):
         self,
         name: str,
         workflow: Workflow,
+        package_meta: PackageMeta,
         github_client: GitHubClientAsync,
         log_prefix: str = "",
     ) -> None:
@@ -38,17 +46,29 @@ class FindWorkflowByUUID(Sequence):
             f"{log_prefix}Is Workflow Triggered?", workflow
         )
         identify_workflow = IdentifyWorkflowByUUID(
-            f"{log_prefix}Identify Workflow by UUID", workflow, github_client
+            f"{log_prefix}Identify Workflow by UUID",
+            workflow,
+            github_client,
+            package_meta,
         )
         sleep = Sleep("Sleep", self.poll_interval)
 
+        is_workflow_identify_failed = IsWorkflowIdentifyFailed(
+            f"Identify Failed?", workflow
+        )
         sleep_then_identify = Sequence(
             f"{log_prefix}Sleep then Identify",
             memory=True,
             children=[sleep, identify_workflow],
         )
+        set_identify_failed_flag = SetFlag(
+            f"{log_prefix}Set Identify Failed Flag",
+            workflow.ephemeral,
+            "identify_failed",
+            True,
+        )
         identify_loop = Retry(
-            f"{log_prefix}Retry {self.max_retries} times",
+            f"Retry {self.max_retries} times",
             sleep_then_identify,
             self.max_retries,
         )
@@ -56,15 +76,20 @@ class FindWorkflowByUUID(Sequence):
             f"{log_prefix}Identify if required",
             False,
             children=[
-                IsWorkflowIdentified(f"{log_prefix}Is Workflow Identified?", workflow),
+                IsWorkflowIdentified(f"Is Workflow Identified?", workflow),
+                is_workflow_identify_failed,
                 identify_loop,
+                set_identify_failed_flag,
             ],
         )
 
         super().__init__(
             name=name,
             memory=False,
-            children=[is_workflow_triggered, identify_if_required],
+            children=[
+                is_workflow_triggered,
+                identify_if_required,
+            ],
         )
 
 
@@ -76,6 +101,7 @@ class WaitForWorkflowCompletion(Sequence):
         self,
         name: str,
         workflow: Workflow,
+        package_meta: PackageMeta,
         github_client: GitHubClientAsync,
         log_prefix: str = "",
         timeout_seconds: int = 3 * 60,
@@ -93,7 +119,7 @@ class WaitForWorkflowCompletion(Sequence):
         is_workflow_completed = IsWorkflowCompleted(f"Is Workflow Completed?", workflow)
         is_worklow_timed_out = IsWorkflowTimedOut(f"Is Workflow Timed Out?", workflow)
         update_workflow_status = UpdateWorkflowStatus(
-            f"{log_prefix}Update Workflow Status", workflow, github_client
+            f"{log_prefix}Update Workflow Status", workflow, github_client, package_meta
         )
         update_workflow_status_with_pause = Sequence(
             f"{log_prefix}Update Workflow Status with Pause",
@@ -128,4 +154,68 @@ class WaitForWorkflowCompletion(Sequence):
                     ],
                 ),
             ],
+        )
+
+
+class IdentifyTargetRef(Selector):
+    """Composite to identify target ref if not already identified."""
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        if log_prefix != "":
+            log_prefix = f"{log_prefix}."
+
+        is_target_ref_identified = IsTargetRefIdentified(
+            f"{log_prefix}Is Target Ref Identified?", package_meta
+        )
+        identify_target_ref = IdentifyTargetRefAction(
+            f"{log_prefix}Identify Target Ref", package_meta
+        )
+
+        super().__init__(
+            name=name,
+            memory=False,
+            children=[is_target_ref_identified, identify_target_ref],
+        )
+
+
+class TriggerWorkflowGoal(Sequence):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        if log_prefix != "":
+            log_prefix = f"{log_prefix}."
+
+        may_start_workflow = Inverter(
+            f"{log_prefix}Not Trigger Failed",
+            IsWorkflowTriggerFailed(
+                f"{log_prefix}Is Workflow Trigger Failed?", workflow
+            ),
+        )
+        identify_target_ref = IdentifyTargetRef(
+            f"{log_prefix}Identify Target Ref", package_meta, release_meta, log_prefix
+        )
+        trigger_workflow = TriggerWorkflow(
+            f"{log_prefix}Trigger Workflow",
+            workflow,
+            package_meta,
+            release_meta,
+            github_client,
+        )
+
+        super().__init__(
+            name=name,
+            memory=True,
+            children=[may_start_workflow, identify_target_ref, trigger_workflow],
         )

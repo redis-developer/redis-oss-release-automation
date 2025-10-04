@@ -3,17 +3,21 @@
 import asyncio
 import logging
 import os
-from typing import Optional
+from typing import List, Optional
 
 import py_trees
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from redis_release.bht.args import ReleaseArgs
+from redis_release.bht.state import ReleaseState
+
+from .bht.tree import async_tick_tock, create_root_node, initialize_tree_and_state
+from .config import load_config
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
-from .tree import async_tick_tock, create_root_node
 
 app = typer.Typer(
     name="redis-release",
@@ -191,18 +195,56 @@ def status(
 
 
 @app.command()
-def release_bht() -> None:
+def release_bht(
+    release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    force_rebuild: Optional[List[str]] = typer.Option(
+        None,
+        "--force-rebuild",
+        help="Force rebuild for specific packages (can be specified multiple times). Use 'all' to force rebuild all packages.",
+    ),
+) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging(logging.DEBUG)
-    root = create_root_node()
+    config_path = config_file or "config.yaml"
+    config = load_config(config_path)
+
+    # Create release args
+    args = ReleaseArgs(
+        release_tag=release_tag,
+        force_rebuild=force_rebuild or [],
+    )
+
+    root, state_syncer = initialize_tree_and_state(config, args)
     tree = py_trees.trees.BehaviourTree(root)
-    asyncio.run(async_tick_tock(tree))
+    asyncio.run(async_tick_tock(tree, state_syncer=state_syncer))
 
 
 @app.command()
-def release_print_bht() -> None:
+def release_print_bht(
+    release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    force_rebuild: Optional[List[str]] = typer.Option(
+        None,
+        "--force-rebuild",
+        help="Force rebuild for specific packages (can be specified multiple times). Use 'all' to force rebuild all packages.",
+    ),
+) -> None:
     """Print and render (using graphviz) the release behaviour tree."""
-    root = create_root_node()
+    config_path = config_file or "config.yaml"
+    config = load_config(config_path)
+
+    # Create release args
+    args = ReleaseArgs(
+        release_tag=release_tag,
+        force_rebuild=force_rebuild or [],
+    )
+
+    root, _ = initialize_tree_and_state(config, args)
     py_trees.display.render_dot_tree(root)
     print(py_trees.display.unicode_tree(root))
 
