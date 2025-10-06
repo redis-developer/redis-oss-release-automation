@@ -1,79 +1,108 @@
-import time
-from typing import Optional
+import logging
+from typing import Iterator, List, Optional
 
 from py_trees.decorators import Decorator, behaviour, common
 from pydantic import BaseModel
 
+from redis_release.bht.logging_wrapper import PyTreesLoggerWrapper
 
-class TimeoutWithFlag(Decorator):
+
+class DecoratorWithLogging(Decorator):
+    logger: PyTreesLoggerWrapper
+
+    def __init__(self, name: str, child: behaviour.Behaviour) -> None:
+        super().__init__(name=name, child=child)
+        self.logger = PyTreesLoggerWrapper(logging.getLogger(self.name))
+
+
+class FlagGuard(DecoratorWithLogging):
     """
-    Executes a child/subtree with a timeout.
+    A decorator that guards behaviour execution based on a flag value.
 
-    A decorator that applies a timeout pattern to an existing behaviour.
-    If the timeout is reached, the encapsulated behaviour's
-    :meth:`~py_trees.behaviour.Behaviour.stop` method is called with
-    status :data:`~py_trees.common.Status.INVALID` and specified field in
-    container is set to True, otherwise it will
-    simply directly tick and return with the same status
-    as that of it's encapsulated behaviour.
+    If the flag in the container matches the expected flag_value, the guard
+    returns guard_status immediately without executing the decorated behaviour.
+
+    If the decorated behaviour executes and its status is in the raise_on list,
+    the flag is set to flag_value.
+
+    Args:
+        name: the decorator name
+        child: the child behaviour or subtree
+        container: the BaseModel instance containing the flag
+        flag: the name of the flag field in the container
+        flag_value: the value to check/set for the flag (default: True)
+        guard_status: the status to return when the guard is triggered (default: FAILURE)
+        raise_on: list of statuses that should trigger setting the flag (default: [FAILURE])
+        when raise_on is set to None, the flag is never raised (expected to be raised by other means)
     """
 
     def __init__(
         self,
-        name: str,
+        name: Optional[str],
         child: behaviour.Behaviour,
-        duration: float = 5.0,
-        container: Optional[BaseModel] = None,
-        field: str = "",
+        container: BaseModel,
+        flag: str,
+        flag_value: bool = True,
+        guard_status: common.Status = common.Status.FAILURE,
+        raise_on: Optional[List[common.Status]] = None,
     ):
-        """
-        Init with the decorated child and a timeout duration.
+        if not hasattr(container, flag):
+            raise ValueError(
+                f"Field '{flag}' does not exist on {container.__class__.__name__}"
+            )
 
-        Args:
-            child: the child behaviour or subtree
-            name: the decorator name
-            duration: timeout length in seconds
-        """
-        super(TimeoutWithFlag, self).__init__(name=name, child=child)
-        self.duration = duration
-        self.finish_time = 0.0
+        current_value = getattr(container, flag)
+        if current_value is not None and type(current_value) != type(flag_value):
+            raise TypeError(
+                f"Field '{flag}' type mismatch: expected {type(flag_value)}, got {type(current_value)}"
+            )
+
         self.container = container
-        self.field = field
+        self.flag = flag
+        self.flag_value = flag_value
+        self.guard_status = guard_status
+        self.raise_on = raise_on if raise_on is not None else [common.Status.FAILURE]
+        if name is None:
+            name = f"Guard({flag}={flag_value})"
+        super(FlagGuard, self).__init__(name=name, child=child)
 
-    def initialise(self) -> None:
-        """Reset the feedback message and finish time on behaviour entry."""
-        self.finish_time = time.monotonic() + self.duration
-        self.feedback_message = ""
+    def _is_flag_active(self) -> bool:
+        current_flag_value = getattr(self.container, self.flag, None)
+        return current_flag_value == self.flag_value
 
     def update(self) -> common.Status:
-        """
-        Fail on timeout, or block / reflect the child's result accordingly.
+        current_flag_value = getattr(self.container, self.flag, None)
+        if current_flag_value == self.flag_value:
+            self.logger.debug(f"Returning guard status: {self.guard_status}")
+            return self.guard_status
 
-        Terminate the child and return
-        :data:`~py_trees.common.Status.FAILURE`
-        if the timeout is exceeded.
+        return self.decorated.status
 
-        Returns:
-            the behaviour's new status :class:`~py_trees.common.Status`
+    def tick(self) -> Iterator[behaviour.Behaviour]:
         """
-        current_time = time.monotonic()
-        if (
-            self.decorated.status == common.Status.RUNNING
-            and current_time > self.finish_time
-        ):
-            self.feedback_message = "timed out"
-            if self.container is not None:
-                setattr(self.container, self.field, True)
+        Tick the child or bounce back with the original status if already completed.
+
+        Yields:
+            a reference to itself or a behaviour in it's child subtree
+        """
+        if self._is_flag_active():
+            # ignore the child
+            for node in behaviour.Behaviour.tick(self):
+                yield node
+        else:
+            # tick the child
+            for node in Decorator.tick(self):
+                yield node
+
+    def terminate(self, new_status: common.Status) -> None:
+        if self._is_flag_active():
+            return
+
+        if new_status in self.raise_on:
+            setattr(self.container, self.flag, self.flag_value)
+            self.feedback_message = f"{self.flag} set to {self.flag_value}"
             self.logger.debug(
-                "{}.update() {}".format(self.__class__.__name__, self.feedback_message)
-            )
-            # invalidate the decorated (i.e. cancel it), could also put this logic in a terminate() method
-            self.decorated.stop(common.Status.INVALID)
-            return common.Status.FAILURE
-        if self.decorated.status == common.Status.RUNNING:
-            self.feedback_message = "time still ticking ... [remaining: {}s]".format(
-                self.finish_time - current_time
+                f"Terminating with status {new_status}, setting {self.flag} to {self.flag_value}"
             )
         else:
-            self.feedback_message = "child finished before timeout triggered"
-        return self.decorated.status
+            self.logger.debug(f"Terminating with status {new_status}, no flag change")

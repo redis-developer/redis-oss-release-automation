@@ -39,6 +39,99 @@ class TestReleaseStateFromConfig:
             state.packages["test-package"].publish.workflow.workflow_file
             == "publish.yml"
         )
+        # Check default timeout values
+        assert state.packages["test-package"].build.workflow.timeout_minutes == 45
+        assert state.packages["test-package"].publish.workflow.timeout_minutes == 10
+
+    def test_from_config_with_custom_timeout_values(self) -> None:
+        """Test from_config respects custom timeout values from config."""
+        config = Config(
+            version=1,
+            packages={
+                "test-package": PackageConfig(
+                    repo="test/repo",
+                    build_workflow="build.yml",
+                    build_timeout_minutes=60,
+                    publish_workflow="publish.yml",
+                    publish_timeout_minutes=20,
+                )
+            },
+        )
+
+        state = ReleaseState.from_config(config)
+
+        assert state.packages["test-package"].build.workflow.timeout_minutes == 60
+        assert state.packages["test-package"].publish.workflow.timeout_minutes == 20
+
+    def test_from_config_with_ref(self) -> None:
+        """Test from_config respects ref field from config."""
+        config = Config(
+            version=1,
+            packages={
+                "test-package": PackageConfig(
+                    repo="test/repo",
+                    ref="release/8.0",
+                    build_workflow="build.yml",
+                    publish_workflow="publish.yml",
+                )
+            },
+        )
+
+        state = ReleaseState.from_config(config)
+
+        assert state.packages["test-package"].meta.ref == "release/8.0"
+
+    def test_from_config_with_workflow_inputs(self) -> None:
+        """Test from_config respects build_inputs and publish_inputs from config."""
+        config = Config(
+            version=1,
+            packages={
+                "test-package": PackageConfig(
+                    repo="test/repo",
+                    build_workflow="build.yml",
+                    build_inputs={"key1": "value1", "key2": "value2"},
+                    publish_workflow="publish.yml",
+                    publish_inputs={"publish_key": "publish_value"},
+                )
+            },
+        )
+
+        state = ReleaseState.from_config(config)
+
+        assert state.packages["test-package"].build.workflow.inputs == {
+            "key1": "value1",
+            "key2": "value2",
+        }
+        assert state.packages["test-package"].publish.workflow.inputs == {
+            "publish_key": "publish_value"
+        }
+
+    def test_from_config_with_all_optional_fields(self) -> None:
+        """Test from_config with all optional fields set."""
+        config = Config(
+            version=1,
+            packages={
+                "test-package": PackageConfig(
+                    repo="test/repo",
+                    ref="main",
+                    build_workflow="build.yml",
+                    build_timeout_minutes=60,
+                    build_inputs={"build_arg": "build_val"},
+                    publish_workflow="publish.yml",
+                    publish_timeout_minutes=20,
+                    publish_inputs={"publish_arg": "publish_val"},
+                )
+            },
+        )
+
+        state = ReleaseState.from_config(config)
+
+        pkg = state.packages["test-package"]
+        assert pkg.meta.ref == "main"
+        assert pkg.build.workflow.timeout_minutes == 60
+        assert pkg.build.workflow.inputs == {"build_arg": "build_val"}
+        assert pkg.publish.workflow.timeout_minutes == 20
+        assert pkg.publish.workflow.inputs == {"publish_arg": "publish_val"}
 
     def test_from_config_with_empty_build_workflow(self) -> None:
         """Test from_config fails when build_workflow is empty."""

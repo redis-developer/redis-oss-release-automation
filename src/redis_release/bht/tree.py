@@ -14,6 +14,7 @@ from .args import ReleaseArgs
 from .behaviours import IsWorkflowSuccessful
 from .composites import (
     FindWorkflowByUUID,
+    IdentifyTargetRefGoal,
     TriggerWorkflowGoal,
     WaitForWorkflowCompletion,
 )
@@ -40,7 +41,6 @@ def create_root_node(
     workflow = package.build.workflow
     package_meta = package.meta
     release_meta = state.meta
-    logger.debug("bedaa %s", state)
 
     root = Sequence("Workflow Goal", False)
     workflow_run = Selector("Workflow Run", False)
@@ -57,6 +57,9 @@ def create_root_node(
         github_client,
         "DOCKER",
     )
+    identify_target_ref = IdentifyTargetRefGoal(
+        "Identify Target Ref Goal", package_meta, release_meta, "DOCKER"
+    )
     wait_for_completion = WaitForWorkflowCompletion(
         "Workflow Completion Goal", workflow, package_meta, github_client, "DOCKER"
     )
@@ -65,6 +68,7 @@ def create_root_node(
             wait_for_completion,
             identify_workflow,
             trigger_workflow,
+            identify_target_ref,
         ]
     )
     root.add_children([workflow_run, is_workflow_successful])
@@ -98,15 +102,13 @@ async def async_tick_tock(
                 tree.root, show_status=True, show_only_visited=False
             )
         )
-        # TODO remove this sleep, since we are awaiting other_tasks
-        await asyncio.sleep(0)
         other_tasks = asyncio.all_tasks() - {asyncio.current_task()}
         logger.debug(other_tasks)
         if not other_tasks:
             count_no_tasks_loop += 1
             # tick the tree one more time in case flipped status would lead to new tasks
             if count_no_tasks_loop > 1:
-                logger.info(f"Tree finished with {tree.root.status}")
+                logger.info(f"The Tree converged to {tree.root.status}")
                 break
         else:
             count_no_tasks_loop = 0

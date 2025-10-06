@@ -98,7 +98,6 @@ class TriggerWorkflow(ReleaseAction):
             self.logger.error(
                 "[red]Release tag is None - cannot trigger workflow[/red]"
             )
-            self.workflow.ephemeral.trigger_failed = True
             self.feedback_message = "failed to trigger workflow"
             return
         self.workflow.inputs["release_tag"] = self.release_meta.tag
@@ -127,7 +126,6 @@ class TriggerWorkflow(ReleaseAction):
             self.feedback_message = "workflow triggered"
             return py_trees.common.Status.SUCCESS
         except Exception as e:
-            self.workflow.ephemeral.trigger_failed = True
             self.feedback_message = "failed to trigger workflow"
             return self.log_exception_and_return_failure(e)
 
@@ -253,22 +251,6 @@ class Sleep(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.SUCCESS
 
 
-class SetFlag(LoggingAction):
-    def __init__(
-        self, name: str, container: BaseModel, flag: str, value: bool = True
-    ) -> None:
-        self.container = container
-        self.flag = flag
-        self.flag_value = value
-        super().__init__(name=name)
-
-    def update(self) -> py_trees.common.Status:
-        setattr(self.container, self.flag, self.flag_value)
-        self.logger.info(f"Set flag {self.flag} to {self.flag_value}")
-        self.feedback_message = f"flag {self.flag} set to {self.flag_value}"
-        return py_trees.common.Status.SUCCESS
-
-
 ### Conditions ###
 
 
@@ -279,17 +261,6 @@ class IsTargetRefIdentified(py_trees.behaviour.Behaviour):
 
     def update(self) -> py_trees.common.Status:
         if self.package_meta.ref is not None:
-            return py_trees.common.Status.SUCCESS
-        return py_trees.common.Status.FAILURE
-
-
-class IsWorkflowTriggerFailed(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, workflow: Workflow) -> None:
-        self.workflow = workflow
-        super().__init__(name=name)
-
-    def update(self) -> py_trees.common.Status:
-        if self.workflow.ephemeral.trigger_failed:
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE
 
@@ -336,27 +307,5 @@ class IsWorkflowSuccessful(py_trees.behaviour.Behaviour):
 
     def update(self) -> py_trees.common.Status:
         if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
-            return py_trees.common.Status.SUCCESS
-        return py_trees.common.Status.FAILURE
-
-
-class IsWorkflowTimedOut(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, workflow: Workflow) -> None:
-        self.workflow = workflow
-        super().__init__(name=name)
-
-    def update(self) -> py_trees.common.Status:
-        if self.workflow.ephemeral.timed_out:
-            return py_trees.common.Status.SUCCESS
-        return py_trees.common.Status.FAILURE
-
-
-class IsWorkflowIdentifyFailed(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, workflow: Workflow) -> None:
-        self.workflow = workflow
-        super().__init__(name=name)
-
-    def update(self) -> py_trees.common.Status:
-        if self.workflow.ephemeral.identify_failed:
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE

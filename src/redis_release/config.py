@@ -1,7 +1,7 @@
 """Configuration management for Redis release automation."""
 
 from pathlib import Path
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field
@@ -11,11 +11,14 @@ class PackageConfig(BaseModel):
     """Configuration for a package type."""
 
     repo: str
+    ref: Optional[str] = None
     workflow_branch: str = "autodetect"
     build_workflow: Union[str, bool] = Field(default=False)
     build_timeout_minutes: int = Field(default=45)
+    build_inputs: Dict[str, str] = Field(default_factory=dict)
     publish_workflow: Union[str, bool] = Field(default=False)
     publish_timeout_minutes: int = Field(default=10)
+    publish_inputs: Dict[str, str] = Field(default_factory=dict)
 
 
 class Config(BaseModel):

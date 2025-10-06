@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Field
+from rich.pretty import pretty_repr
 
 from redis_release.models import WorkflowConclusion, WorkflowStatus
 
@@ -32,6 +33,7 @@ class Workflow(BaseModel):
     started_at: Optional[datetime] = None
     run_id: Optional[int] = None
     url: Optional[str] = None
+    timeout_minutes: int = 45
     status: Optional[WorkflowStatus] = None
     conclusion: Optional[WorkflowConclusion] = None
     ephemeral: WorkflowEphemeral = Field(
@@ -51,6 +53,7 @@ class PackageMetaEphemeral(BaseModel):
     """Ephemeral package metadata that is not persisted."""
 
     force_rebuild: bool = False
+    identify_ref_failed: bool = False
 
 
 class PackageMeta(BaseModel):
@@ -113,19 +116,21 @@ class ReleaseState(BaseModel):
             # Initialize package metadata
             package_meta = PackageMeta(
                 repo=package_config.repo,
-                ref=None,
+                ref=package_config.ref,
             )
 
             # Initialize build workflow
             build_workflow = Workflow(
                 workflow_file=package_config.build_workflow,
-                inputs={},
+                inputs=package_config.build_inputs.copy(),
+                timeout_minutes=package_config.build_timeout_minutes,
             )
 
             # Initialize publish workflow
             publish_workflow = Workflow(
                 workflow_file=package_config.publish_workflow,
-                inputs={},
+                inputs=package_config.publish_inputs.copy(),
+                timeout_minutes=package_config.publish_timeout_minutes,
             )
 
             # Create package state with initialized workflows
@@ -193,6 +198,7 @@ class StateSyncer:
                             self._state.packages[
                                 package_name
                             ].meta.ephemeral.force_rebuild = True
+            logger.debug(pretty_repr(self._state))
         return self._state
 
     def load(self) -> Optional[ReleaseState]:
