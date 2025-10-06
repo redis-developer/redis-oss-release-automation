@@ -1,7 +1,10 @@
 """Async GitHub API client for workflow operations."""
 
+import io
+import json
 import logging
 import re
+import zipfile
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
@@ -500,6 +503,87 @@ class GitHubClientAsync:
         except ValueError as e:
             logger.error(f"[red]Failed to get artifacts: {e}[/red]")
             return {}
+
+    async def download_and_extract_json_result(
+        self,
+        repo: str,
+        artifacts: Dict[str, Dict],
+        artifact_name: str,
+        json_file_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Download artifact and extract JSON result from it.
+
+        Args:
+            repo: Repository name
+            artifacts: Dictionary of artifacts from get_workflow_artifacts
+            artifact_name: Name of the artifact to extract from
+            json_file_name: Name of the JSON file within the artifact
+
+        Returns:
+            Parsed JSON content from the specified file, or None if not found
+        """
+        if artifact_name not in artifacts:
+            logger.warning(f"[yellow]No {artifact_name} artifact found[/yellow]")
+            return None
+
+        target_artifact = artifacts[artifact_name]
+        artifact_id = target_artifact.get("id")
+
+        if not artifact_id:
+            logger.error(f"[red]{artifact_name} artifact has no ID[/red]")
+            return None
+
+        logger.info(
+            f"[blue]Extracting {json_file_name} from artifact {artifact_id}[/blue]"
+        )
+
+        # Download the artifact and extract JSON file
+        download_url = target_artifact.get("archive_download_url")
+        if not download_url:
+            logger.error(f"[red]{artifact_name} artifact has no download URL[/red]")
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        try:
+            # Download the artifact zip file
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    download_url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    if response.status >= 400:
+                        logger.error(
+                            f"[red]Failed to download artifact:[/red] HTTP {response.status}"
+                        )
+                        response.raise_for_status()
+
+                    artifact_content = await response.read()
+
+            # Extract JSON file from the zip
+            with zipfile.ZipFile(io.BytesIO(artifact_content)) as zip_file:
+                if json_file_name in zip_file.namelist():
+                    with zip_file.open(json_file_name) as json_file_obj:
+                        result_data = json.load(json_file_obj)
+                        logger.info(
+                            f"[green]Successfully extracted {json_file_name}[/green]"
+                        )
+                        return result_data
+                else:
+                    logger.error(f"[red]{json_file_name} not found in artifact[/red]")
+                    return None
+
+        except aiohttp.ClientError as e:
+            logger.error(f"[red]Failed to download {artifact_name} artifact: {e}[/red]")
+            return None
+        except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
+            logger.error(f"[red]Failed to extract {json_file_name}: {e}[/red]")
+            return None
 
     def _extract_uuid(self, text: str) -> Optional[str]:
         """Extract UUID from a string if present.
