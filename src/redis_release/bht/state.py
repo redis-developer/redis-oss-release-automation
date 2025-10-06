@@ -23,6 +23,8 @@ class WorkflowEphemeral(BaseModel):
     trigger_failed: bool = False
     identify_failed: bool = False
     timed_out: bool = False
+    artifacts_download_failed: bool = False
+    extract_result_failed: bool = False
 
 
 class Workflow(BaseModel):
@@ -36,17 +38,11 @@ class Workflow(BaseModel):
     timeout_minutes: int = 45
     status: Optional[WorkflowStatus] = None
     conclusion: Optional[WorkflowConclusion] = None
+    artifacts: Dict[str, Any] = Field(default_factory=dict)
+    result: Optional[Dict[str, Any]] = None
     ephemeral: WorkflowEphemeral = Field(
         default_factory=WorkflowEphemeral, exclude=True
     )
-
-
-class Phase(BaseModel):
-    """State for a workflow phase (build or publish)."""
-
-    workflow: Workflow = Field(default_factory=Workflow)
-    artifacts: Dict[str, Any] = Field(default_factory=dict)
-    result: Optional[Dict[str, Any]] = None
 
 
 class PackageMetaEphemeral(BaseModel):
@@ -70,8 +66,8 @@ class Package(BaseModel):
     """State for a package in the release."""
 
     meta: PackageMeta = Field(default_factory=PackageMeta)
-    build: Phase = Field(default_factory=Phase)
-    publish: Phase = Field(default_factory=Phase)
+    build: Workflow = Field(default_factory=Workflow)
+    publish: Workflow = Field(default_factory=Workflow)
 
 
 class ReleaseMeta(BaseModel):
@@ -136,8 +132,8 @@ class ReleaseState(BaseModel):
             # Create package state with initialized workflows
             packages[package_name] = Package(
                 meta=package_meta,
-                build=Phase(workflow=build_workflow),
-                publish=Phase(workflow=publish_workflow),
+                build=build_workflow,
+                publish=publish_workflow,
             )
 
         return cls(packages=packages)

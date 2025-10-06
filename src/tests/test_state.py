@@ -32,16 +32,11 @@ class TestReleaseStateFromConfig:
         assert "test-package" in state.packages
         assert state.packages["test-package"].meta.repo == "test/repo"
         assert state.packages["test-package"].meta.ref is None
-        assert (
-            state.packages["test-package"].build.workflow.workflow_file == "build.yml"
-        )
-        assert (
-            state.packages["test-package"].publish.workflow.workflow_file
-            == "publish.yml"
-        )
+        assert state.packages["test-package"].build.workflow_file == "build.yml"
+        assert state.packages["test-package"].publish.workflow_file == "publish.yml"
         # Check default timeout values
-        assert state.packages["test-package"].build.workflow.timeout_minutes == 45
-        assert state.packages["test-package"].publish.workflow.timeout_minutes == 10
+        assert state.packages["test-package"].build.timeout_minutes == 45
+        assert state.packages["test-package"].publish.timeout_minutes == 10
 
     def test_from_config_with_custom_timeout_values(self) -> None:
         """Test from_config respects custom timeout values from config."""
@@ -60,8 +55,8 @@ class TestReleaseStateFromConfig:
 
         state = ReleaseState.from_config(config)
 
-        assert state.packages["test-package"].build.workflow.timeout_minutes == 60
-        assert state.packages["test-package"].publish.workflow.timeout_minutes == 20
+        assert state.packages["test-package"].build.timeout_minutes == 60
+        assert state.packages["test-package"].publish.timeout_minutes == 20
 
     def test_from_config_with_ref(self) -> None:
         """Test from_config respects ref field from config."""
@@ -98,11 +93,11 @@ class TestReleaseStateFromConfig:
 
         state = ReleaseState.from_config(config)
 
-        assert state.packages["test-package"].build.workflow.inputs == {
+        assert state.packages["test-package"].build.inputs == {
             "key1": "value1",
             "key2": "value2",
         }
-        assert state.packages["test-package"].publish.workflow.inputs == {
+        assert state.packages["test-package"].publish.inputs == {
             "publish_key": "publish_value"
         }
 
@@ -128,10 +123,10 @@ class TestReleaseStateFromConfig:
 
         pkg = state.packages["test-package"]
         assert pkg.meta.ref == "main"
-        assert pkg.build.workflow.timeout_minutes == 60
-        assert pkg.build.workflow.inputs == {"build_arg": "build_val"}
-        assert pkg.publish.workflow.timeout_minutes == 20
-        assert pkg.publish.workflow.inputs == {"publish_arg": "publish_val"}
+        assert pkg.build.timeout_minutes == 60
+        assert pkg.build.inputs == {"build_arg": "build_val"}
+        assert pkg.publish.timeout_minutes == 20
+        assert pkg.publish.inputs == {"publish_arg": "publish_val"}
 
     def test_from_config_with_empty_build_workflow(self) -> None:
         """Test from_config fails when build_workflow is empty."""
@@ -220,8 +215,8 @@ class TestReleaseStateFromConfig:
         assert len(state.packages) == 2
         assert "package1" in state.packages
         assert "package2" in state.packages
-        assert state.packages["package1"].build.workflow.workflow_file == "build1.yml"
-        assert state.packages["package2"].build.workflow.workflow_file == "build2.yml"
+        assert state.packages["package1"].build.workflow_file == "build1.yml"
+        assert state.packages["package2"].build.workflow_file == "build2.yml"
 
     def test_from_config_error_message_includes_package_name(self) -> None:
         """Test that error messages include the package name for debugging."""
@@ -352,16 +347,16 @@ class TestWorkflowEphemeral:
         state = ReleaseState.from_config(config)
 
         # Modify ephemeral fields
-        state.packages["test-package"].build.workflow.ephemeral.trigger_failed = True
-        state.packages["test-package"].publish.workflow.ephemeral.timed_out = True
+        state.packages["test-package"].build.ephemeral.trigger_failed = True
+        state.packages["test-package"].publish.ephemeral.timed_out = True
 
         # Serialize to JSON
         json_str = state.model_dump_json()
         json_data = json.loads(json_str)
 
         # Verify ephemeral fields are not in JSON
-        build_workflow = json_data["packages"]["test-package"]["build"]["workflow"]
-        publish_workflow = json_data["packages"]["test-package"]["publish"]["workflow"]
+        build_workflow = json_data["packages"]["test-package"]["build"]
+        publish_workflow = json_data["packages"]["test-package"]["publish"]
 
         assert "ephemeral" not in build_workflow
         assert "trigger_failed" not in build_workflow

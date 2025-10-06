@@ -63,7 +63,10 @@ class FlagGuard(DecoratorWithLogging):
         self.guard_status = guard_status
         self.raise_on = raise_on if raise_on is not None else [common.Status.FAILURE]
         if name is None:
-            name = f"Guard({flag}={flag_value})"
+            if self.flag_value is True:
+                name = f"Unless {flag}"
+            else:
+                name = f"If {flag}"
         super(FlagGuard, self).__init__(name=name, child=child)
 
     def _is_flag_active(self) -> bool:

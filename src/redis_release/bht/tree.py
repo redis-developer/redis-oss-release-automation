@@ -38,7 +38,7 @@ def create_root_node(
 
     # Get package and workflow
     package = state.packages["docker"]
-    workflow = package.build.workflow
+    workflow = package.build
     package_meta = package.meta
     release_meta = state.meta
 
