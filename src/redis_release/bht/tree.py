@@ -5,19 +5,11 @@ from typing import Tuple
 
 import py_trees
 from py_trees.behaviour import Behaviour
-from py_trees.composites import Selector, Sequence
-from py_trees.decorators import Inverter
 
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
 from .args import ReleaseArgs
-from .behaviours import IsWorkflowSuccessful
-from .composites import (
-    FindWorkflowByUUID,
-    IdentifyTargetRefGoal,
-    TriggerWorkflowGoal,
-    WaitForWorkflowCompletion,
-)
+from .composites import ReleasePhaseGoal
 from .state import ReleaseState, StateSyncer
 
 logger = logging.getLogger(__name__)
@@ -38,45 +30,25 @@ def create_root_node(
 
     # Get package and workflow
     package = state.packages["docker"]
-    workflow = package.build
     package_meta = package.meta
     release_meta = state.meta
 
-    root = Sequence("Workflow Goal", False)
-    workflow_run = Selector("Workflow Run", False)
+    # Create build phase goal
+    build_phase = ReleasePhaseGoal(
+        phase_name="build",
+        workflow=package.build,
+        artifact_name="build-result",
+        package_meta=package_meta,
+        release_meta=release_meta,
+        github_client=github_client,
+        log_prefix="DOCKER",
+    )
 
-    is_workflow_successful = IsWorkflowSuccessful("Is Workflow Successful?", workflow)
-    identify_workflow = FindWorkflowByUUID(
-        "Identify Workflow Goal", workflow, package_meta, github_client, "DOCKER"
-    )
-    trigger_workflow = TriggerWorkflowGoal(
-        "Trigger Workflow Goal",
-        workflow,
-        package_meta,
-        release_meta,
-        github_client,
-        "DOCKER",
-    )
-    identify_target_ref = IdentifyTargetRefGoal(
-        "Identify Target Ref Goal", package_meta, release_meta, "DOCKER"
-    )
-    wait_for_completion = WaitForWorkflowCompletion(
-        "Workflow Completion Goal", workflow, package_meta, github_client, "DOCKER"
-    )
-    workflow_run.add_children(
-        [
-            wait_for_completion,
-            identify_workflow,
-            trigger_workflow,
-            identify_target_ref,
-        ]
-    )
-    root.add_children([workflow_run, is_workflow_successful])
-    return root
+    return build_phase
 
 
 async def async_tick_tock(
-    tree: py_trees.trees.BehaviourTree, state_syncer: StateSyncer, period: float = 3.0
+    tree: py_trees.trees.BehaviourTree, state_syncer: StateSyncer, cutoff: int = 100
 ) -> None:
     """Drive Behaviour tree using async event loop
 
@@ -95,8 +67,13 @@ async def async_tick_tock(
     )
     tree.tick()
     count_no_tasks_loop = 0
+    count = 0
     while True:
+        count += 1
         state_syncer.sync()
+        if count > cutoff:
+            logger.info(f"The Tree has not converged, hit cutoff limit {cutoff}")
+            break
         print(
             py_trees.display.unicode_tree(
                 tree.root, show_status=True, show_only_visited=False
@@ -108,7 +85,7 @@ async def async_tick_tock(
             count_no_tasks_loop += 1
             # tick the tree one more time in case flipped status would lead to new tasks
             if count_no_tasks_loop > 1:
-                logger.info(f"The Tree converged to {tree.root.status}")
+                logger.info(f"The Tree has converged to {tree.root.status}")
                 break
         else:
             count_no_tasks_loop = 0

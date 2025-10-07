@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import py_trees
 
-from redis_release.bht.composites import TriggerWorkflowGoal
+from redis_release.bht.composites import GetResultGoal, TriggerWorkflowGoal
 from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
 from redis_release.github_client_async import GitHubClientAsync
 
@@ -87,3 +87,182 @@ async def test_trigger_workflow_goal_handles_trigger_failure() -> None:
     assert (
         tree.root.status == py_trees.common.Status.FAILURE
     ), "Tree should end in FAILURE state"
+
+
+async def test_get_result_goal_with_existing_artifacts() -> None:
+    """Test GetResultGoal when artifacts already exist.
+
+    This test verifies:
+    1. When artifacts exist, ExtractArtifactResult is called
+    2. The result is extracted and stored in workflow.result
+    3. GetWorkflowArtifactsList is not called
+    """
+    # Setup state
+    workflow = Workflow(
+        workflow_file="test.yml",
+        run_id=123,
+        artifacts={"test-artifact": {"id": 456}},
+    )
+    package_meta = PackageMeta(repo="test/repo")
+
+    # Mock GitHub client
+    github_client = MagicMock(spec=GitHubClientAsync)
+    github_client.download_and_extract_json_result = AsyncMock(
+        return_value={"key": "value"}
+    )
+
+    # Create the composite
+    get_result_goal = GetResultGoal(
+        name="Get Result Goal",
+        workflow=workflow,
+        artifact_name="test-artifact",
+        package_meta=package_meta,
+        github_client=github_client,
+    )
+
+    # Setup tree
+    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree.setup(timeout=15)
+
+    # Run the tree
+    await async_tick_tock(tree, cutoff=10)
+
+    # Assertions
+    assert workflow.result == {"key": "value"}, "Result should be extracted"
+    github_client.download_and_extract_json_result.assert_called_once()
+
+
+async def test_get_result_goal_downloads_artifacts_first() -> None:
+    """Test GetResultGoal downloads artifacts when they don't exist.
+
+    This test verifies:
+    1. When artifacts don't exist, GetWorkflowArtifactsList is called
+    2. The artifacts list is downloaded and stored in workflow.artifacts
+    """
+    # Setup state
+    workflow = Workflow(
+        workflow_file="test.yml",
+        run_id=123,
+        artifacts={},  # No artifacts initially
+    )
+    package_meta = PackageMeta(repo="test/repo")
+
+    # Mock GitHub client
+    github_client = MagicMock(spec=GitHubClientAsync)
+    github_client.get_workflow_artifacts = AsyncMock(
+        return_value={"test-artifact": {"id": 456}}
+    )
+
+    # Create the composite
+    get_result_goal = GetResultGoal(
+        name="Get Result Goal",
+        workflow=workflow,
+        artifact_name="test-artifact",
+        package_meta=package_meta,
+        github_client=github_client,
+    )
+
+    # Setup tree
+    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree.setup(timeout=15)
+
+    # Run the tree
+    await async_tick_tock(tree, cutoff=10)
+
+    # Assertions
+    assert workflow.artifacts == {
+        "test-artifact": {"id": 456}
+    }, "Artifacts should be downloaded"
+    github_client.get_workflow_artifacts.assert_called_once_with("test/repo", 123)
+
+
+async def test_get_result_goal_handles_download_failure() -> None:
+    """Test GetResultGoal handles artifact download failure.
+
+    This test verifies:
+    1. When GetWorkflowArtifactsList fails, artifacts_download_failed flag is set
+    2. The tree ends in FAILURE state
+    """
+    # Setup state
+    workflow = Workflow(
+        workflow_file="test.yml",
+        run_id=123,
+        artifacts={},
+    )
+    package_meta = PackageMeta(repo="test/repo")
+
+    # Mock GitHub client
+    github_client = MagicMock(spec=GitHubClientAsync)
+    github_client.get_workflow_artifacts = AsyncMock(
+        side_effect=Exception("Download failed")
+    )
+
+    # Create the composite
+    get_result_goal = GetResultGoal(
+        name="Get Result Goal",
+        workflow=workflow,
+        artifact_name="test-artifact",
+        package_meta=package_meta,
+        github_client=github_client,
+    )
+
+    # Setup tree
+    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree.setup(timeout=15)
+
+    # Run the tree
+    await async_tick_tock(tree, cutoff=10)
+
+    # Assertions
+    assert tree.root.status == py_trees.common.Status.FAILURE
+    assert workflow.ephemeral.artifacts_download_failed is True
+    github_client.get_workflow_artifacts.assert_called_once()
+
+
+async def test_get_result_goal_handles_extract_failure() -> None:
+    """Test GetResultGoal handles result extraction failure and falls back.
+
+    This test verifies:
+    1. When ExtractArtifactResult fails, extract_result_failed flag is set
+    2. The Selector falls back to GetWorkflowArtifactsList
+    3. Artifacts are downloaded but goal fails because no result was extracted
+    """
+    # Setup state
+    workflow = Workflow(
+        workflow_file="test.yml",
+        run_id=123,
+        artifacts={"test-artifact": {"id": 456}},
+    )
+    package_meta = PackageMeta(repo="test/repo")
+
+    # Mock GitHub client
+    github_client = MagicMock(spec=GitHubClientAsync)
+    github_client.download_and_extract_json_result = AsyncMock(return_value=None)
+    github_client.get_workflow_artifacts = AsyncMock(
+        return_value={"test-artifact": {"id": 456}}
+    )
+
+    # Create the composite
+    get_result_goal = GetResultGoal(
+        name="Get Result Goal",
+        workflow=workflow,
+        artifact_name="test-artifact",
+        package_meta=package_meta,
+        github_client=github_client,
+    )
+
+    # Setup tree
+    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree.setup(timeout=15)
+
+    # Run the tree
+    await async_tick_tock(tree, cutoff=10)
+
+    # Assertions - Goal fails because no result was extracted (even though artifacts were downloaded)
+    assert workflow.ephemeral.extract_result_failed is True
+    assert workflow.artifacts == {
+        "test-artifact": {"id": 456}
+    }, "Artifacts should be downloaded"
+    # Both methods should be called - extract fails, then download succeeds
+    github_client.download_and_extract_json_result.assert_called_once()
+    github_client.get_workflow_artifacts.assert_called_once()

@@ -309,3 +309,130 @@ class IsWorkflowSuccessful(py_trees.behaviour.Behaviour):
         if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
             return py_trees.common.Status.SUCCESS
         return py_trees.common.Status.FAILURE
+
+
+class HasWorkflowArtifacts(py_trees.behaviour.Behaviour):
+    def __init__(self, name: str, workflow: Workflow) -> None:
+        self.workflow = workflow
+        super().__init__(name=name)
+
+    def update(self) -> py_trees.common.Status:
+        if self.workflow.artifacts:
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+
+class HasWorkflowResult(py_trees.behaviour.Behaviour):
+    def __init__(self, name: str, workflow: Workflow) -> None:
+        self.workflow = workflow
+        super().__init__(name=name)
+
+    def update(self) -> py_trees.common.Status:
+        if self.workflow.result is not None:
+            return py_trees.common.Status.SUCCESS
+        return py_trees.common.Status.FAILURE
+
+
+### Actions ###
+
+
+class GetWorkflowArtifactsList(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        github_client: GitHubClientAsync,
+        package_meta: PackageMeta,
+    ) -> None:
+        self.github_client = github_client
+        self.workflow = workflow
+        self.package_meta = package_meta
+        super().__init__(name=name)
+
+    def initialise(self) -> None:
+        if self.workflow.run_id is None:
+            self.logger.error(
+                "[red]Workflow run_id is None - cannot get artifacts[/red]"
+            )
+            return
+
+        self.task = asyncio.create_task(
+            self.github_client.get_workflow_artifacts(
+                self.package_meta.repo, self.workflow.run_id
+            )
+        )
+
+    def update(self) -> py_trees.common.Status:
+        try:
+            assert self.task is not None
+
+            if not self.task.done():
+                return py_trees.common.Status.RUNNING
+
+            result = self.task.result()
+            self.workflow.artifacts = result
+            self.logger.info(
+                f"[green]Downloaded artifacts list:[/green] {len(result)} artifacts"
+            )
+            self.feedback_message = f"Downloaded {len(result)} artifacts"
+            return py_trees.common.Status.SUCCESS
+        except Exception as e:
+            self.feedback_message = "failed to download artifacts list"
+            return self.log_exception_and_return_failure(e)
+
+
+class ExtractArtifactResult(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        artifact_name: str,
+        github_client: GitHubClientAsync,
+        package_meta: PackageMeta,
+    ) -> None:
+        self.github_client = github_client
+        self.workflow = workflow
+        self.artifact_name = artifact_name
+        self.package_meta = package_meta
+        super().__init__(name=name)
+
+    def initialise(self) -> None:
+        if not self.workflow.artifacts:
+            self.logger.error(
+                "[red]Workflow artifacts is empty - cannot extract result[/red]"
+            )
+            return
+
+        self.task = asyncio.create_task(
+            self.github_client.download_and_extract_json_result(
+                self.package_meta.repo,
+                self.workflow.artifacts,
+                self.artifact_name,
+                "result.json",
+            )
+        )
+
+    def update(self) -> py_trees.common.Status:
+        try:
+            assert self.task is not None
+
+            if not self.task.done():
+                return py_trees.common.Status.RUNNING
+
+            result = self.task.result()
+            if result is None:
+                self.logger.error(
+                    f"[red]Failed to extract result from {self.artifact_name}[/red]"
+                )
+                self.feedback_message = "failed to extract result"
+                return py_trees.common.Status.FAILURE
+
+            self.workflow.result = result
+            self.logger.info(
+                f"[green]Extracted result from {self.artifact_name}[/green]"
+            )
+            self.feedback_message = f"Extracted result from {self.artifact_name}"
+            return py_trees.common.Status.SUCCESS
+        except Exception as e:
+            self.feedback_message = "failed to extract result"
+            return self.log_exception_and_return_failure(e)
