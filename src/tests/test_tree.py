@@ -1,18 +1,22 @@
 """Tests for behavior tree composites."""
 
 import asyncio
+import logging
 from typing import Optional
 from unittest.mock import AsyncMock, MagicMock
 
-import py_trees
+from py_trees.common import Status
+from py_trees.trees import BehaviourTree
 
 from redis_release.bht.composites import GetResultGoal, TriggerWorkflowGoal
 from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
 from redis_release.github_client_async import GitHubClientAsync
 
+logger = logging.getLogger(__name__)
+
 
 async def async_tick_tock(
-    tree: py_trees.trees.BehaviourTree,
+    tree: BehaviourTree,
     cutoff: int = 100,
     period: float = 0.01,
 ) -> None:
@@ -70,7 +74,7 @@ async def test_trigger_workflow_goal_handles_trigger_failure() -> None:
     )
 
     # Setup tree
-    tree = py_trees.trees.BehaviourTree(root=trigger_goal)
+    tree = BehaviourTree(root=trigger_goal)
     tree.setup(timeout=15)
 
     # Run the tree
@@ -84,9 +88,7 @@ async def test_trigger_workflow_goal_handles_trigger_failure() -> None:
         f"GitHub trigger_workflow should be called exactly once, "
         f"but was called {github_client.trigger_workflow.call_count} times"
     )
-    assert (
-        tree.root.status == py_trees.common.Status.FAILURE
-    ), "Tree should end in FAILURE state"
+    assert tree.root.status == Status.FAILURE, "Tree should end in FAILURE state"
 
 
 async def test_get_result_goal_with_existing_artifacts() -> None:
@@ -121,7 +123,7 @@ async def test_get_result_goal_with_existing_artifacts() -> None:
     )
 
     # Setup tree
-    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree = BehaviourTree(root=get_result_goal)
     tree.setup(timeout=15)
 
     # Run the tree
@@ -163,7 +165,7 @@ async def test_get_result_goal_downloads_artifacts_first() -> None:
     )
 
     # Setup tree
-    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree = BehaviourTree(root=get_result_goal)
     tree.setup(timeout=15)
 
     # Run the tree
@@ -207,14 +209,14 @@ async def test_get_result_goal_handles_download_failure() -> None:
     )
 
     # Setup tree
-    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree = BehaviourTree(root=get_result_goal)
     tree.setup(timeout=15)
 
     # Run the tree
     await async_tick_tock(tree, cutoff=10)
 
     # Assertions
-    assert tree.root.status == py_trees.common.Status.FAILURE
+    assert tree.root.status == Status.FAILURE
     assert workflow.ephemeral.artifacts_download_failed is True
     github_client.get_workflow_artifacts.assert_called_once()
 
@@ -252,7 +254,7 @@ async def test_get_result_goal_handles_extract_failure() -> None:
     )
 
     # Setup tree
-    tree = py_trees.trees.BehaviourTree(root=get_result_goal)
+    tree = BehaviourTree(root=get_result_goal)
     tree.setup(timeout=15)
 
     # Run the tree

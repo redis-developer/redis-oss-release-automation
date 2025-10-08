@@ -10,9 +10,15 @@ from redis_release.bht.logging_wrapper import PyTreesLoggerWrapper
 class DecoratorWithLogging(Decorator):
     logger: PyTreesLoggerWrapper
 
-    def __init__(self, name: str, child: behaviour.Behaviour) -> None:
+    def __init__(
+        self, name: str, child: behaviour.Behaviour, log_prefix: str = ""
+    ) -> None:
         super().__init__(name=name, child=child)
-        self.logger = PyTreesLoggerWrapper(logging.getLogger(self.name))
+        if log_prefix != "":
+            log_prefix = f"{log_prefix}."
+        self.logger = PyTreesLoggerWrapper(
+            logging.getLogger(f"{log_prefix}{self.name}")
+        )
 
 
 class FlagGuard(DecoratorWithLogging):
@@ -45,6 +51,7 @@ class FlagGuard(DecoratorWithLogging):
         flag_value: bool = True,
         guard_status: common.Status = common.Status.FAILURE,
         raise_on: Optional[List[common.Status]] = None,
+        log_prefix: str = "",
     ):
         if not hasattr(container, flag):
             raise ValueError(
@@ -67,7 +74,7 @@ class FlagGuard(DecoratorWithLogging):
                 name = f"Unless {flag}"
             else:
                 name = f"If {flag}"
-        super(FlagGuard, self).__init__(name=name, child=child)
+        super(FlagGuard, self).__init__(name=name, child=child, log_prefix=log_prefix)
 
     def _is_flag_active(self) -> bool:
         current_flag_value = getattr(self.container, self.flag, None)

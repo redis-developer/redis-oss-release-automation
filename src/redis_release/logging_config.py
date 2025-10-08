@@ -31,6 +31,7 @@ def setup_logging(level: int = logging.INFO, show_path: bool = True) -> None:
                 show_path=show_path,
                 markup=True,  # Enable Rich markup in log messages
                 tracebacks_show_locals=True,  # Show local variables in tracebacks
+                omit_repeated_times=False,  # Force timestamp on every line
             )
         ],
     )

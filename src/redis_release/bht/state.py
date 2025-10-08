@@ -38,7 +38,7 @@ class Workflow(BaseModel):
     timeout_minutes: int = 45
     status: Optional[WorkflowStatus] = None
     conclusion: Optional[WorkflowConclusion] = None
-    artifacts: Dict[str, Any] = Field(default_factory=dict)
+    artifacts: Optional[Dict[str, Any]] = None
     result: Optional[Dict[str, Any]] = None
     ephemeral: WorkflowEphemeral = Field(
         default_factory=WorkflowEphemeral, exclude=True
