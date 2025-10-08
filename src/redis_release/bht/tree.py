@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
-from typing import Tuple
+from typing import Tuple, Union
 
 from py_trees.behaviour import Behaviour
+from py_trees.composites import Selector, Sequence
 from py_trees.display import unicode_tree
 from py_trees.trees import BehaviourTree
 from rich.text import Text
@@ -13,6 +14,8 @@ from ..github_client_async import GitHubClientAsync
 from .args import ReleaseArgs
 from .backchain import latch_chains
 from .ppas import (
+    create_download_artifacts_ppa,
+    create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
     create_identify_target_ref_ppa,
     create_trigger_workflow_ppa,
@@ -49,14 +52,23 @@ def create_root_node(
     state: ReleaseState, github_client: GitHubClientAsync
 ) -> Behaviour:
 
-    root = create_workflow_success_tree_branch(state, github_client)
+    root = create_package_workflow_tree_branch(state, github_client)
 
     return root
 
 
+def create_package_workflow_tree_branch(
+    state: ReleaseState, github_client: GitHubClientAsync
+) -> Union[Selector, Sequence]:
+    workflow_result = create_workflow_result_tree_branch(state, github_client)
+    workflow_success = create_workflow_success_tree_branch(state, github_client)
+    latch_chains(workflow_result, workflow_success)
+    return workflow_result
+
+
 def create_workflow_success_tree_branch(
     state: ReleaseState, github_client: GitHubClientAsync
-) -> Behaviour:
+) -> Union[Selector, Sequence]:
 
     workflow_success = create_workflow_success_ppa(
         state.packages["docker"].build,
@@ -94,6 +106,26 @@ def create_workflow_success_tree_branch(
         identify_target_ref,
     )
     return workflow_success
+
+
+def create_workflow_result_tree_branch(
+    state: ReleaseState, github_client: GitHubClientAsync
+) -> Union[Selector, Sequence]:
+    extract_artifact_result = create_extract_artifact_result_ppa(
+        state.packages["docker"].build,
+        "release_handle",
+        state.packages["docker"].meta,
+        github_client,
+        "docker",
+    )
+    download_artifacts = create_download_artifacts_ppa(
+        state.packages["docker"].build,
+        state.packages["docker"].meta,
+        github_client,
+        "docker",
+    )
+    latch_chains(extract_artifact_result, download_artifacts)
+    return extract_artifact_result
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:

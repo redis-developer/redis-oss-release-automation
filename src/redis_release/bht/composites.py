@@ -54,7 +54,7 @@ class FindWorkflowByUUID(FlagGuard):
             self.max_retries,
         )
         super().__init__(
-            None if name is "" else name,
+            None if name == "" else name,
             identify_loop,
             workflow.ephemeral,
             "identify_failed",
@@ -126,7 +126,7 @@ class TriggerWorkflowGuarded(FlagGuard):
             log_prefix=log_prefix,
         )
         super().__init__(
-            None if name is "" else name,
+            None if name == "" else name,
             trigger_workflow,
             workflow.ephemeral,
             "trigger_failed",
@@ -165,7 +165,7 @@ class DownloadArtifactsListGuarded(FlagGuard):
         log_prefix: str = "",
     ) -> None:
         super().__init__(
-            name if name is not "" else None,
+            None if name == "" else name,
             GetWorkflowArtifactsList(
                 "Get Workflow Artifacts List",
                 workflow,
@@ -190,7 +190,7 @@ class ExtractArtifactResultGuarded(FlagGuard):
         log_prefix: str = "",
     ) -> None:
         super().__init__(
-            name if name is not "" else None,
+            None if name == "" else name,
             ExtractArtifactResult(
                 "Extract Artifact Result",
                 workflow,

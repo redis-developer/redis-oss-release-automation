@@ -11,10 +11,31 @@ from rich.console import Console
 from rich.table import Table
 
 from redis_release.bht.args import ReleaseArgs
-from redis_release.bht.state import ReleaseState
+from redis_release.bht.state import (
+    Package,
+    PackageMeta,
+    ReleaseMeta,
+    ReleaseState,
+    Workflow,
+)
 
-from .bht.tree import async_tick_tock, initialize_tree_and_state
+from .bht.ppas import (
+    create_download_artifacts_ppa,
+    create_extract_artifact_result_ppa,
+    create_find_workflow_by_uuid_ppa,
+    create_identify_target_ref_ppa,
+    create_trigger_workflow_ppa,
+    create_workflow_completion_ppa,
+    create_workflow_success_ppa,
+)
+from .bht.tree import (
+    async_tick_tock,
+    create_workflow_result_tree_branch,
+    create_workflow_success_tree_branch,
+    initialize_tree_and_state,
+)
 from .config import load_config
+from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
@@ -200,8 +221,14 @@ def release_print_bht(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Name of specific PPA or tree branch to print. PPAs: 'workflow_success', 'workflow_completion', 'find_workflow', 'trigger_workflow', 'identify_target_ref', 'download_artifacts', 'extract_artifact_result'. Tree branches: 'workflow_success_branch', 'workflow_result_branch'",
+    ),
 ) -> None:
-    """Print and render (using graphviz) the release behaviour tree."""
+    """Print and render (using graphviz) the release behaviour tree or a specific PPA."""
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -211,9 +238,70 @@ def release_print_bht(
         force_rebuild=[],
     )
 
-    tree, _ = initialize_tree_and_state(config, args)
-    render_dot_tree(tree.root)
-    print(unicode_tree(tree.root))
+    if name:
+        # Print specific PPA or tree branch
+        github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN", "dummy"))
+
+        # Create mock state objects for PPA creation
+        workflow = Workflow(workflow_file="test.yml", inputs={})
+        package_meta = PackageMeta(repo="redis/redis", ref="main")
+        release_meta = ReleaseMeta(tag=release_tag)
+        log_prefix = "test"
+
+        # Create mock ReleaseState for tree branch functions
+        package = Package(
+            meta=package_meta,
+            build=workflow,
+            publish=Workflow(workflow_file="publish.yml", inputs={}),
+        )
+        state = ReleaseState(meta=release_meta, packages={"docker": package})
+
+        # Map PPA names to creation functions
+        ppa_creators = {
+            "workflow_success": lambda: create_workflow_success_ppa(
+                workflow, log_prefix
+            ),
+            "workflow_completion": lambda: create_workflow_completion_ppa(
+                workflow, package_meta, github_client, log_prefix
+            ),
+            "find_workflow": lambda: create_find_workflow_by_uuid_ppa(
+                workflow, package_meta, github_client, log_prefix
+            ),
+            "trigger_workflow": lambda: create_trigger_workflow_ppa(
+                workflow, package_meta, release_meta, github_client, log_prefix
+            ),
+            "identify_target_ref": lambda: create_identify_target_ref_ppa(
+                package_meta, release_meta, log_prefix
+            ),
+            "download_artifacts": lambda: create_download_artifacts_ppa(
+                workflow, package_meta, github_client, log_prefix
+            ),
+            "extract_artifact_result": lambda: create_extract_artifact_result_ppa(
+                workflow, "test-artifact", package_meta, github_client, log_prefix
+            ),
+            # Tree branch functions
+            "workflow_success_branch": lambda: create_workflow_success_tree_branch(
+                state, github_client
+            ),
+            "workflow_result_branch": lambda: create_workflow_result_tree_branch(
+                state, github_client
+            ),
+        }
+
+        if name not in ppa_creators:
+            console.print(
+                f"[red]Error: Unknown name '{name}'. Available options: {', '.join(ppa_creators.keys())}[/red]"
+            )
+            raise typer.Exit(1)
+
+        ppa = ppa_creators[name]()
+        render_dot_tree(ppa)
+        print(unicode_tree(ppa))
+    else:
+        # Print full release tree
+        tree, _ = initialize_tree_and_state(config, args)
+        render_dot_tree(tree.root)
+        print(unicode_tree(tree.root))
 
 
 @app.command()

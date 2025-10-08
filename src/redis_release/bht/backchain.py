@@ -1,3 +1,10 @@
+"""Tools for creating behavior trees using backchaining.
+
+See Michele Colledanchise and Petter Ögren
+Behavior Trees in Robotics and AI
+3.5 Creating Deliberative BTs using Backchaining
+"""
+
 import logging
 from typing import Optional, Union
 
@@ -46,8 +53,24 @@ def latch_chain_to_chain(
     next_postcondition: Optional[Behaviour] = None
     anchor_precondition: Optional[Behaviour] = None
 
+    # Trying to guess from the structure which node may be a postcondition
+    # Later we compare it with the anchor point precondition and when they match
+    # we assume it is the postcondition that could be removed as a part of backchaining
     if type(next) == Selector and len(next.children) > 0:
         next_postcondition = next.children[0]
+    if type(next) == Sequence:
+        if len(next.children) == 1:
+            # This is a PPA with only one action which may be interpreted as a postcondition
+            # Like Sequence --> IsWorkflowSuccessful?
+            next_postcondition = next.children[0]
+        elif (
+            len(next.children) > 1
+            and type(next.children[0]) == Selector
+            and len(next.children[-1].children) == 0
+        ):
+            # The same as above but when another chain is already latched to this PPA
+            # and therefore it now has leftmost Selector children and rightmost action
+            next_postcondition = next.children[-1]
 
     assert len(anchor_point.children) == 1 or len(anchor_point.children) == 2
     anchor_precondition = anchor_point.children[0]
