@@ -1,7 +1,9 @@
 """State management for Redis release automation."""
 
 import json
+import logging
 import os
+from builtins import NotImplementedError
 from datetime import datetime
 from typing import Optional
 
@@ -11,9 +13,8 @@ from rich.console import Console
 
 from .models import ReleaseState
 
-from builtins import NotImplementedError
-
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class S3Backed:
@@ -49,7 +50,7 @@ class S3Backed:
         self._local_state_cache = {}
 
     @property
-    def s3_client(self):
+    def s3_client(self) -> Optional[boto3.client]:
         """Lazy initialization of S3 client."""
         if self._s3_client is None and not self.dry_run:
             try:
@@ -101,82 +102,7 @@ class S3Backed:
         return self._s3_client
 
 
-class BlackboardStorage(S3Backed):
-    def __init__(
-        self,
-        bucket_name: Optional[str] = None,
-        dry_run: bool = False,
-        aws_region: str = "us-east-1",
-        aws_profile: Optional[str] = None,
-    ):
-        super().__init__(bucket_name, dry_run, aws_region, aws_profile)
-
-    def get(self, tag: str) -> Optional[dict]:
-        """Load blackboard data from S3.
-
-        Args:
-            tag: Release tag
-
-        Returns:
-            ReleaseState object or None if not found
-        """
-        state_key = f"release-state/{tag}-blackboard.json"
-        console.print(f"[blue] Loading state for tag: {tag}[/blue]")
-
-        if self.dry_run:
-            raise NotImplementedError()
-
-        try:
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=state_key)
-            state_data = json.loads(response["Body"].read().decode("utf-8"))
-
-            console.print(f"[green]State loaded successfully[/green]")
-
-            return state_data
-
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "NoSuchKey":
-                console.print(
-                    f"[yellow] No existing blackboard found for tag: {tag}[/yellow]"
-                )
-                return None
-            else:
-                console.print(f"[red] Failed to load blackboard: {e}[/red]")
-                raise
-
-    def put(self, tag: str, state: dict) -> None:
-        """Save release state to S3.
-
-        Args:
-            state: ReleaseState object to save
-        """
-        state_key = f"release-state/{tag}-blackboard.json"
-        console.print(f"[blue] Saving blackboard for tag: {tag}[/blue]")
-
-        state_json = json.dumps(state, indent=2, default=str)
-
-        if self.dry_run:
-            raise NotImplementedError()
-
-        try:
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=state_key,
-                Body=state_json,
-                ContentType="application/json",
-                Metadata={
-                    "tag": tag,
-                },
-            )
-
-            console.print(f"[green] Blackboard saved successfully[/green]")
-
-        except ClientError as e:
-            console.print(f"[red] Failed to save blackboard: {e}[/red]")
-            raise
-
-
-class StateManager:
+class StateManager(S3Backed):
     """Manages release state persistence in S3."""
 
     def __init__(
@@ -190,6 +116,9 @@ class StateManager:
 
     def _create_bucket(self) -> None:
         """Create S3 bucket if it doesn't exist."""
+        if self._s3_client is None:
+            raise RuntimeError("S3 client not initialized")
+
         try:
             console.print(f"[blue] Creating S3 bucket: {self.bucket_name}[/blue]")
 
@@ -239,6 +168,9 @@ class StateManager:
                 console.print("[yellow]   (DRY RUN - no state found in cache)[/yellow]")
                 return None
 
+        if self.s3_client is None:
+            raise RuntimeError("S3 client not initialized")
+
         try:
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=state_key)
             state_data = json.loads(response["Body"].read().decode("utf-8"))
@@ -274,6 +206,9 @@ class StateManager:
             self._local_state_cache[state_key] = state_data
             return
 
+        if self.s3_client is None:
+            raise RuntimeError("S3 client not initialized")
+
         try:
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
@@ -308,6 +243,9 @@ class StateManager:
         if self.dry_run:
             console.print("[yellow] (DRY RUN - lock acquired)[/yellow]")
             return True
+
+        if self.s3_client is None:
+            raise RuntimeError("S3 client not initialized")
 
         lock_data = {
             "tag": tag,
@@ -364,6 +302,9 @@ class StateManager:
         if self.dry_run:
             console.print("[yellow]   (DRY RUN - lock released)[/yellow]")
             return True
+
+        if self.s3_client is None:
+            raise RuntimeError("S3 client not initialized")
 
         try:
             # check if we own the lock

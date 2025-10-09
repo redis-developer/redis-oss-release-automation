@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from redis_release.bht.args import ReleaseArgs
-from redis_release.bht.state import ReleaseState, StateSyncer, Workflow
+from redis_release.bht.state import (
+    InMemoryStateStorage,
+    ReleaseState,
+    StateSyncer,
+    Workflow,
+)
 from redis_release.config import Config, PackageConfig
 
 
@@ -456,7 +461,7 @@ class TestPackageMetaEphemeral:
 class TestStateSyncerWithArgs:
     """Test cases for StateSyncer with ReleaseArgs."""
 
-    def test_state_syncer_sets_tag_from_args(self, tmp_path: Path) -> None:
+    def test_state_syncer_sets_tag_from_args(self) -> None:
         """Test that StateSyncer sets tag from ReleaseArgs when creating from config."""
         config = Config(
             version=1,
@@ -470,12 +475,12 @@ class TestStateSyncerWithArgs:
         )
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=[])
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args, file_path=state_file)
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
         assert syncer.state.meta.tag == "8.4-m01"
 
-    def test_state_syncer_sets_force_rebuild_from_args(self, tmp_path: Path) -> None:
+    def test_state_syncer_sets_force_rebuild_from_args(self) -> None:
         """Test that StateSyncer sets force_rebuild flags from ReleaseArgs."""
         config = Config(
             version=1,
@@ -494,15 +499,13 @@ class TestStateSyncerWithArgs:
         )
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker"])
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args, file_path=state_file)
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["redis"].meta.ephemeral.force_rebuild is False
 
-    def test_state_syncer_sets_multiple_force_rebuild_from_args(
-        self, tmp_path: Path
-    ) -> None:
+    def test_state_syncer_sets_multiple_force_rebuild_from_args(self) -> None:
         """Test that StateSyncer sets multiple force_rebuild flags from ReleaseArgs."""
         config = Config(
             version=1,
@@ -526,14 +529,14 @@ class TestStateSyncerWithArgs:
         )
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker", "snap"])
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args, file_path=state_file)
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["redis"].meta.ephemeral.force_rebuild is False
         assert syncer.state.packages["snap"].meta.ephemeral.force_rebuild is True
 
-    def test_state_syncer_without_args(self, tmp_path: Path) -> None:
+    def test_state_syncer_without_args(self) -> None:
         """Test that StateSyncer works without ReleaseArgs."""
         config = Config(
             version=1,
@@ -546,15 +549,16 @@ class TestStateSyncerWithArgs:
             },
         )
 
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args=None, file_path=state_file)
+        args = ReleaseArgs(release_tag="test-tag", force_rebuild=[])
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
-        assert syncer.state.meta.tag is None
+        assert syncer.state.meta.tag == "test-tag"
         assert (
             syncer.state.packages["test-package"].meta.ephemeral.force_rebuild is False
         )
 
-    def test_state_syncer_force_rebuild_all(self, tmp_path: Path) -> None:
+    def test_state_syncer_force_rebuild_all(self) -> None:
         """Test that StateSyncer sets force_rebuild for all packages when 'all' is specified."""
         config = Config(
             version=1,
@@ -578,17 +582,15 @@ class TestStateSyncerWithArgs:
         )
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["all"])
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args, file_path=state_file)
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
         # All packages should have force_rebuild set to True
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["redis"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["snap"].meta.ephemeral.force_rebuild is True
 
-    def test_state_syncer_force_rebuild_all_with_other_values(
-        self, tmp_path: Path
-    ) -> None:
+    def test_state_syncer_force_rebuild_all_with_other_values(self) -> None:
         """Test that 'all' takes precedence even if other package names are specified."""
         config = Config(
             version=1,
@@ -607,8 +609,8 @@ class TestStateSyncerWithArgs:
         )
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker", "all"])
-        state_file = tmp_path / "state.json"
-        syncer = StateSyncer(config, args, file_path=state_file)
+        storage = InMemoryStateStorage()
+        syncer = StateSyncer(storage=storage, config=config, args=args)
 
         # All packages should have force_rebuild set to True
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True

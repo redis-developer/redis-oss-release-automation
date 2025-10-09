@@ -336,8 +336,9 @@ def release_bht(
         force_rebuild=force_rebuild or [],
     )
 
-    tree, _ = initialize_tree_and_state(config, args)
-    asyncio.run(async_tick_tock(tree))
+    # Use context manager version with automatic lock management
+    with initialize_tree_and_state(config, args) as (tree, _):
+        asyncio.run(async_tick_tock(tree))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import os
-from typing import Tuple, Union
+from contextlib import contextmanager
+from typing import Any, Iterator, Tuple, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -31,6 +32,7 @@ from .state import (
     PackageMeta,
     ReleaseMeta,
     ReleaseState,
+    S3StateStorage,
     StateSyncer,
     Workflow,
 )
@@ -64,18 +66,27 @@ async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
             await asyncio.wait(other_tasks, return_when=asyncio.FIRST_COMPLETED)
 
 
+@contextmanager
 def initialize_tree_and_state(
     config: Config, args: ReleaseArgs
-) -> Tuple[BehaviourTree, StateSyncer]:
+) -> Iterator[Tuple[BehaviourTree, StateSyncer]]:
     github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN"))
-    state_syncer = StateSyncer(config, args)
 
-    root = create_root_node(state_syncer.state, github_client)
-    tree = BehaviourTree(root)
-    tree.add_post_tick_handler(lambda _: state_syncer.sync())
-    tree.add_post_tick_handler(log_tree_state_with_markup)
+    # Create S3 storage backend
+    storage = S3StateStorage()
 
-    return (tree, state_syncer)
+    # Create state syncer with storage backend and acquire lock
+    with StateSyncer(
+        storage=storage,
+        config=config,
+        args=args,
+    ) as state_syncer:
+        root = create_root_node(state_syncer.state, github_client)
+        tree = BehaviourTree(root)
+        tree.add_post_tick_handler(lambda _: state_syncer.sync())
+        tree.add_post_tick_handler(log_tree_state_with_markup)
+
+        yield (tree, state_syncer)
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:
