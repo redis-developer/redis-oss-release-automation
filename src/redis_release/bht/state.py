@@ -57,6 +57,7 @@ class PackageMeta(BaseModel):
 
     repo: str = ""
     ref: Optional[str] = None
+    publish_internal_release: bool = False
     ephemeral: PackageMetaEphemeral = Field(
         default_factory=PackageMetaEphemeral, exclude=True
     )
@@ -113,6 +114,7 @@ class ReleaseState(BaseModel):
             package_meta = PackageMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
+                publish_internal_release=package_config.publish_internal_release,
             )
 
             # Initialize build workflow

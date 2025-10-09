@@ -9,7 +9,9 @@ The guiding principles are:
 """
 
 import asyncio
+import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from token import OP
@@ -17,10 +19,13 @@ from typing import Any, Dict, Optional
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
+from py_trees.composites import Selector, Sequence
+from py_trees.decorators import Inverter, Repeat, Retry, Timeout
 from pydantic import BaseModel
 
 from ..github_client_async import GitHubClientAsync
 from ..models import WorkflowConclusion, WorkflowRun, WorkflowStatus
+from .decorators import FlagGuard
 from .logging_wrapper import PyTreesLoggerWrapper
 from .state import PackageMeta, ReleaseMeta, Workflow
 
@@ -31,6 +36,8 @@ class LoggingAction(Behaviour):
     logger: PyTreesLoggerWrapper
 
     def __init__(self, name: str, log_prefix: str = "") -> None:
+        if name == "":
+            name = f"{self.__class__.__name__}"
         super().__init__(name=name)
         if log_prefix != "":
             log_prefix = f"{log_prefix}."
@@ -445,3 +452,60 @@ class HasWorkflowResult(LoggingAction):
         if self.workflow.result is not None:
             return Status.SUCCESS
         return Status.FAILURE
+
+
+class NeedToPublish(LoggingAction):
+    """Check the release type and package configuration to determine if we need to run publish workflow."""
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        # Check if this is an internal release by matching the pattern -int\d*$ in the tag
+        if self.release_meta.tag and re.search(r"-int\d*$", self.release_meta.tag):
+            self.logger.debug(f"Asssuming internal release: {self.release_meta.tag}")
+            if self.package_meta.publish_internal_release:
+                self.logger.debug(
+                    f"Publishing internal release: {self.release_meta.tag}"
+                )
+                return Status.SUCCESS
+            self.logger.debug(
+                f"Skip publishing internal release: {self.release_meta.tag}"
+            )
+            return Status.FAILURE
+
+        self.logger.debug(f"Public release: {self.release_meta.tag}")
+        return Status.SUCCESS
+
+
+class AttachReleaseHandleToPublishWorkflow(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        build_workflow: Workflow,
+        publish_workflow: Workflow,
+        log_prefix: str = "",
+    ) -> None:
+        self.build_workflow = build_workflow
+        self.publish_workflow = publish_workflow
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if "release_handle" in self.publish_workflow.inputs:
+            return Status.SUCCESS
+
+        if self.build_workflow.result is None:
+            return Status.FAILURE
+
+        self.publish_workflow.inputs["release_handle"] = json.dumps(
+            self.build_workflow.result
+        )
+        return Status.SUCCESS

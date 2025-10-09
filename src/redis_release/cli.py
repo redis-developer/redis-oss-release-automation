@@ -30,8 +30,11 @@ from .bht.ppas import (
 )
 from .bht.tree import (
     async_tick_tock,
-    create_workflow_result_tree_branch,
-    create_workflow_success_tree_branch,
+    create_build_workflow_tree_branch,
+    create_extract_result_tree_branch,
+    create_publish_workflow_tree_branch,
+    create_workflow_complete_tree_branch,
+    create_workflow_with_result_tree_branch,
     initialize_tree_and_state,
 )
 from .config import load_config
@@ -277,14 +280,20 @@ def release_print_bht(
                 workflow, package_meta, github_client, log_prefix
             ),
             "extract_artifact_result": lambda: create_extract_artifact_result_ppa(
-                workflow, "test-artifact", package_meta, github_client, log_prefix
+                "test-artifact", workflow, package_meta, github_client, log_prefix
             ),
             # Tree branch functions
-            "workflow_success_branch": lambda: create_workflow_success_tree_branch(
-                state, github_client
+            "workflow_complete_branch": lambda: create_workflow_complete_tree_branch(
+                workflow, package_meta, release_meta, github_client, ""
             ),
-            "workflow_result_branch": lambda: create_workflow_result_tree_branch(
-                state, github_client
+            "workflow_with_result_branch": lambda: create_workflow_with_result_tree_branch(
+                "artifact", workflow, package_meta, release_meta, github_client, ""
+            ),
+            "publish_worflow_branch": lambda: create_publish_workflow_tree_branch(
+                workflow, workflow, package_meta, release_meta, github_client, ""
+            ),
+            "build_workflow_branch": lambda: create_build_workflow_tree_branch(
+                workflow, package_meta, release_meta, github_client, ""
             ),
         }
 

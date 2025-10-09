@@ -5,6 +5,7 @@ from py_trees.composites import Selector, Sequence
 from ..github_client_async import GitHubClientAsync
 from .backchain import create_PPA
 from .behaviours import (
+    AttachReleaseHandleToPublishWorkflow,
     HasWorkflowArtifacts,
     HasWorkflowResult,
     IsTargetRefIdentified,
@@ -145,8 +146,8 @@ def create_download_artifacts_ppa(
 
 
 def create_extract_artifact_result_ppa(
-    workflow: Workflow,
     artifact_name: str,
+    workflow: Workflow,
     package_meta: PackageMeta,
     github_client: GitHubClientAsync,
     log_prefix: str,
@@ -164,5 +165,21 @@ def create_extract_artifact_result_ppa(
         HasWorkflowResult("Has Workflow Result?", workflow, log_prefix=log_prefix),
         HasWorkflowArtifacts(
             "Has Workflow Artifacts?", workflow, log_prefix=log_prefix
+        ),
+    )
+
+
+def create_attach_release_handle_ppa(
+    build_workflow: Workflow,
+    publish_workflow: Workflow,
+    log_prefix: str,
+) -> Union[Selector, Sequence]:
+    return create_PPA(
+        "Attach Release Handle",
+        AttachReleaseHandleToPublishWorkflow(
+            "Attach Release Handle",
+            build_workflow,
+            publish_workflow,
+            log_prefix=log_prefix,
         ),
     )

@@ -13,6 +13,7 @@ class PackageConfig(BaseModel):
     repo: str
     ref: Optional[str] = None
     workflow_branch: str = "autodetect"
+    publish_internal_release: bool = False
     build_workflow: Union[str, bool] = Field(default=False)
     build_timeout_minutes: int = Field(default=45)
     build_inputs: Dict[str, str] = Field(default_factory=dict)

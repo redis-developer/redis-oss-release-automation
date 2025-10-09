@@ -53,6 +53,8 @@ def latch_chain_to_chain(
     next_postcondition: Optional[Behaviour] = None
     anchor_precondition: Optional[Behaviour] = None
 
+    logger.debug(f"Latching {next.name} to {anchor_point.name}")
+
     # Trying to guess from the structure which node may be a postcondition
     # Later we compare it with the anchor point precondition and when they match
     # we assume it is the postcondition that could be removed as a part of backchaining
@@ -72,8 +74,12 @@ def latch_chain_to_chain(
             # and therefore it now has leftmost Selector children and rightmost action
             next_postcondition = next.children[-1]
 
-    assert len(anchor_point.children) == 1 or len(anchor_point.children) == 2
+    assert len(anchor_point.children) > 0
     anchor_precondition = anchor_point.children[0]
+
+    logger.debug(
+        f"Anchor precondition: {anchor_precondition.name}, Next postcondition: {next_postcondition.name if next_postcondition else 'None'}"
+    )
 
     # If anchor point has both precondition and action, remove anchor_precondition if it matches the next_postcondition
     # very weak check that the anchor_precondition is the same as the next_postcondition:
@@ -91,9 +97,15 @@ def latch_chain_to_chain(
         for child in reversed(next.children):
             child.parent = anchor_point
             anchor_point.children.insert(0, child)
+            logger.debug(
+                f"Merged child {child.name} to anchor point {anchor_point.name}"
+            )
     else:
         next.parent = anchor_point
         anchor_point.children.insert(0, next)
+        logger.debug(
+            f"Added chain {next.name} directly to anchor point {anchor_point.name}"
+        )
 
 
 def create_PPA(
