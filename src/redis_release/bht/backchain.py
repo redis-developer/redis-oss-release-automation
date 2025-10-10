@@ -40,7 +40,9 @@ def latch_chain_to_chain(
 ) -> None:
     """Latch two chains together. Both are expected to be formed using PPAs.
 
-    If precondition exists in the anchor point, it is replaced by the next chain.
+    If both precondition in the anchor point and postcondition of the next
+    chain exist, and they are the same type then the precondition in the
+    anchor point is replaced by the next chain.
     Otherwise the next chain is added as a leftmost child to the anchor point.
 
     If the next chain is a sequence, its children are merged into the anchor point.

@@ -1,5 +1,10 @@
-from py_trees.composites import Selector, Sequence
-from py_trees.decorators import Inverter, Repeat, Retry, Timeout
+from typing import Iterator, List, Optional
+from typing import Sequence as TypingSequence
+
+from py_trees.behaviour import Behaviour
+from py_trees.common import OneShotPolicy, Status
+from py_trees.composites import Composite, Selector, Sequence
+from py_trees.decorators import Repeat, Retry, SuccessIsRunning, Timeout
 
 from ..github_client_async import GitHubClientAsync
 from .behaviours import (
@@ -14,12 +19,89 @@ from .behaviours import (
     IsWorkflowIdentified,
     IsWorkflowSuccessful,
     IsWorkflowTriggered,
+    ResetPackageState,
+    ResetWorkflowState,
     Sleep,
 )
 from .behaviours import TriggerWorkflow as TriggerWorkflow
 from .behaviours import UpdateWorkflowStatus
 from .decorators import FlagGuard
-from .state import PackageMeta, ReleaseMeta, Workflow
+from .state import Package, PackageMeta, ReleaseMeta, Workflow
+
+
+class ParallelBarrier(Composite):
+    """
+    A simplified parallel composite that runs all children until convergence.
+
+    This parallel composite:
+    - Ticks all children on each tick
+    - Skips children that have already converged (SUCCESS or FAILURE) in synchronized mode
+    - Returns FAILURE if any child returns FAILURE
+    - Returns SUCCESS if all children return SUCCESS
+    - Returns RUNNING if any child is still RUNNING
+
+    Unlike py_trees.Parallel, this composite:
+    - Has no policy configuration (always waits for all children)
+    - Always operates in synchronized mode (skips converged children)
+    - Has simpler logic focused on the all-must-succeed pattern
+
+    Args:
+        name: the composite behaviour name
+        children: list of children to add
+    """
+
+    def __init__(
+        self,
+        name: str,
+        children: Optional[TypingSequence[Behaviour]] = None,
+    ):
+        super().__init__(name, children)
+
+    def tick(self) -> Iterator[Behaviour]:
+        """
+        Tick all children until they converge, then determine status.
+        """
+        # Initialise if first time
+        if self.status != Status.RUNNING:
+            # subclass (user) handling
+            self.initialise()
+
+        # Handle empty children case
+        if not self.children:
+            self.current_child = None
+            self.stop(Status.SUCCESS)
+            yield self
+            return
+
+        # Tick all children, skipping those that have already converged
+        for child in self.children:
+            # Skip children that have already converged (synchronized mode)
+            if child.status in [Status.SUCCESS, Status.FAILURE]:
+                continue
+            # Tick the child
+            for node in child.tick():
+                yield node
+
+        # Determine new status based on children's statuses
+        self.current_child = self.children[-1]
+
+        new_status = Status.INVALID
+        has_running = any(child.status == Status.RUNNING for child in self.children)
+        if has_running:
+            new_status = Status.RUNNING
+        else:
+            has_failed = any(child.status == Status.FAILURE for child in self.children)
+            if has_failed:
+                new_status = Status.FAILURE
+            else:
+                new_status = Status.SUCCESS
+
+        # If we've reached a final status, stop and terminate running children
+        if new_status != Status.RUNNING:
+            self.stop(new_status)
+
+        self.status = new_status
+        yield self
 
 
 class FindWorkflowByUUID(FlagGuard):
@@ -201,5 +283,111 @@ class ExtractArtifactResultGuarded(FlagGuard):
             ),
             workflow.ephemeral,
             "extract_result_failed",
+            log_prefix=log_prefix,
+        )
+
+
+class ResetPackageStateGuarded(FlagGuard):
+    """
+    Reset package once if force_rebuild is True.
+    Always returns SUCCESS.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package: Package,
+        default_package: Package,
+        log_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            None if name == "" else name,
+            ResetPackageState(
+                "Reset Package State",
+                package,
+                default_package,
+                log_prefix=log_prefix,
+            ),
+            package.meta.ephemeral,
+            "force_rebuild",
+            flag_value=False,
+            raise_on=[Status.SUCCESS, Status.FAILURE],
+            guard_status=Status.SUCCESS,
+            log_prefix=log_prefix,
+        )
+
+
+class RestartPackageGuarded(FlagGuard):
+    """
+    Reset package if we didn't trigger the workflow in current run
+    This is intended to be used for build workflow since if build has failed
+    we have to reset not only build but also publish which effectively means
+    we have to reset the entire package and restart from scratch.
+
+    When reset is made we return RUNNING to give the tree opportunity to run the workflow again.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package: Package,
+        workflow: Workflow,
+        default_package: Package,
+        log_prefix: str = "",
+    ) -> None:
+        reset_package_state = ResetPackageState(
+            "Reset Package State",
+            package,
+            default_package,
+            log_prefix=log_prefix,
+        )
+        reset_package_state_wrapped = SuccessIsRunning(
+            "Success is Running", reset_package_state
+        )
+        super().__init__(
+            None if name == "" else name,
+            reset_package_state_wrapped,
+            workflow.ephemeral,
+            "trigger_attempted",
+            flag_value=True,
+            raise_on=[],
+            guard_status=Status.FAILURE,
+            log_prefix=log_prefix,
+        )
+
+
+class RestartWorkflowGuarded(FlagGuard):
+    """
+    Reset workflow if we didn't trigger the workflow in current run
+
+    This will only reset the workflow state
+
+    When reset is made we return RUNNING to give the tree opportunity to run the workflow again.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        default_workflow: Workflow,
+        log_prefix: str = "",
+    ) -> None:
+        reset_workflow_state = ResetWorkflowState(
+            "Reset Workflow State",
+            workflow,
+            default_workflow,
+            log_prefix=log_prefix,
+        )
+        reset_workflow_state_wrapped = SuccessIsRunning(
+            "Success is Running", reset_workflow_state
+        )
+        super().__init__(
+            None if name == "" else name,
+            reset_workflow_state_wrapped,
+            workflow.ephemeral,
+            "trigger_attempted",
+            flag_value=True,
+            raise_on=[],
+            guard_status=Status.FAILURE,
             log_prefix=log_prefix,
         )

@@ -24,6 +24,7 @@ class WorkflowEphemeral(BaseModel):
     """Ephemeral workflow state that is not persisted."""
 
     trigger_failed: bool = False
+    trigger_attempted: bool = False
     identify_failed: bool = False
     timed_out: bool = False
     artifacts_download_failed: bool = False
@@ -157,91 +158,6 @@ class ReleaseState(BaseModel):
         return cls(**json_data)
 
 
-class StateSyncer:
-    """Syncs ReleaseState to storage backend only when changed.
-
-    Can be used as a context manager to automatically acquire and release locks.
-    """
-
-    def __init__(
-        self,
-        storage: StateStorage,
-        config: Config,
-        args: "ReleaseArgs",
-    ):
-        self.tag = args.release_tag
-        self.storage = storage
-        self.config = config
-        self.args = args
-        self.last_dump: Optional[str] = None
-        self._state: Optional[ReleaseState] = None
-        self._lock_acquired = False
-
-    def __enter__(self) -> "StateSyncer":
-        """Acquire lock when entering context."""
-        if not self.storage.acquire_lock(self.tag):
-            raise RuntimeError(f"Failed to acquire lock for tag: {self.tag}")
-        self._lock_acquired = True
-        logger.info(f"Lock acquired for tag: {self.tag}")
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Release lock when exiting context."""
-        if self._lock_acquired:
-            self.storage.release_lock(self.tag)
-            self._lock_acquired = False
-            logger.info(f"Lock released for tag: {self.tag}")
-
-    @property
-    def state(self) -> ReleaseState:
-        if self._state is None:
-            loaded = self.load()
-            if loaded is None:
-                self._state = ReleaseState.from_config(self.config)
-                # Set tag when creating from config
-                self._state.meta.tag = self.tag
-            else:
-                self._state = loaded
-
-            # Apply force_rebuild flags from args
-            if self.args:
-                if "all" in self.args.force_rebuild:
-                    # Set force_rebuild for all packages
-                    for package_name in self._state.packages:
-                        self._state.packages[
-                            package_name
-                        ].meta.ephemeral.force_rebuild = True
-                else:
-                    # Set force_rebuild for specific packages
-                    for package_name in self.args.force_rebuild:
-                        if package_name in self._state.packages:
-                            self._state.packages[
-                                package_name
-                            ].meta.ephemeral.force_rebuild = True
-            logger.debug(pretty_repr(self._state))
-        return self._state
-
-    def load(self) -> Optional[ReleaseState]:
-        """Load state from storage backend."""
-        state_data = self.storage.get(self.tag)
-        if state_data is None:
-            return None
-
-        state = ReleaseState(**state_data)
-        self.last_dump = state.model_dump_json(indent=2)
-        return state
-
-    def sync(self) -> None:
-        """Save state to storage backend if changed since last sync."""
-        current_dump = self.state.model_dump_json(indent=2)
-
-        if current_dump != self.last_dump:
-            self.last_dump = current_dump
-            state_dict = json.loads(current_dump)
-            self.storage.put(self.tag, state_dict)
-            logger.debug("State saved")
-
-
 class StateStorage(Protocol):
     """Protocol for state storage backends."""
 
@@ -286,6 +202,95 @@ class StateStorage(Protocol):
             True if lock released successfully
         """
         ...
+
+
+class StateSyncer:
+    """Syncs ReleaseState to storage backend only when changed.
+
+    Can be used as a context manager to automatically acquire and release locks.
+    """
+
+    def __init__(
+        self,
+        storage: StateStorage,
+        config: Config,
+        args: "ReleaseArgs",
+    ):
+        self.tag = args.release_tag
+        self.storage = storage
+        self.config = config
+        self.args = args
+        self.last_dump: Optional[str] = None
+        self._state: Optional[ReleaseState] = None
+        self._lock_acquired = False
+
+    def __enter__(self) -> "StateSyncer":
+        """Acquire lock when entering context."""
+        if not self.storage.acquire_lock(self.tag):
+            raise RuntimeError(f"Failed to acquire lock for tag: {self.tag}")
+        self._lock_acquired = True
+        logger.info(f"Lock acquired for tag: {self.tag}")
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Release lock when exiting context."""
+        if self._lock_acquired:
+            self.storage.release_lock(self.tag)
+            self._lock_acquired = False
+            logger.info(f"Lock released for tag: {self.tag}")
+
+    @property
+    def state(self) -> ReleaseState:
+        if self._state is None:
+            loaded = self.load()
+            if loaded is None:
+                self._state = self.default_state()
+            else:
+                self._state = loaded
+                self.apply_args(self._state)
+            logger.debug(pretty_repr(self._state))
+        return self._state
+
+    def default_state(self) -> ReleaseState:
+        """Create default state from config."""
+        state = ReleaseState.from_config(self.config)
+        self.apply_args(state)
+        return state
+
+    def apply_args(self, state: ReleaseState) -> None:
+        """Apply arguments to state."""
+        state.meta.tag = self.tag
+
+        if self.args:
+            if "all" in self.args.force_rebuild:
+                # Set force_rebuild for all packages
+                for package_name in state.packages:
+                    state.packages[package_name].meta.ephemeral.force_rebuild = True
+            else:
+                # Set force_rebuild for specific packages
+                for package_name in self.args.force_rebuild:
+                    if package_name in state.packages:
+                        state.packages[package_name].meta.ephemeral.force_rebuild = True
+
+    def load(self) -> Optional[ReleaseState]:
+        """Load state from storage backend."""
+        state_data = self.storage.get(self.tag)
+        if state_data is None:
+            return None
+
+        state = ReleaseState(**state_data)
+        self.last_dump = state.model_dump_json(indent=2)
+        return state
+
+    def sync(self) -> None:
+        """Save state to storage backend if changed since last sync."""
+        current_dump = self.state.model_dump_json(indent=2)
+
+        if current_dump != self.last_dump:
+            self.last_dump = current_dump
+            state_dict = json.loads(current_dump)
+            self.storage.put(self.tag, state_dict)
+            logger.debug("State saved")
 
 
 class InMemoryStateStorage:
@@ -477,3 +482,29 @@ class S3StateStorage(S3Backed):
             else:
                 logger.error(f"Failed to release lock: {e}")
                 raise
+
+
+def reset_model_to_defaults(target: BaseModel, default: BaseModel) -> None:
+    """Recursively reset a BaseModel in-place with values from default model."""
+    for field_name, field_info in default.model_fields.items():
+        default_value = getattr(default, field_name)
+
+        if isinstance(default_value, BaseModel):
+            # Recursive case: field is a BaseModel
+            target_value = getattr(target, field_name)
+            if isinstance(target_value, BaseModel):
+                reset_model_to_defaults(target_value, default_value)
+            else:
+                raise TypeError(
+                    f"Field '{field_name}' type mismatch: expected {type(default_value)}, got {type(target_value)}"
+                )
+        else:
+            # Base case: field is not a BaseModel, copy the value
+            if isinstance(default_value, (list, dict, set)):
+                # Deep copy collections
+                import copy
+
+                setattr(target, field_name, copy.deepcopy(default_value))
+            else:
+                # Simple value, copy directly
+                setattr(target, field_name, default_value)

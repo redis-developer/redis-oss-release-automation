@@ -12,6 +12,7 @@ from rich.table import Table
 
 from redis_release.bht.args import ReleaseArgs
 from redis_release.bht.state import (
+    InMemoryStateStorage,
     Package,
     PackageMeta,
     ReleaseMeta,
@@ -308,9 +309,12 @@ def release_print_bht(
         print(unicode_tree(ppa))
     else:
         # Print full release tree
-        tree, _ = initialize_tree_and_state(config, args)
-        render_dot_tree(tree.root)
-        print(unicode_tree(tree.root))
+        with initialize_tree_and_state(config, args, InMemoryStateStorage()) as (
+            tree,
+            _,
+        ):
+            render_dot_tree(tree.root)
+            print(unicode_tree(tree.root))
 
 
 @app.command()

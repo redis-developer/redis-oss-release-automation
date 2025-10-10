@@ -21,13 +21,14 @@ from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter, Repeat, Retry, Timeout
-from pydantic import BaseModel
+
+from redis_release.bht.state import reset_model_to_defaults
 
 from ..github_client_async import GitHubClientAsync
 from ..models import WorkflowConclusion, WorkflowRun, WorkflowStatus
 from .decorators import FlagGuard
 from .logging_wrapper import PyTreesLoggerWrapper
-from .state import PackageMeta, ReleaseMeta, Workflow
+from .state import Package, PackageMeta, ReleaseMeta, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ class TriggerWorkflow(ReleaseAction):
             return
         self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
+        self.workflow.ephemeral.trigger_attempted = True
         self.task = asyncio.create_task(
             self.github_client.trigger_workflow(
                 self.package_meta.repo,
@@ -370,6 +372,46 @@ class ExtractArtifactResult(ReleaseAction):
             return self.log_exception_and_return_failure(e)
 
 
+class ResetPackageState(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        package: Package,
+        default_package: Package,
+        log_prefix: str = "",
+    ) -> None:
+        self.package = package
+        self.default_package = default_package
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        reset_model_to_defaults(self.package, self.default_package)
+
+        self.feedback_message = "Package state reset to default values"
+        self.logger.info(f"[green]{self.feedback_message}[/green]")
+        return Status.SUCCESS
+
+
+class ResetWorkflowState(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        default_workflow: Workflow,
+        log_prefix: str = "",
+    ) -> None:
+        self.workflow = workflow
+        self.default_workflow = default_workflow
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:  # type: ignore
+        reset_model_to_defaults(self.workflow, self.default_workflow)
+
+        self.feedback_message = "Workflow state reset to default values"
+        self.logger.info(f"[green]{self.feedback_message}[/green]")
+        return Status.SUCCESS
+
+
 ### Conditions ###
 
 
@@ -509,3 +551,16 @@ class AttachReleaseHandleToPublishWorkflow(LoggingAction):
             self.build_workflow.result
         )
         return Status.SUCCESS
+
+
+class IsForceRebuild(LoggingAction):
+    def __init__(
+        self, name: str, package_meta: PackageMeta, log_prefix: str = ""
+    ) -> None:
+        self.package_meta = package_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.ephemeral.force_rebuild:
+            return Status.SUCCESS
+        return Status.FAILURE

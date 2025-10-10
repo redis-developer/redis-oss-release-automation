@@ -9,11 +9,9 @@ from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
-from rich.console import Console
 
 from .models import ReleaseState
 
-console = Console()
 logger = logging.getLogger(__name__)
 
 
@@ -56,14 +54,12 @@ class S3Backed:
             try:
                 # Try profile-based authentication first
                 if self.aws_profile:
-                    console.print(f"[blue]Using AWS profile: {self.aws_profile}[/blue]")
+                    logger.info(f"Using AWS profile: {self.aws_profile}")
                     session = boto3.Session(profile_name=self.aws_profile)
                     self._s3_client = session.client("s3", region_name=self.aws_region)
                 # Fall back to environment variables
                 elif self.aws_access_key_id and self.aws_secret_access_key:
-                    console.print(
-                        "[blue]Using AWS credentials from environment variables[/blue]"
-                    )
+                    logger.info("Using AWS credentials from environment variables")
                     self._s3_client = boto3.client(
                         "s3",
                         aws_access_key_id=self.aws_access_key_id,
@@ -72,31 +68,27 @@ class S3Backed:
                         region_name=self.aws_region,
                     )
                 else:
-                    console.print("[red]AWS credentials not found[/red]")
-                    console.print(
-                        "[yellow]Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables[/yellow]"
+                    logger.error("AWS credentials not found")
+                    logger.warning(
+                        "Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables"
                     )
                     raise NoCredentialsError()
 
                 # Test connection
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
-                console.print(
-                    f"[green]Connected to S3 bucket: {self.bucket_name}[/green]"
-                )
+                logger.info(f"Connected to S3 bucket: {self.bucket_name}")
 
             except ClientError as e:
                 if e.response["Error"]["Code"] == "404":
-                    console.print(
-                        f"[yellow]S3 bucket not found: {self.bucket_name}[/yellow]"
-                    )
+                    logger.warning(f"S3 bucket not found: {self.bucket_name}")
                     self._create_bucket()
                 else:
-                    console.print(f"[red]S3 error: {e}[/red]")
+                    logger.error(f"S3 error: {e}")
                     raise
             except NoCredentialsError:
                 raise
             except Exception as e:
-                console.print(f"[red]AWS authentication error: {e}[/red]")
+                logger.error(f"AWS authentication error: {e}")
                 raise
 
         return self._s3_client
@@ -120,7 +112,7 @@ class StateManager(S3Backed):
             raise RuntimeError("S3 client not initialized")
 
         try:
-            console.print(f"[blue] Creating S3 bucket: {self.bucket_name}[/blue]")
+            logger.info(f"Creating S3 bucket: {self.bucket_name}")
 
             if self.aws_region == "us-east-1":
                 self._s3_client.create_bucket(Bucket=self.bucket_name)
@@ -134,17 +126,13 @@ class StateManager(S3Backed):
                 Bucket=self.bucket_name, VersioningConfiguration={"Status": "Enabled"}
             )
 
-            console.print(
-                f"[green] S3 bucket created successfully: {self.bucket_name}[/green]"
-            )
+            logger.info(f"S3 bucket created successfully: {self.bucket_name}")
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "BucketAlreadyOwnedByYou":
-                console.print(
-                    f"[yellow] Bucket already exists: {self.bucket_name}[/yellow]"
-                )
+                logger.warning(f"Bucket already exists: {self.bucket_name}")
             else:
-                console.print(f"[red] Failed to create bucket: {e}[/red]")
+                logger.error(f"Failed to create bucket: {e}")
                 raise
 
     def load_state(self, tag: str) -> Optional[ReleaseState]:
@@ -157,15 +145,15 @@ class StateManager(S3Backed):
             ReleaseState object or None if not found
         """
         state_key = f"release-state/{tag}.json"
-        console.print(f"[blue] Loading state for tag: {tag}[/blue]")
+        logger.info(f"Loading state for tag: {tag}")
 
         if self.dry_run:
             state_data = self._local_state_cache.get(state_key)
             if state_data:
-                console.print("[yellow]   (DRY RUN - loaded from local cache)[/yellow]")
+                logger.debug("DRY RUN - loaded from local cache")
                 return ReleaseState.model_validate(state_data)
             else:
-                console.print("[yellow]   (DRY RUN - no state found in cache)[/yellow]")
+                logger.debug("DRY RUN - no state found in cache")
                 return None
 
         if self.s3_client is None:
@@ -175,18 +163,16 @@ class StateManager(S3Backed):
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=state_key)
             state_data = json.loads(response["Body"].read().decode("utf-8"))
 
-            console.print(f"[green]State loaded successfully[/green]")
+            logger.info("State loaded successfully")
 
             return ReleaseState.model_validate(state_data)
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                console.print(
-                    f"[yellow] No existing state found for tag: {tag}[/yellow]"
-                )
+                logger.warning(f"No existing state found for tag: {tag}")
                 return None
             else:
-                console.print(f"[red] Failed to load state: {e}[/red]")
+                logger.error(f"Failed to load state: {e}")
                 raise
 
     def save_state(self, state: ReleaseState) -> None:
@@ -196,13 +182,13 @@ class StateManager(S3Backed):
             state: ReleaseState object to save
         """
         state_key = f"release-state/{state.tag}.json"
-        console.print(f"[blue] Saving state for tag: {state.tag}[/blue]")
+        logger.info(f"Saving state for tag: {state.tag}")
 
         state_data = state.model_dump(mode="json")
         state_json = json.dumps(state_data, indent=2, default=str)
 
         if self.dry_run:
-            console.print("[yellow]   (DRY RUN - saved to local cache)[/yellow]")
+            logger.debug("DRY RUN - saved to local cache")
             self._local_state_cache[state_key] = state_data
             return
 
@@ -221,10 +207,10 @@ class StateManager(S3Backed):
                 },
             )
 
-            console.print(f"[green] State saved successfully[/green]")
+            logger.info("State saved successfully")
 
         except ClientError as e:
-            console.print(f"[red] Failed to save state: {e}[/red]")
+            logger.error(f"Failed to save state: {e}")
             raise
 
     def acquire_lock(self, tag: str, owner: str) -> bool:
@@ -238,10 +224,10 @@ class StateManager(S3Backed):
             True if lock acquired successfully
         """
         lock_key = f"release-locks/{tag}.lock"
-        console.print(f"[blue] Acquiring lock for tag: {tag}[/blue]")
+        logger.info(f"Acquiring lock for tag: {tag}")
 
         if self.dry_run:
-            console.print("[yellow] (DRY RUN - lock acquired)[/yellow]")
+            logger.debug("DRY RUN - lock acquired")
             return True
 
         if self.s3_client is None:
@@ -263,7 +249,7 @@ class StateManager(S3Backed):
                 IfNoneMatch="*",
             )
 
-            console.print(f"[green] Lock acquired successfully[/green]")
+            logger.info("Lock acquired successfully")
             return True
 
         except ClientError as e:
@@ -273,17 +259,17 @@ class StateManager(S3Backed):
                         Bucket=self.bucket_name, Key=lock_key
                     )
                     existing_lock = json.loads(response["Body"].read().decode("utf-8"))
-                    console.print(
-                        f"[red]   Lock already held by: {existing_lock.get('owner', 'unknown')}[/red]"
+                    logger.error(
+                        f"Lock already held by: {existing_lock.get('owner', 'unknown')}"
                     )
-                    console.print(
-                        f"[dim]   Acquired at: {existing_lock.get('acquired_at', 'unknown')}[/dim]"
+                    logger.debug(
+                        f"Acquired at: {existing_lock.get('acquired_at', 'unknown')}"
                     )
                 except:
-                    console.print(f"[red] Lock exists but couldn't read details[/red]")
+                    logger.error("Lock exists but couldn't read details")
                 return False
             else:
-                console.print(f"[red] Failed to acquire lock: {e}[/red]")
+                logger.error(f"Failed to acquire lock: {e}")
                 raise
 
     def release_lock(self, tag: str, owner: str) -> bool:
@@ -297,10 +283,10 @@ class StateManager(S3Backed):
             True if lock released successfully
         """
         lock_key = f"release-locks/{tag}.lock"
-        console.print(f"[blue] Releasing lock for tag: {tag}[/blue]")
+        logger.info(f"Releasing lock for tag: {tag}")
 
         if self.dry_run:
-            console.print("[yellow]   (DRY RUN - lock released)[/yellow]")
+            logger.debug("DRY RUN - lock released")
             return True
 
         if self.s3_client is None:
@@ -312,19 +298,17 @@ class StateManager(S3Backed):
             lock_data = json.loads(response["Body"].read().decode("utf-8"))
 
             if lock_data.get("owner") != owner:
-                console.print(
-                    f"[red] Cannot release lock owned by: {lock_data.get('owner')}[/red]"
-                )
+                logger.error(f"Cannot release lock owned by: {lock_data.get('owner')}")
                 return False
 
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=lock_key)
-            console.print(f"[green] Lock released successfully[/green]")
+            logger.info("Lock released successfully")
             return True
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                console.print(f"[yellow]  No lock found for tag: {tag}[/yellow]")
+                logger.warning(f"No lock found for tag: {tag}")
                 return True
             else:
-                console.print(f"[red] Failed to release lock: {e}[/red]")
+                logger.error(f"Failed to release lock: {e}")
                 raise
