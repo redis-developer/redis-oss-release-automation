@@ -1,7 +1,7 @@
 """Tests for IdentifyTargetRef behaviour."""
 
 import asyncio
-from typing import List, Optional
+from typing import Any, List
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -70,10 +70,7 @@ async def test_identify_target_ref_exact_match(
     # Mock branch listing
     branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
 
-    async def mock_list_branches(repo: str, pattern: Optional[str] = None) -> List[str]:
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -105,10 +102,7 @@ async def test_identify_target_ref_lower_version(
     # Mock branch listing - no release/8.3 branch
     branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
 
-    async def mock_list_branches(repo: str, pattern: Optional[str] = None) -> list[str]:
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -131,18 +125,15 @@ async def test_identify_target_ref_lower_version(
 
 @pytest.mark.asyncio
 async def test_identify_target_ref_milestone_version(
-    github_client, package_meta, release_meta
-):
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test identifying target ref for milestone version."""
     release_meta.tag = "8.4-m01"
 
     # Mock branch listing
     branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
 
-    async def mock_list_branches(repo, pattern=None):
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -165,18 +156,15 @@ async def test_identify_target_ref_milestone_version(
 
 @pytest.mark.asyncio
 async def test_identify_target_ref_no_suitable_branch(
-    github_client, package_meta, release_meta
-):
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test when no suitable branch is found (version too old)."""
     release_meta.tag = "7.0.0"
 
     # Mock branch listing - all branches are newer
     branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
 
-    async def mock_list_branches(repo, pattern=None):
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -200,16 +188,13 @@ async def test_identify_target_ref_no_suitable_branch(
 
 @pytest.mark.asyncio
 async def test_identify_target_ref_no_release_branches(
-    github_client, package_meta, release_meta
-):
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test when no release branches match the pattern."""
     # Mock branch listing - no release branches
     branches = ["main", "develop", "feature/test"]
 
-    async def mock_list_branches(repo, pattern=None):
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -232,8 +217,8 @@ async def test_identify_target_ref_no_release_branches(
 
 @pytest.mark.asyncio
 async def test_identify_target_ref_invalid_tag(
-    github_client, package_meta, release_meta
-):
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test with invalid release tag."""
     release_meta.tag = "invalid-tag"
 
@@ -253,7 +238,9 @@ async def test_identify_target_ref_invalid_tag(
 
 
 @pytest.mark.asyncio
-async def test_identify_target_ref_no_tag(github_client, package_meta, release_meta):
+async def test_identify_target_ref_no_tag(
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test when release tag is not set."""
     release_meta.tag = None
 
@@ -273,17 +260,16 @@ async def test_identify_target_ref_no_tag(github_client, package_meta, release_m
 
 
 @pytest.mark.asyncio
-async def test_detect_branch_sorting(github_client, package_meta, release_meta):
+async def test_detect_branch_sorting(
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test that branches are sorted correctly and highest suitable version is selected."""
     release_meta.tag = "8.5.0"
 
     # Mock branch listing - unsorted
     branches = ["release/8.0", "release/8.4", "release/7.2", "release/8.2"]
 
-    async def mock_list_branches(repo, pattern=None):
-        return branches
-
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_remote_branches = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -306,13 +292,13 @@ async def test_detect_branch_sorting(github_client, package_meta, release_meta):
 
 @pytest.mark.asyncio
 async def test_identify_target_ref_running_state(
-    github_client, package_meta, release_meta
-):
+    github_client: MagicMock, package_meta: PackageMeta, release_meta: ReleaseMeta
+) -> None:
     """Test that behaviour returns RUNNING while task is not complete."""
     # Create a future that won't complete immediately
-    future = asyncio.Future()
+    future: asyncio.Future[None] = asyncio.Future()
 
-    async def mock_list_branches(repo, pattern=None):
+    async def mock_list_branches(*args: Any, **kwargs: Any) -> List[str]:
         await future
         return ["release/8.2"]
 
