@@ -17,6 +17,8 @@ from redis_release.bht.state import (
     PackageMeta,
     ReleaseMeta,
     ReleaseState,
+    S3StateStorage,
+    StateSyncer,
     Workflow,
 )
 
@@ -343,6 +345,32 @@ def release_bht(
     # Use context manager version with automatic lock management
     with initialize_tree_and_state(config, args) as (tree, _):
         asyncio.run(async_tick_tock(tree))
+
+
+@app.command()
+def release_state(
+    release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+) -> None:
+    """Run release using behaviour tree implementation."""
+    setup_logging(logging.INFO)
+    config_path = config_file or "config.yaml"
+    config = load_config(config_path)
+
+    # Create release args
+    args = ReleaseArgs(
+        release_tag=release_tag,
+        force_rebuild=[],
+    )
+
+    with StateSyncer(
+        storage=S3StateStorage(),
+        config=config,
+        args=args,
+    ):
+        pass
 
 
 if __name__ == "__main__":
