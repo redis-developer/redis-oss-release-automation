@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Test the simplified Parallel composite."""
 
+from typing import Optional
+
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 
@@ -10,7 +12,9 @@ from redis_release.bht.composites import ParallelBarrier
 class MockBehaviour(Behaviour):
     """Mock behaviour for testing."""
 
-    def __init__(self, name: str, return_status: Status, ticks_until_done: int = 1):
+    def __init__(
+        self, name: str, return_status: Status, ticks_until_done: int = 1
+    ) -> None:
         super().__init__(name)
         self.return_status = return_status
         self.ticks_until_done = ticks_until_done
@@ -23,7 +27,7 @@ class MockBehaviour(Behaviour):
         return Status.RUNNING
 
 
-def test_all_success():
+def test_all_success() -> None:
     """Test that parallel returns SUCCESS when all children succeed."""
     print("\n=== Test: All children succeed ===")
     parallel = ParallelBarrier(
@@ -53,7 +57,7 @@ def test_all_success():
     print("✓ Test passed!")
 
 
-def test_one_failure():
+def test_one_failure() -> None:
     """Test that parallel returns FAILURE when one child fails."""
     print("\n=== Test: One child fails ===")
     parallel = ParallelBarrier(
@@ -83,7 +87,7 @@ def test_one_failure():
     print("✓ Test passed!")
 
 
-def test_synchronized_mode():
+def test_synchronized_mode() -> None:
     """Test that converged children are skipped on subsequent ticks."""
     print("\n=== Test: Synchronized mode (skip converged children) ===")
 
@@ -129,7 +133,7 @@ def test_synchronized_mode():
     print("✓ Test passed!")
 
 
-def test_empty_children():
+def test_empty_children() -> None:
     """Test that parallel with no children returns SUCCESS."""
     print("\n=== Test: Empty children ===")
     parallel = ParallelBarrier("Test Parallel", children=[])
