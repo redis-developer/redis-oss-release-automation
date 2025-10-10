@@ -268,6 +268,7 @@ def create_publish_workflow_tree_branch(
     reset_publish_workflow_state = RestartWorkflowGuarded(
         "",
         publish_workflow,
+        package_meta,
         default_publish_workflow,
         log_prefix=f"{package_name}.publish",
     )
@@ -339,6 +340,7 @@ def create_workflow_complete_tree_branch(
     identify_target_ref = create_identify_target_ref_ppa(
         package_meta,
         release_meta,
+        github_client,
         log_prefix,
     )
     latch_chains(

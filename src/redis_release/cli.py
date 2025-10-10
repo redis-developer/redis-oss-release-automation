@@ -275,7 +275,7 @@ def release_print_bht(
                 workflow, package_meta, release_meta, github_client, log_prefix
             ),
             "identify_target_ref": lambda: create_identify_target_ref_ppa(
-                package_meta, release_meta, log_prefix
+                package_meta, release_meta, github_client, log_prefix
             ),
             "download_artifacts": lambda: create_download_artifacts_ppa(
                 workflow, package_meta, github_client, log_prefix

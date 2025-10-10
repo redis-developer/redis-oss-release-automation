@@ -1,3 +1,16 @@
+"""
+Higher level composites for the Release Tree
+
+These composites are built from the atomic actions and conditions defined in `behaviours.py`.
+Here we make flag and state aware tree behaviors, implement retry and repeat patterns.
+
+The guiding principle for the composites defined here is the same as in behaviours.py
+in a sense that we aim to make a more or less direct action without complex conditions
+(except for the flags)
+
+More complex behaviors, including pre- and post- conditions are defined in `ppas.py`.
+"""
+
 from typing import Iterator, List, Optional
 from typing import Sequence as TypingSequence
 
@@ -216,19 +229,22 @@ class TriggerWorkflowGuarded(FlagGuard):
         )
 
 
-class IdentifyTargetRefGoal(FlagGuard):
+class IdentifyTargetRefGuarded(FlagGuard):
     def __init__(
         self,
         name: str,
         package_meta: PackageMeta,
         release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
         log_prefix: str = "",
     ) -> None:
         super().__init__(
-            None,
+            None if name == "" else name,
             IdentifyTargetRef(
                 "Identify Target Ref",
                 package_meta,
+                release_meta,
+                github_client,
                 log_prefix=log_prefix,
             ),
             package_meta.ephemeral,
@@ -341,12 +357,22 @@ class RestartPackageGuarded(FlagGuard):
             default_package,
             log_prefix=log_prefix,
         )
-        reset_package_state_wrapped = SuccessIsRunning(
+        reset_package_state_running = SuccessIsRunning(
             "Success is Running", reset_package_state
+        )
+        reset_package_state_guarded = FlagGuard(
+            None if name == "" else name,
+            reset_package_state_running,
+            package.meta.ephemeral,
+            "identify_ref_failed",
+            flag_value=True,
+            raise_on=[],
+            guard_status=Status.FAILURE,
+            log_prefix=log_prefix,
         )
         super().__init__(
             None if name == "" else name,
-            reset_package_state_wrapped,
+            reset_package_state_guarded,
             workflow.ephemeral,
             "trigger_attempted",
             flag_value=True,
@@ -358,7 +384,7 @@ class RestartPackageGuarded(FlagGuard):
 
 class RestartWorkflowGuarded(FlagGuard):
     """
-    Reset workflow if we didn't trigger the workflow in current run
+    Reset workflow if we didn't trigger the workflow in current run and if there was no identify target ref error
 
     This will only reset the workflow state
 
@@ -369,6 +395,7 @@ class RestartWorkflowGuarded(FlagGuard):
         self,
         name: str,
         workflow: Workflow,
+        package_meta: PackageMeta,
         default_workflow: Workflow,
         log_prefix: str = "",
     ) -> None:
@@ -378,12 +405,22 @@ class RestartWorkflowGuarded(FlagGuard):
             default_workflow,
             log_prefix=log_prefix,
         )
-        reset_workflow_state_wrapped = SuccessIsRunning(
+        reset_workflow_state_running = SuccessIsRunning(
             "Success is Running", reset_workflow_state
+        )
+        reset_workflow_state_guarded = FlagGuard(
+            None if name == "" else name,
+            reset_workflow_state_running,
+            package_meta.ephemeral,
+            "identify_ref_failed",
+            flag_value=True,
+            raise_on=[],
+            guard_status=Status.FAILURE,
+            log_prefix=log_prefix,
         )
         super().__init__(
             None if name == "" else name,
-            reset_workflow_state_wrapped,
+            reset_workflow_state_guarded,
             workflow.ephemeral,
             "trigger_attempted",
             flag_value=True,

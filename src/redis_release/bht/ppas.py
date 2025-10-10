@@ -1,3 +1,12 @@
+"""
+Here we define PPAs (Postcondition-Precondition-Action) composites to be used in backchaining.
+
+See backchain.py for more details on backchaining.
+
+Chains are formed and latched in `tree.py`
+
+"""
+
 from typing import Union
 
 from py_trees.composites import Selector, Sequence
@@ -18,7 +27,7 @@ from .composites import (
     DownloadArtifactsListGuarded,
     ExtractArtifactResultGuarded,
     FindWorkflowByUUID,
-    IdentifyTargetRefGoal,
+    IdentifyTargetRefGuarded,
     TriggerWorkflowGuarded,
     WaitForWorkflowCompletion,
 )
@@ -108,14 +117,16 @@ def create_trigger_workflow_ppa(
 def create_identify_target_ref_ppa(
     package_meta: PackageMeta,
     release_meta: ReleaseMeta,
+    github_client: GitHubClientAsync,
     log_prefix: str,
 ) -> Union[Selector, Sequence]:
     return create_PPA(
         "Identify Target Ref",
-        IdentifyTargetRefGoal(
+        IdentifyTargetRefGuarded(
             "",
             package_meta,
             release_meta,
+            github_client,
             log_prefix=log_prefix,
         ),
     )

@@ -600,3 +600,57 @@ class GitHubClientAsync:
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         uuid_match = re.search(uuid_pattern, text, re.IGNORECASE)
         return uuid_match.group() if uuid_match else None
+
+    async def list_remote_branches(
+        self, repo: str, pattern: Optional[str] = None
+    ) -> List[str]:
+        """List remote branches, optionally filtered by pattern.
+
+        Args:
+            repo: Repository name (e.g., "redis/redis")
+            pattern: Optional wildcard pattern (e.g., "release/*", "feature/*")
+
+        Returns:
+            List of branch names matching the pattern
+        """
+        url = f"https://api.github.com/repos/{repo}/git/refs/heads"
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        headers["Authorization"] = f"Bearer {self.token}"
+
+        try:
+            data = await self.github_request_paginated(
+                url=url,
+                headers=headers,
+                params={},
+                timeout=30,
+                per_page=100,
+                max_pages=None,
+            )
+
+            branches = []
+            # data is a list of ref objects
+            if isinstance(data, list):
+                for ref_data in data:
+                    ref_name = ref_data.get("ref", "")
+                    if ref_name.startswith("refs/heads/"):
+                        branch_name = ref_name[11:]  # Remove "refs/heads/" prefix
+                        branches.append(branch_name)
+
+            # Filter by pattern if provided
+            if pattern:
+                branches = [branch for branch in branches if re.match(pattern, branch)]
+
+            logger.info(
+                f"[green]Found {len(branches)} branches{' matching pattern' if pattern else ''}[/green]"
+            )
+            if pattern:
+                logger.debug(f"Pattern: {pattern}")
+
+            return sorted(branches)
+
+        except Exception as e:
+            logger.error(f"[red]Error listing branches: {e}[/red]")
+            return []

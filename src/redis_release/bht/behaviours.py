@@ -1,6 +1,9 @@
 """
 Actions and Conditions for the Release Tree
 
+Here we define only simple atomic actions and conditions.
+Next level composites are defined in `composites.py`.
+
 The guiding principles are:
 
 * Actions should be atomic and represent a single task.
@@ -15,7 +18,7 @@ import re
 import uuid
 from datetime import datetime
 from token import OP
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -71,21 +74,156 @@ class ReleaseAction(LoggingAction):
 
 class IdentifyTargetRef(ReleaseAction):
     def __init__(
-        self, name: str, package_meta: PackageMeta, log_prefix: str = ""
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
     ) -> None:
         self.package_meta = package_meta
+        self.release_meta = release_meta
+        self.github_client = github_client
+        self.release_version: Optional["RedisVersion"] = None
+        self.branches: List[str] = []
         super().__init__(name=name, log_prefix=log_prefix)
 
-    def update(self) -> Status:
+    def initialise(self) -> None:
+        """Initialize by parsing release version and listing branches."""
+        # If ref is already set, nothing to do
         if self.package_meta.ref is not None:
-            return Status.SUCCESS
-        # For now, just set a hardcoded ref
-        self.package_meta.ref = "release/8.2"
-        self.logger.info(
-            f"[green]Target ref identified:[/green] {self.package_meta.ref}"
+            return
+
+        # Parse release version from tag
+        if not self.release_meta.tag:
+            self.logger.error("Release tag is not set")
+            return
+
+        try:
+            from ..models import RedisVersion
+
+            self.release_version = RedisVersion.parse(self.release_meta.tag)
+            self.logger.debug(
+                f"Parsed release version: {self.release_version.major}.{self.release_version.minor}"
+            )
+        except ValueError as e:
+            self.logger.error(f"Failed to parse release tag: {e}")
+            return
+
+        # List remote branches matching release pattern with major version
+        # Pattern: release/MAJOR.\d+$ (e.g., release/8.\d+$ for major version 8)
+        pattern = f"^release/{self.release_version.major}\\.\\d+$"
+        self.task = asyncio.create_task(
+            self.github_client.list_remote_branches(
+                self.package_meta.repo, pattern=pattern
+            )
         )
-        self.feedback_message = f"Target ref set to {self.package_meta.ref}"
-        return Status.SUCCESS
+
+    def update(self) -> Status:
+        # If ref is already set, we're done
+        if self.package_meta.ref is not None:
+            self.logger.debug(f"Ref already set: {self.package_meta.ref}")
+            return Status.SUCCESS
+
+        try:
+            assert self.task is not None
+
+            # Wait for branch listing to complete
+            if not self.task.done():
+                return Status.RUNNING
+
+            self.branches = self.task.result()
+            self.logger.debug(f"Found {len(self.branches)} branches")
+
+            # Sort branches and detect appropriate one
+            sorted_branches = self._sort_branches(self.branches)
+            detected_branch = self._detect_branch(sorted_branches)
+
+            if detected_branch:
+                self.package_meta.ref = detected_branch
+                self.logger.info(
+                    f"[green]Target ref identified:[/green] {self.package_meta.ref}"
+                )
+                self.feedback_message = f"Target ref set to {self.package_meta.ref}"
+                return Status.SUCCESS
+            else:
+                self.logger.error("Failed to detect appropriate branch")
+                self.feedback_message = "Failed to detect appropriate branch"
+                return Status.FAILURE
+
+        except Exception as e:
+            return self.log_exception_and_return_failure(e)
+
+    def _sort_branches(self, branches: List[str]) -> List[str]:
+        """Sort branches by version in descending order.
+
+        Args:
+            branches: List of branch names (e.g., ["release/8.0", "release/8.4"])
+
+        Returns:
+            Sorted list of branch names in descending order by version
+            (e.g., ["release/8.4", "release/8.2", "release/8.0"])
+        """
+        pattern = re.compile(r"^release/(\d+)\.(\d+)$")
+        branch_versions = []
+
+        for branch in branches:
+            match = pattern.match(branch)
+            if match:
+                major = int(match.group(1))
+                minor = int(match.group(2))
+                branch_versions.append((major, minor, branch))
+
+        # Sort by (major, minor) descending
+        branch_versions.sort(reverse=True)
+
+        return [branch for _, _, branch in branch_versions]
+
+    def _detect_branch(self, sorted_branches: List[str]) -> Optional[str]:
+        """Detect the appropriate branch from sorted list of branches.
+
+        Walks over sorted list of branches (descending order) trying to find first
+        branch equal to release/MAJOR.MINOR or lower version.
+
+        Args:
+            sorted_branches: Sorted list of branch names in descending order
+                           (e.g., ["release/8.4", "release/8.2", "release/8.0"])
+                           Can be empty.
+
+        Returns:
+            Branch name or None if no suitable branch found
+        """
+        if not self.release_version:
+            return None
+
+        if not sorted_branches:
+            self.logger.warning("No release branches found matching pattern")
+            return None
+
+        target_major = self.release_version.major
+        target_minor = self.release_version.minor
+
+        # Pattern to extract version from branch name
+        pattern = re.compile(r"^release/(\d+)\.(\d+)$")
+
+        # Walk through sorted branches (descending order)
+        # Find first branch <= target version
+        for branch in sorted_branches:
+            match = pattern.match(branch)
+            if match:
+                major = int(match.group(1))
+                minor = int(match.group(2))
+
+                if (major, minor) <= (target_major, target_minor):
+                    self.logger.debug(
+                        f"Found matching branch: {branch} for target {target_major}.{target_minor}"
+                    )
+                    return branch
+
+        self.logger.warning(
+            f"No suitable branch found for version {target_major}.{target_minor}"
+        )
+        return None
 
 
 class TriggerWorkflow(ReleaseAction):
@@ -372,6 +510,31 @@ class ExtractArtifactResult(ReleaseAction):
             return self.log_exception_and_return_failure(e)
 
 
+class AttachReleaseHandleToPublishWorkflow(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        build_workflow: Workflow,
+        publish_workflow: Workflow,
+        log_prefix: str = "",
+    ) -> None:
+        self.build_workflow = build_workflow
+        self.publish_workflow = publish_workflow
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if "release_handle" in self.publish_workflow.inputs:
+            return Status.SUCCESS
+
+        if self.build_workflow.result is None:
+            return Status.FAILURE
+
+        self.publish_workflow.inputs["release_handle"] = json.dumps(
+            self.build_workflow.result
+        )
+        return Status.SUCCESS
+
+
 class ResetPackageState(ReleaseAction):
     def __init__(
         self,
@@ -525,31 +688,6 @@ class NeedToPublish(LoggingAction):
             return Status.FAILURE
 
         self.logger.debug(f"Public release: {self.release_meta.tag}")
-        return Status.SUCCESS
-
-
-class AttachReleaseHandleToPublishWorkflow(LoggingAction):
-    def __init__(
-        self,
-        name: str,
-        build_workflow: Workflow,
-        publish_workflow: Workflow,
-        log_prefix: str = "",
-    ) -> None:
-        self.build_workflow = build_workflow
-        self.publish_workflow = publish_workflow
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def update(self) -> Status:
-        if "release_handle" in self.publish_workflow.inputs:
-            return Status.SUCCESS
-
-        if self.build_workflow.result is None:
-            return Status.FAILURE
-
-        self.publish_workflow.inputs["release_handle"] = json.dumps(
-            self.build_workflow.result
-        )
         return Status.SUCCESS
 
 
