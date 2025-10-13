@@ -45,7 +45,6 @@ from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
-from .sso import sso_test
 
 app = typer.Typer(
     name="redis-release",
@@ -386,6 +385,7 @@ def sso(
     from .sso_ui import run_sso_ui
 
     setup_logging(logging.DEBUG, log_file="sso_debug.log")
+    logger = logging.getLogger(__name__)
 
     # Create janus queues for bidirectional communication
     tree_to_ui = janus.Queue()
@@ -404,7 +404,16 @@ def sso(
     tree_thread.daemon = True
     tree_thread.start()
 
-    run_sso_ui(tree_to_ui.async_q, ui_to_tree.sync_q)
+    # Wait for the tree to send start message
+    msg = tree_to_ui.sync_q.get()
+    if type(msg) == str and msg == "start":
+        run_sso_ui(tree_to_ui.async_q, ui_to_tree.sync_q)
+    elif type(msg) == str and msg == "shutdown":
+        # Tree already done (there are valid creds), no need to run UI
+        logger.debug("Received shutdown command, exiting app")
+    else:
+        logger.error(f"Unknown message received: {msg}")
+
     tree_thread.join()
     tree_to_ui.close()
     ui_to_tree.close()

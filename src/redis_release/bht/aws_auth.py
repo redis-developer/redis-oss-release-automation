@@ -15,8 +15,18 @@ from redis_release.bht.composites import ParallelBarrier
 from .behaviours import LoggingAction
 
 
+class AwsSSODefaults(BaseModel):
+    start_url: str = "https://d-9a672d5d56.awsapps.com/start/#"
+    sso_region: str = "us-east-2"
+    account_id: str = "620187402834"
+    role_name: str = "PowerUserAccess"
+    region: str = "eu-west-1"
+
+
 class AwsState(BaseModel):
     """AWS credentials state."""
+
+    aws_sso_defaults: AwsSSODefaults = AwsSSODefaults()
 
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
@@ -44,31 +54,31 @@ def create_aws_root_node(
         children=[validate_aws_credentials, validate_aws_sso],
     )
 
-    aws_validators_success = OnAwsSuccess("On AWS Success", tree_to_ui, aws_state)
+    aws_validators_success = OnAwsSuccess("Shutdown UI", tree_to_ui, aws_state)
 
     aws_validators_process = Sequence(
-        "AWS Validators Process",
+        "Validate AWS Credentials",
         memory=False,
         children=[aws_validators, aws_validators_success],
     )
 
     show_choose_auth_dialog = ShowChooseAuthDialog(
-        "Show Choose Auth Dialog",
+        "Show Choose Auth Type Dialog",
         aws_state,
         tree_to_ui,
     )
 
     sso_login_process = Sequence(
-        "SSO Process",
+        "AWS SSO UI Flow",
         memory=False,
         children=[
             IsSSOChosen("Is SSO Chosen", aws_state),
-            LoginToSSO("Login to SSO", ui_to_tree, aws_state),
+            LoginToSSO("Login to SSO", ui_to_tree, tree_to_ui, aws_state),
         ],
     )
 
     sso_process = Selector(
-        "SSO Process",
+        "AWS Credentials UI Flow",
         memory=False,
         children=[sso_login_process, show_choose_auth_dialog],
     )
@@ -81,13 +91,13 @@ def create_aws_root_node(
     )
 
     ui_process = ParallelBarrier(
-        "UI Process",
+        "Run the UI /PARALLEL/",
         memory=False,
         children=[ui_queue_listener, sso_process],
     )
 
     aws_process = Selector(
-        "AWS Process",
+        "AWS Get Credentials Goal",
         memory=False,
         children=[aws_validators_process, ui_process],
     )
@@ -96,8 +106,8 @@ def create_aws_root_node(
 
 
 def create_aws_tree(
-    tree_to_ui: Optional[janus._SyncQueueProxy] = None,
-    ui_to_tree: Optional[janus.Queue] = None,
+    tree_to_ui: janus.SyncQueue,
+    ui_to_tree: janus.AsyncQueue,
 ) -> BehaviourTree:
     root = create_aws_root_node(AwsState(), tree_to_ui, ui_to_tree)
     tree = BehaviourTree(root)
@@ -176,11 +186,11 @@ class ValidateAwsSSO(LoggingAction):
 
         try:
             session = get_boto3_session(
-                start_url="https://d-9a672d5d56.awsapps.com/start/#",
-                sso_region="us-east-2",
-                account_id="022044324644",
-                role_name="PowerUserAccess",
-                region="eu-central-1",
+                start_url=self.aws_state.aws_sso_defaults.start_url,
+                sso_region=self.aws_state.aws_sso_defaults.sso_region,
+                account_id=self.aws_state.aws_sso_defaults.account_id,
+                role_name=self.aws_state.aws_sso_defaults.role_name,
+                region=self.aws_state.aws_sso_defaults.region,
                 login=False,
             )
 
@@ -194,7 +204,7 @@ class ValidateAwsSSO(LoggingAction):
 
         except Exception as e:
             self.logger.error(f"[red]AWS SSO validation failed:[/red] {e}")
-            self.sso_failed = True
+            self.aws_state.sso_failed = True
             return Status.FAILURE
 
 
@@ -217,21 +227,23 @@ class LoginToSSO(LoggingAction):
         self,
         name: str,
         ui_to_tree: janus.AsyncQueue,
+        tree_to_ui: janus.SyncQueue,
         aws_state: AwsState,
         log_prefix: str = "",
     ) -> None:
         self.aws_state = aws_state
         self.ui_to_tree = ui_to_tree
+        self.tree_to_ui = tree_to_ui
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
         try:
             session = get_boto3_session(
-                start_url="https://d-9a672d5d56.awsapps.com/start/#",
-                sso_region="us-east-2",
-                account_id="022044324644",
-                role_name="PowerUserAccess",
-                region="eu-central-1",
+                start_url=self.aws_state.aws_sso_defaults.start_url,
+                sso_region=self.aws_state.aws_sso_defaults.sso_region,
+                account_id=self.aws_state.aws_sso_defaults.account_id,
+                role_name=self.aws_state.aws_sso_defaults.role_name,
+                region=self.aws_state.aws_sso_defaults.region,
                 login=True,
             )
 
@@ -245,7 +257,7 @@ class LoginToSSO(LoggingAction):
 
         except Exception as e:
             self.logger.error(f"[red]AWS SSO validation failed:[/red] {e}")
-            self.sso_failed = True
+            self.aws_state.sso_failed = True
             return Status.FAILURE
 
 
@@ -271,7 +283,7 @@ class ShowChooseAuthDialog(LoggingAction):
         self,
         name: str,
         aws_state: AwsState,
-        tree_to_ui: Optional[janus._SyncQueueProxy] = None,
+        tree_to_ui: janus.SyncQueue,
         log_prefix: str = "",
     ) -> None:
         self.aws_state = aws_state
@@ -313,6 +325,7 @@ class UiQueueListener(LoggingAction):
 
     def initialise(self) -> None:
         self.task = asyncio.create_task(self.ui_to_tree.get())
+        self.tree_to_ui.put_nowait("start")
 
     def update(self) -> Status:
         if not self.ui_to_tree:
@@ -330,7 +343,7 @@ class UiQueueListener(LoggingAction):
         messages = [result]
         try:
             while True:
-                message = self.ui_to_tree.sync_q.get_nowait()
+                message = self.ui_to_tree.get_nowait()
                 messages.append(message)
         except:
             pass  # Queue is empty
@@ -340,7 +353,9 @@ class UiQueueListener(LoggingAction):
                 self.logger.info(f"[green]Received UI message:[/green] {message}")
                 if type(message) == str and message == "shutdown":
                     self.logger.debug("[green]Received shutdown signal[/green]")
-                    return Status.SUCCESS
+                    if self.aws_state.aws_authenticated:
+                        return Status.SUCCESS
+                    return Status.FAILURE
                 elif type(message) == str and message == "state_updated":
                     self.logger.debug("[green]Received state update signal[/green]")
                 elif isinstance(message, list) and len(message) == 3:

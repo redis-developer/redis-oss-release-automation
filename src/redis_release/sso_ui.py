@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class ChooseAuthDialog(ModalScreen):
     """Dialog for choosing authentication method."""
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Vertical(
             Static("Choose Authentication Method", classes="dialog-title"),
             Button("Credentials", id="credentials"),
@@ -85,7 +85,7 @@ class SSOApp(App):
         """Send shutdown signal when app is closing."""
         if self.ui_to_tree:
             try:
-                await self.ui_to_tree.put("shutdown")
+                self.ui_to_tree.put("shutdown")
                 logger.debug("Sent shutdown signal to ui_to_tree")
             except Exception as e:
                 logger.error(f"Failed to send shutdown signal: {e}")
