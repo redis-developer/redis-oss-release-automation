@@ -1,0 +1,365 @@
+import asyncio
+import os
+from typing import Optional
+
+import janus
+from aws_sso_lib.sso import get_boto3_session
+from py_trees.behaviour import Behaviour
+from py_trees.common import Status
+from py_trees.composites import Selector, Sequence
+from py_trees.trees import BehaviourTree
+from pydantic import BaseModel
+
+from redis_release.bht.composites import ParallelBarrier
+
+from .behaviours import LoggingAction
+
+
+class AwsState(BaseModel):
+    """AWS credentials state."""
+
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_session_token: Optional[str] = None
+    dialog: Optional[str] = None
+    auth_choice: Optional[str] = None
+
+    aws_authenticated: bool = False
+    sso_failed: bool = False
+
+
+def create_aws_root_node(
+    aws_state: AwsState,
+    tree_to_ui: janus.SyncQueue,
+    ui_to_tree: janus.AsyncQueue,
+) -> Behaviour:
+    validate_aws_credentials = ValidateAwsCredentials(
+        "Validate AWS Credentials", aws_state
+    )
+    validate_aws_sso = ValidateAwsSSO("Validate AWS SSO", aws_state)
+
+    aws_validators = Selector(
+        "AWS Validators",
+        memory=False,
+        children=[validate_aws_credentials, validate_aws_sso],
+    )
+
+    aws_validators_success = OnAwsSuccess("On AWS Success", tree_to_ui, aws_state)
+
+    aws_validators_process = Sequence(
+        "AWS Validators Process",
+        memory=False,
+        children=[aws_validators, aws_validators_success],
+    )
+
+    show_choose_auth_dialog = ShowChooseAuthDialog(
+        "Show Choose Auth Dialog",
+        aws_state,
+        tree_to_ui,
+    )
+
+    sso_login_process = Sequence(
+        "SSO Process",
+        memory=False,
+        children=[
+            IsSSOChosen("Is SSO Chosen", aws_state),
+            LoginToSSO("Login to SSO", ui_to_tree, aws_state),
+        ],
+    )
+
+    sso_process = Selector(
+        "SSO Process",
+        memory=False,
+        children=[sso_login_process, show_choose_auth_dialog],
+    )
+
+    ui_queue_listener = UiQueueListener(
+        "UI Queue Listener",
+        ui_to_tree,
+        tree_to_ui,
+        aws_state,
+    )
+
+    ui_process = ParallelBarrier(
+        "UI Process",
+        memory=False,
+        children=[ui_queue_listener, sso_process],
+    )
+
+    aws_process = Selector(
+        "AWS Process",
+        memory=False,
+        children=[aws_validators_process, ui_process],
+    )
+
+    return aws_process
+
+
+def create_aws_tree(
+    tree_to_ui: Optional[janus._SyncQueueProxy] = None,
+    ui_to_tree: Optional[janus.Queue] = None,
+) -> BehaviourTree:
+    root = create_aws_root_node(AwsState(), tree_to_ui, ui_to_tree)
+    tree = BehaviourTree(root)
+    return tree
+
+
+class ValidateAwsCredentials(LoggingAction):
+    def __init__(self, name: str, aws_state: AwsState, log_prefix: str = "") -> None:
+        self.aws_state = aws_state
+        self.aws_access_key_id: Optional[str] = None
+        self.aws_secret_access_key: Optional[str] = None
+        self.aws_session_token: Optional[str] = None
+        self.last_result: Optional[Status] = None
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        # Check environment for AWS credentials
+        env_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+        env_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        env_session_token = os.getenv("AWS_SESSION_TOKEN")
+
+        # Save to AwsState if they exist
+        if env_access_key:
+            self.aws_state.aws_access_key_id = env_access_key
+        if env_secret_key:
+            self.aws_state.aws_secret_access_key = env_secret_key
+        if env_session_token:
+            self.aws_state.aws_session_token = env_session_token
+
+    def update(self) -> Status:
+        # Check if credentials are the same as last time
+        if (
+            self.aws_access_key_id == self.aws_state.aws_access_key_id
+            and self.aws_secret_access_key == self.aws_state.aws_secret_access_key
+            and self.aws_session_token == self.aws_state.aws_session_token
+            and self.last_result is not None
+        ):
+            return self.last_result
+
+        # Update self fields from AwsState
+        self.aws_access_key_id = self.aws_state.aws_access_key_id
+        self.aws_secret_access_key = self.aws_state.aws_secret_access_key
+        self.aws_session_token = self.aws_state.aws_session_token
+
+        # Validate credentials using STS
+        try:
+            import boto3
+
+            sts_client = boto3.client(
+                "sts",
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                aws_session_token=self.aws_session_token,
+            )
+            sts_client.get_caller_identity()
+
+            self.logger.info("[green]AWS credentials are valid[/green]")
+            self.last_result = Status.SUCCESS
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.logger.error(f"[red]AWS credentials validation failed:[/red] {e}")
+            self.last_result = Status.FAILURE
+            return Status.FAILURE
+
+
+class ValidateAwsSSO(LoggingAction):
+    def __init__(self, name: str, aws_state: AwsState, log_prefix: str = "") -> None:
+        self.aws_state = aws_state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        # If SSO already failed, return failure immediately
+        if self.aws_state.sso_failed:
+            return Status.FAILURE
+
+        try:
+            session = get_boto3_session(
+                start_url="https://d-9a672d5d56.awsapps.com/start/#",
+                sso_region="us-east-2",
+                account_id="022044324644",
+                role_name="PowerUserAccess",
+                region="eu-central-1",
+                login=False,
+            )
+
+            sts = session.client("sts")
+            sts.get_caller_identity()
+
+            self.logger.info("[green]AWS SSO credentials are valid[/green]")
+            self.aws_state.aws_authenticated = True
+            self.aws_state.sso_failed = False
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.logger.error(f"[red]AWS SSO validation failed:[/red] {e}")
+            self.sso_failed = True
+            return Status.FAILURE
+
+
+class IsSSOChosen(LoggingAction):
+    def __init__(self, name: str, aws_state: AwsState, log_prefix: str = "") -> None:
+        self.aws_state = aws_state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if (
+            self.aws_state.auth_choice is not None
+            and self.aws_state.auth_choice == "sso"
+        ):
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class LoginToSSO(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        ui_to_tree: janus.AsyncQueue,
+        aws_state: AwsState,
+        log_prefix: str = "",
+    ) -> None:
+        self.aws_state = aws_state
+        self.ui_to_tree = ui_to_tree
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        try:
+            session = get_boto3_session(
+                start_url="https://d-9a672d5d56.awsapps.com/start/#",
+                sso_region="us-east-2",
+                account_id="022044324644",
+                role_name="PowerUserAccess",
+                region="eu-central-1",
+                login=True,
+            )
+
+            sts = session.client("sts")
+            sts.get_caller_identity()
+
+            self.logger.info("[green]AWS SSO credentials are valid[/green]")
+            self.aws_state.sso_failed = False
+            self.ui_to_tree.put_nowait("state_updated")
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.logger.error(f"[red]AWS SSO validation failed:[/red] {e}")
+            self.sso_failed = True
+            return Status.FAILURE
+
+
+class OnAwsSuccess(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        tree_to_ui: janus.SyncQueue,
+        aws_state: AwsState,
+        log_prefix: str = "",
+    ) -> None:
+        self.aws_state = aws_state
+        self.tree_to_ui = tree_to_ui
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        self.tree_to_ui.put("shutdown")
+        return Status.SUCCESS
+
+
+class ShowChooseAuthDialog(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        aws_state: AwsState,
+        tree_to_ui: Optional[janus._SyncQueueProxy] = None,
+        log_prefix: str = "",
+    ) -> None:
+        self.aws_state = aws_state
+        self.tree_to_ui = tree_to_ui
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.aws_state.dialog == "choose_auth":
+            return Status.SUCCESS
+        print(f"ShowChooseAuthDialog.update() called, queue: {self.tree_to_ui}")
+        self.aws_state.dialog = "choose_auth"
+
+        if self.tree_to_ui:
+            try:
+                self.tree_to_ui.put(["set", "show_choose_auth", True])
+                print("Auth dialog message sent to queue")
+                self.logger.info("[green]Auth dialog shown[/green]")
+            except Exception as e:
+                print(f"Failed to send queue message: {e}")
+                self.logger.error(f"[red]Failed to send queue message:[/red] {e}")
+
+        return Status.SUCCESS
+
+
+class UiQueueListener(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        ui_to_tree: janus.AsyncQueue,
+        tree_to_ui: janus.SyncQueue,
+        aws_state: AwsState,
+        log_prefix: str = "",
+    ) -> None:
+        self.ui_to_tree = ui_to_tree
+        self.tree_to_ui = tree_to_ui
+        self.aws_state = aws_state
+        self.task: Optional[asyncio.Task] = None
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        self.task = asyncio.create_task(self.ui_to_tree.get())
+
+    def update(self) -> Status:
+        if not self.ui_to_tree:
+            self.logger.error("[red]ui_to_tree is None[/red]")
+            return Status.FAILURE
+
+        if self.task is None:
+            self.logger.error("[red]Task is None - behaviour was not initialized[/red]")
+            return Status.FAILURE
+
+        if not self.task.done():
+            return Status.RUNNING
+
+        result = self.task.result()
+        messages = [result]
+        try:
+            while True:
+                message = self.ui_to_tree.sync_q.get_nowait()
+                messages.append(message)
+        except:
+            pass  # Queue is empty
+
+        if messages:
+            for message in messages:
+                self.logger.info(f"[green]Received UI message:[/green] {message}")
+                if type(message) == str and message == "shutdown":
+                    self.logger.debug("[green]Received shutdown signal[/green]")
+                    return Status.SUCCESS
+                elif type(message) == str and message == "state_updated":
+                    self.logger.debug("[green]Received state update signal[/green]")
+                elif isinstance(message, list) and len(message) == 3:
+                    action, field_name, value = message
+                    self.logger.debug(
+                        f"[green]Received state set command:[/green] {field_name} = {value}"
+                    )
+                    if action == "set" and hasattr(self.aws_state, field_name):
+                        setattr(self.aws_state, field_name, value)
+
+            # Setup new task to wait for next messages
+            if self.task:
+                self.task.cancel()
+            self.task = asyncio.create_task(self.ui_to_tree.get())
+
+        return Status.RUNNING
+
+    def terminate(self, new_status: Status) -> None:
+        if self.task:
+            self.task.cancel()
+        self.tree_to_ui.put("shutdown")
+        super().terminate(new_status)

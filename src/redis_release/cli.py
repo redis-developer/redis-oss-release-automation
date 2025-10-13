@@ -45,6 +45,7 @@ from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
+from .sso import sso_test
 
 app = typer.Typer(
     name="redis-release",
@@ -371,6 +372,42 @@ def release_state(
         args=args,
     ):
         pass
+
+
+@app.command()
+def sso(
+    print_tree: bool = typer.Option(False, "-p", help="Print tree to console")
+) -> None:
+    import threading
+
+    import janus
+
+    from .bht.aws_auth import create_aws_tree
+    from .sso_ui import run_sso_ui
+
+    setup_logging(logging.DEBUG, log_file="sso_debug.log")
+
+    # Create janus queues for bidirectional communication
+    tree_to_ui = janus.Queue()
+    ui_to_tree = janus.Queue()
+
+    tree = create_aws_tree(tree_to_ui.sync_q, ui_to_tree.async_q)
+    if print_tree:
+        render_dot_tree(tree.root)
+        print(unicode_tree(tree.root))
+        return
+
+    def run_tree() -> None:
+        asyncio.run(async_tick_tock(tree))
+
+    tree_thread = threading.Thread(target=run_tree)
+    tree_thread.daemon = True
+    tree_thread.start()
+
+    run_sso_ui(tree_to_ui.async_q, ui_to_tree.sync_q)
+    tree_thread.join()
+    tree_to_ui.close()
+    ui_to_tree.close()
 
 
 if __name__ == "__main__":
