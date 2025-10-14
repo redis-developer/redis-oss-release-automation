@@ -1,5 +1,9 @@
 import asyncio
 import os
+import sys
+import threading
+from contextlib import redirect_stderr, redirect_stdout
+from io import IOBase
 from typing import Optional
 
 import janus
@@ -236,29 +240,58 @@ class LoginToSSO(LoggingAction):
         self.tree_to_ui = tree_to_ui
         super().__init__(name=name, log_prefix=log_prefix)
 
-    def update(self) -> Status:
+    def _run_sso_login_threaded(self) -> None:
+        """Run SSO login in a thread with stdout/stderr capture."""
         try:
-            session = get_boto3_session(
-                start_url=self.aws_state.aws_sso_defaults.start_url,
-                sso_region=self.aws_state.aws_sso_defaults.sso_region,
-                account_id=self.aws_state.aws_sso_defaults.account_id,
-                role_name=self.aws_state.aws_sso_defaults.role_name,
-                region=self.aws_state.aws_sso_defaults.region,
-                login=True,
-            )
 
-            sts = session.client("sts")
-            sts.get_caller_identity()
+            class StupidStreamRedirector(IOBase):
+                def __init__(self, tree_to_ui: janus.SyncQueue):
+                    self.tree_to_ui = tree_to_ui
 
-            self.logger.info("[green]AWS SSO credentials are valid[/green]")
-            self.aws_state.sso_failed = False
-            self.ui_to_tree.put_nowait("state_updated")
-            return Status.SUCCESS
+                def write(self, s):
+                    self.tree_to_ui.put(["sso_output_chunk", s])
+
+            to_ui_queue = StupidStreamRedirector(self.tree_to_ui)
+            with redirect_stdout(to_ui_queue), redirect_stderr(to_ui_queue):
+                session = get_boto3_session(
+                    start_url=self.aws_state.aws_sso_defaults.start_url,
+                    sso_region=self.aws_state.aws_sso_defaults.sso_region,
+                    account_id=self.aws_state.aws_sso_defaults.account_id,
+                    role_name=self.aws_state.aws_sso_defaults.role_name,
+                    region=self.aws_state.aws_sso_defaults.region,
+                    login=True,
+                )
+
+                # Test the session
+                sts = session.client("sts")
+                sts.get_caller_identity()
+                self.aws_state.sso_failed = False
 
         except Exception as e:
-            self.logger.error(f"[red]AWS SSO validation failed:[/red] {e}")
+            self.tree_to_ui.put(
+                ["sso_output_chunk", f"❌ SSO authentication failed: {e}\n"]
+            )
             self.aws_state.sso_failed = True
+
+    def initialise(self) -> None:
+        self.sso_thread = threading.Thread(
+            target=self._run_sso_login_threaded, daemon=True
+        )
+        self.sso_thread.start()
+
+    def update(self) -> Status:
+        # Start the SSO process if not already started
+        if self.sso_thread is None:
+            self.logger.error("SSO thread is None - behaviour was not initialized")
             return Status.FAILURE
+
+        # Check if the thread is still running
+        if self.sso_thread.is_alive():
+            return Status.RUNNING
+
+        if self.aws_state.sso_failed:
+            return Status.FAILURE
+        return Status.SUCCESS
 
 
 class OnAwsSuccess(LoggingAction):
@@ -293,16 +326,13 @@ class ShowChooseAuthDialog(LoggingAction):
     def update(self) -> Status:
         if self.aws_state.dialog == "choose_auth":
             return Status.SUCCESS
-        print(f"ShowChooseAuthDialog.update() called, queue: {self.tree_to_ui}")
         self.aws_state.dialog = "choose_auth"
 
         if self.tree_to_ui:
             try:
                 self.tree_to_ui.put(["set", "show_choose_auth", True])
-                print("Auth dialog message sent to queue")
                 self.logger.info("[green]Auth dialog shown[/green]")
             except Exception as e:
-                print(f"Failed to send queue message: {e}")
                 self.logger.error(f"[red]Failed to send queue message:[/red] {e}")
 
         return Status.SUCCESS
