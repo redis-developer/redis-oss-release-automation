@@ -36,6 +36,8 @@ from .bht.tree import (
     create_build_workflow_tree_branch,
     create_extract_result_tree_branch,
     create_publish_workflow_tree_branch,
+    create_selector_branch,
+    create_sequence_branch,
     create_workflow_complete_tree_branch,
     create_workflow_with_result_tree_branch,
     initialize_tree_and_state,
@@ -231,7 +233,20 @@ def release_print_bht(
         None,
         "--name",
         "-n",
-        help="Name of specific PPA or tree branch to print. PPAs: 'workflow_success', 'workflow_completion', 'find_workflow', 'trigger_workflow', 'identify_target_ref', 'download_artifacts', 'extract_artifact_result'. Tree branches: 'workflow_success_branch', 'workflow_result_branch'",
+        help="""Name of specific PPA or tree branch to print.
+            PPAs:
+                'workflow_success',
+                'workflow_completion',
+                'find_workflow',
+                'trigger_workflow',
+                'identify_target_ref',
+                'download_artifacts',
+                'extract_artifact_result'.
+            Tree branches:
+                'workflow_complete_branch',
+                'workflow_with_result_branch',
+                'publish_workflow_branch',
+                'build_workflow_branch'""",
     ),
 ) -> None:
     """Print and render (using graphviz) the release behaviour tree or a specific PPA."""
@@ -292,12 +307,20 @@ def release_print_bht(
             "workflow_with_result_branch": lambda: create_workflow_with_result_tree_branch(
                 "artifact", workflow, package_meta, release_meta, github_client, ""
             ),
-            "publish_worflow_branch": lambda: create_publish_workflow_tree_branch(
-                workflow, workflow, package_meta, release_meta, github_client, ""
+            "publish_workflow_branch": lambda: create_publish_workflow_tree_branch(
+                workflow,
+                workflow,
+                package_meta,
+                release_meta,
+                workflow,
+                github_client,
+                "",
             ),
             "build_workflow_branch": lambda: create_build_workflow_tree_branch(
-                workflow, package_meta, release_meta, github_client, ""
+                package, release_meta, package, github_client, ""
             ),
+            "demo_sequence": lambda: create_sequence_branch(),
+            "demo_selector": lambda: create_selector_branch(),
         }
 
         if name not in ppa_creators:
@@ -332,7 +355,7 @@ def release_bht(
     ),
 ) -> None:
     """Run release using behaviour tree implementation."""
-    setup_logging(logging.DEBUG)
+    setup_logging()
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 

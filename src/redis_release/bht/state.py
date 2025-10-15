@@ -2,7 +2,6 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from importlib.metadata import packages_distributions
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Union
 

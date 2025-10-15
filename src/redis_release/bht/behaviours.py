@@ -374,7 +374,15 @@ class UpdateWorkflowStatus(ReleaseAction):
                 return Status.RUNNING
 
             result = self.task.result()
+            if self.workflow.status != result.status:
+                self.logger.info(
+                    f"Workflow {self.workflow.workflow_file}({self.workflow.run_id}) status changed: {self.workflow.status} -> {result.status}"
+                )
             self.workflow.status = result.status
+            if self.workflow.conclusion != result.conclusion:
+                self.logger.info(
+                    f"Workflow {self.workflow.workflow_file}({self.workflow.run_id}) conclusion changed: {self.workflow.conclusion} -> {result.conclusion}"
+                )
             self.workflow.conclusion = result.conclusion
             self.feedback_message = (
                 f" {self.workflow.status}, {self.workflow.conclusion}"

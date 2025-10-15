@@ -11,6 +11,7 @@ from py_trees.decorators import Inverter
 from py_trees.display import unicode_tree
 from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
+from rich.pretty import pretty_repr
 from rich.text import Text
 
 from ..config import Config
@@ -374,3 +375,35 @@ def create_extract_result_tree_branch(
     )
     latch_chains(extract_artifact_result, download_artifacts)
     return extract_artifact_result
+
+
+class DemoBehaviour(Behaviour):
+    def __init__(self, name: str):
+        super().__init__(name=name)
+
+    def update(self) -> Status:
+        return Status.SUCCESS
+
+
+def create_sequence_branch() -> Sequence:
+    s = Sequence(
+        name="Sequence: A && B",
+        memory=False,
+        children=[
+            DemoBehaviour("A"),
+            DemoBehaviour("B"),
+        ],
+    )
+    return s
+
+
+def create_selector_branch() -> Selector:
+    s = Selector(
+        name="Selector: A || B",
+        memory=False,
+        children=[
+            DemoBehaviour("A"),
+            DemoBehaviour("B"),
+        ],
+    )
+    return s
