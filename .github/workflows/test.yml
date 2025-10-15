@@ -1,0 +1,24 @@
+on:
+  push:
+    branches:
+      - bht
+
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v1.7.0
+        with:
+          role-to-assume: ${{ vars.AWS_IAM_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Test S3 bucket access
+        shell: bash
+        run: |
+          aws s3 ls
