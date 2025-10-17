@@ -17,8 +17,14 @@ logger = logging.getLogger(__name__)
 def find_chain_anchor_point(
     root: Behaviour,
 ) -> Sequence:
+    """Find the anchor point (Sequence) to which we can latch the next chain.
+
+    We assume that the anchor point is the leftmost non empty Sequence in the tree.
+    """
     for child in root.children:
-        if len(child.children) > 1:
+        if (isinstance(child, Sequence) or isinstance(child, Selector)) and len(
+            child.children
+        ) > 0:
             return find_chain_anchor_point(child)
     if isinstance(root, Sequence):
         return root
@@ -31,7 +37,6 @@ def latch_chains(*chains: Union[Selector, Sequence]) -> None:
     first = chains[0]
     for chain in chains[1:]:
         latch_chain_to_chain(first, chain)
-        first = chain
 
 
 def latch_chain_to_chain(
@@ -55,7 +60,7 @@ def latch_chain_to_chain(
     next_postcondition: Optional[Behaviour] = None
     anchor_precondition: Optional[Behaviour] = None
 
-    logger.debug(f"Latching {next.name} to {anchor_point.name}")
+    logger.debug(f'Latching "{next.name}" to "{anchor_point.name}"')
 
     # Trying to guess from the structure which node may be a postcondition
     # Later we compare it with the anchor point precondition and when they match
