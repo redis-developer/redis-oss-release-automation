@@ -88,7 +88,7 @@ def release(
         help="Force rebuild Docker image, ignoring existing state",
     ),
     release_type: ReleaseType = typer.Option(
-        ReleaseType.AUTO, "--release-type", help="Override release type detection"
+        None, "--release-type", help="Override release type detection"
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Show what would be done without executing"
@@ -258,6 +258,7 @@ def release_print_bht(
         release_tag=release_tag,
         force_rebuild=[],
     )
+    setup_logging()
 
     if name:
         # Print specific PPA or tree branch
@@ -353,6 +354,9 @@ def release_bht(
         "--force-rebuild",
         help="Force rebuild for specific packages (can be specified multiple times). Use 'all' to force rebuild all packages.",
     ),
+    tree_cutoff: int = typer.Option(
+        2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging()
@@ -367,7 +371,7 @@ def release_bht(
 
     # Use context manager version with automatic lock management
     with initialize_tree_and_state(config, args) as (tree, _):
-        asyncio.run(async_tick_tock(tree))
+        asyncio.run(async_tick_tock(tree, cutoff=tree_cutoff))
 
 
 @app.command()

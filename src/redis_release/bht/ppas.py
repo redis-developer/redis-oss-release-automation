@@ -15,6 +15,7 @@ from ..github_client_async import GitHubClientAsync
 from .backchain import create_PPA
 from .behaviours import (
     AttachReleaseHandleToPublishWorkflow,
+    DetectReleaseType,
     HasWorkflowArtifacts,
     HasWorkflowResult,
     IsTargetRefIdentified,
@@ -22,6 +23,8 @@ from .behaviours import (
     IsWorkflowIdentified,
     IsWorkflowSuccessful,
     IsWorkflowTriggered,
+    create_prepare_build_workflow_inputs,
+    create_prepare_publish_workflow_inputs,
 )
 from .composites import (
     DownloadArtifactsListGuarded,
@@ -129,6 +132,19 @@ def create_identify_target_ref_ppa(
             github_client,
             log_prefix=log_prefix,
         ),
+        IsTargetRefIdentified(
+            "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
+        ),
+    )
+
+
+def create_detect_release_type_ppa(
+    release_meta: ReleaseMeta,
+    log_prefix: str,
+) -> Union[Selector, Sequence]:
+    return create_PPA(
+        "Detect Release Type",
+        DetectReleaseType("Detect Release Type", release_meta, log_prefix=log_prefix),
     )
 
 
@@ -191,6 +207,42 @@ def create_attach_release_handle_ppa(
             "Attach Release Handle",
             build_workflow,
             publish_workflow,
+            log_prefix=log_prefix,
+        ),
+    )
+
+
+def create_build_workflow_inputs_ppa(
+    workflow: Workflow,
+    package_meta: PackageMeta,
+    release_meta: ReleaseMeta,
+    log_prefix: str,
+) -> Union[Selector, Sequence]:
+    return create_PPA(
+        "Set Build Workflow Inputs",
+        create_prepare_build_workflow_inputs(
+            "Set Build Workflow Inputs",
+            workflow,
+            package_meta,
+            release_meta,
+            log_prefix=log_prefix,
+        ),
+    )
+
+
+def create_publish_workflow_inputs_ppa(
+    workflow: Workflow,
+    package_meta: PackageMeta,
+    release_meta: ReleaseMeta,
+    log_prefix: str,
+) -> Union[Selector, Sequence]:
+    return create_PPA(
+        "Set Publish Workflow Inputs",
+        create_prepare_publish_workflow_inputs(
+            "Set Publish Workflow Inputs",
+            workflow,
+            package_meta,
+            release_meta,
             log_prefix=log_prefix,
         ),
     )

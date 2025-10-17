@@ -8,12 +8,25 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 
+class WorkflowType(str, Enum):
+    """Workflow type enumeration."""
+
+    BUILD = "build"
+    PUBLISH = "publish"
+
+
+class PackageType(str, Enum):
+    """Package type enumeration."""
+
+    DOCKER = "docker"
+    DEBIAN = "debian"
+
+
 class ReleaseType(str, Enum):
     """Release type enumeration."""
 
-    AUTO = "auto"
     PUBLIC = "public"
-    PRIVATE = "private"
+    INTERNAL = "internal"
 
 
 class WorkflowStatus(str, Enum):
@@ -30,12 +43,6 @@ class WorkflowConclusion(str, Enum):
 
     SUCCESS = "success"
     FAILURE = "failure"
-
-
-class PackageType(str, Enum):
-    """Package type enumeration."""
-
-    DOCKER = "docker"
 
 
 class WorkflowRun(BaseModel):

@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional, Set, Tuple, Union
+from typing import Any, Iterator, List, Optional, Set, Tuple, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -18,7 +18,7 @@ from ..config import Config
 from ..github_client_async import GitHubClientAsync
 from .args import ReleaseArgs
 from .backchain import latch_chains
-from .behaviours import NeedToPublish
+from .behaviours import NeedToPublishRelease
 from .composites import (
     ParallelBarrier,
     ResetPackageStateGuarded,
@@ -27,10 +27,13 @@ from .composites import (
 )
 from .ppas import (
     create_attach_release_handle_ppa,
+    create_build_workflow_inputs_ppa,
+    create_detect_release_type_ppa,
     create_download_artifacts_ppa,
     create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
     create_identify_target_ref_ppa,
+    create_publish_workflow_inputs_ppa,
     create_trigger_workflow_ppa,
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
@@ -213,6 +216,9 @@ def create_build_workflow_tree_branch(
     package_name: str,
 ) -> Union[Selector, Sequence]:
 
+    build_workflow_args = create_build_workflow_inputs_ppa(
+        package.build, package.meta, release_meta, log_prefix=f"{package_name}.build"
+    )
     build_workflow = create_workflow_with_result_tree_branch(
         "release_handle",
         package.build,
@@ -220,6 +226,7 @@ def create_build_workflow_tree_branch(
         release_meta,
         github_client,
         f"{package_name}.build",
+        trigger_preconditions=[build_workflow_args],
     )
     assert isinstance(build_workflow, Selector)
 
@@ -244,6 +251,15 @@ def create_publish_workflow_tree_branch(
     github_client: GitHubClientAsync,
     package_name: str,
 ) -> Union[Selector, Sequence]:
+    attach_release_handle = create_attach_release_handle_ppa(
+        build_workflow, publish_workflow, log_prefix=f"{package_name}.publish"
+    )
+    publish_workflow_args = create_publish_workflow_inputs_ppa(
+        publish_workflow,
+        package_meta,
+        release_meta,
+        log_prefix=f"{package_name}.publish",
+    )
     workflow_result = create_workflow_with_result_tree_branch(
         "release_info",
         publish_workflow,
@@ -251,15 +267,11 @@ def create_publish_workflow_tree_branch(
         release_meta,
         github_client,
         f"{package_name}.publish",
+        trigger_preconditions=[publish_workflow_args, attach_release_handle],
     )
-    attach_release_handle = create_attach_release_handle_ppa(
-        build_workflow, publish_workflow, log_prefix=f"{package_name}.publish"
-    )
-    latch_chains(workflow_result, attach_release_handle)
-
     not_need_to_publish = Inverter(
         "Not",
-        NeedToPublish(
+        NeedToPublishRelease(
             "Need To Publish?",
             package_meta,
             release_meta,
@@ -287,10 +299,14 @@ def create_workflow_with_result_tree_branch(
     release_meta: ReleaseMeta,
     github_client: GitHubClientAsync,
     package_name: str,
+    trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
 ) -> Union[Selector, Sequence]:
     """
     Creates a workflow process that succedes when the workflow
     is successful and a result artifact is extracted and json decoded.
+
+    Args:
+        trigger_preconditions: List of preconditions to add to the workflow trigger
     """
     workflow_result = create_extract_result_tree_branch(
         artifact_name,
@@ -305,6 +321,7 @@ def create_workflow_with_result_tree_branch(
         release_meta,
         github_client,
         package_name,
+        trigger_preconditions,
     )
 
     latch_chains(workflow_result, workflow_complete)
@@ -318,7 +335,13 @@ def create_workflow_complete_tree_branch(
     release_meta: ReleaseMeta,
     github_client: GitHubClientAsync,
     log_prefix: str,
+    trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
 ) -> Union[Selector, Sequence]:
+    """
+
+    Args:
+        trigger_preconditions: List of preconditions to add to the workflow trigger
+    """
     workflow_complete = create_workflow_completion_ppa(
         workflow,
         package_meta,
@@ -338,10 +361,16 @@ def create_workflow_complete_tree_branch(
         github_client,
         log_prefix,
     )
+    if trigger_preconditions:
+        latch_chains(trigger_workflow, *trigger_preconditions)
     identify_target_ref = create_identify_target_ref_ppa(
         package_meta,
         release_meta,
         github_client,
+        log_prefix,
+    )
+    detect_release_type = create_detect_release_type_ppa(
+        release_meta,
         log_prefix,
     )
     latch_chains(
@@ -349,6 +378,7 @@ def create_workflow_complete_tree_branch(
         find_workflow_by_uud,
         trigger_workflow,
         identify_target_ref,
+        detect_release_type,
     )
     return workflow_complete
 
@@ -375,6 +405,9 @@ def create_extract_result_tree_branch(
     )
     latch_chains(extract_artifact_result, download_artifacts)
     return extract_artifact_result
+
+
+### Demo ###
 
 
 class DemoBehaviour(Behaviour):

@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import re
+import stat
 import uuid
 from datetime import datetime
 from token import OP
@@ -28,7 +29,14 @@ from py_trees.decorators import Inverter, Repeat, Retry, Timeout
 from redis_release.bht.state import reset_model_to_defaults
 
 from ..github_client_async import GitHubClientAsync
-from ..models import WorkflowConclusion, WorkflowRun, WorkflowStatus
+from ..models import (
+    PackageType,
+    RedisVersion,
+    ReleaseType,
+    WorkflowConclusion,
+    WorkflowRun,
+    WorkflowStatus,
+)
 from .decorators import FlagGuard
 from .logging_wrapper import PyTreesLoggerWrapper
 from .state import Package, PackageMeta, ReleaseMeta, Workflow
@@ -54,6 +62,12 @@ class LoggingAction(Behaviour):
         # use the underlying logger to get the full traceback
         self.logger._logger.error(f"[red]Full traceback:[/red]", exc_info=True)
         return Status.FAILURE
+
+    def log_once(self, key: str, container: Dict[str, bool]) -> bool:
+        if key not in container:
+            container[key] = True
+            return True
+        return False
 
 
 class ReleaseAction(LoggingAction):
@@ -100,7 +114,6 @@ class IdentifyTargetRef(ReleaseAction):
             return
 
         try:
-            from ..models import RedisVersion
 
             self.release_version = RedisVersion.parse(self.release_meta.tag)
             self.logger.debug(
@@ -141,9 +154,12 @@ class IdentifyTargetRef(ReleaseAction):
 
             if detected_branch:
                 self.package_meta.ref = detected_branch
-                self.logger.info(
-                    f"[green]Target ref identified:[/green] {self.package_meta.ref}"
-                )
+                if self.log_once(
+                    "target_ref_identified", self.package_meta.ephemeral.log_once_flags
+                ):
+                    self.logger.info(
+                        f"[green]Target ref identified:[/green] {self.package_meta.ref}"
+                    )
                 self.feedback_message = f"Target ref set to {self.package_meta.ref}"
                 return Status.SUCCESS
             else:
@@ -255,6 +271,12 @@ class TriggerWorkflow(ReleaseAction):
         self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
         self.workflow.ephemeral.trigger_attempted = True
+        if self.log_once(
+            "workflow_trigger_start", self.workflow.ephemeral.log_once_flags
+        ):
+            self.logger.info(
+                f"Triggering workflow {self.workflow.workflow_file}, ref: {ref}, uuid: {self.workflow.uuid}"
+            )
         self.task = asyncio.create_task(
             self.github_client.trigger_workflow(
                 self.package_meta.repo,
@@ -273,9 +295,12 @@ class TriggerWorkflow(ReleaseAction):
 
             self.task.result()
             self.workflow.triggered_at = datetime.now()
-            logger.info(
-                f"[green]Workflow triggered successfully:[/green] {self.workflow.uuid}"
-            )
+            if self.log_once(
+                "workflow_triggered", self.workflow.ephemeral.log_once_flags
+            ):
+                logger.info(
+                    f"[green]Workflow triggered successfully:[/green] {self.workflow.uuid}"
+                )
             self.feedback_message = "workflow triggered"
             return Status.SUCCESS
         except Exception as e:
@@ -308,7 +333,12 @@ class IdentifyWorkflowByUUID(ReleaseAction):
                 "[red]Workflow UUID is None - cannot identify workflow[/red]"
             )
             return
-
+        if self.log_once(
+            "workflow_identify_start", self.workflow.ephemeral.log_once_flags
+        ):
+            self.logger.info(
+                f"Start identifying workflow {self.workflow.workflow_file}, uuid: {self.workflow.uuid}"
+            )
         self.task = asyncio.create_task(
             self.github_client.identify_workflow(
                 self.package_meta.repo, self.workflow.workflow_file, self.workflow.uuid
@@ -328,9 +358,12 @@ class IdentifyWorkflowByUUID(ReleaseAction):
                 return Status.FAILURE
 
             self.workflow.run_id = result.run_id
-            self.logger.info(
-                f"[green]Workflow found successfully:[/green] uuid: {self.workflow.uuid}, run_id: {self.workflow.run_id}"
-            )
+            if self.log_once(
+                "workflow_identified", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"[green]Workflow found successfully:[/green] uuid: {self.workflow.uuid}, run_id: {self.workflow.run_id}"
+                )
             self.feedback_message = (
                 f"Workflow identified, run_id: {self.workflow.run_id}"
             )
@@ -360,6 +393,12 @@ class UpdateWorkflowStatus(ReleaseAction):
             )
             return
 
+        if self.log_once(
+            "workflow_status_update", self.workflow.ephemeral.log_once_flags
+        ):
+            self.logger.info(
+                f"Start checking workflow {self.workflow.workflow_file}, run_id: {self.workflow.run_id} status"
+            )
         self.task = asyncio.create_task(
             self.github_client.get_workflow_run(
                 self.package_meta.repo, self.workflow.run_id
@@ -374,6 +413,12 @@ class UpdateWorkflowStatus(ReleaseAction):
                 return Status.RUNNING
 
             result = self.task.result()
+            if self.log_once(
+                "workflow_status_current", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"Workflow {self.workflow.workflow_file}, run_id: {self.workflow.run_id} current status: {result.status}, {result.conclusion}"
+                )
             if self.workflow.status != result.status:
                 self.logger.info(
                     f"Workflow {self.workflow.workflow_file}({self.workflow.run_id}) status changed: {self.workflow.status} -> {result.status}"
@@ -583,6 +628,94 @@ class ResetWorkflowState(ReleaseAction):
         return Status.SUCCESS
 
 
+class GenericWorkflowInputs(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.workflow = workflow
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        return Status.SUCCESS
+
+
+def create_prepare_build_workflow_inputs(
+    name: str,
+    workflow: Workflow,
+    package_meta: PackageMeta,
+    release_meta: ReleaseMeta,
+    log_prefix: str,
+) -> Behaviour:
+    cls_map = {
+        PackageType.DEBIAN: DebianWorkflowInputs,
+    }
+
+    selected_class = (
+        cls_map.get(package_meta.package_type, GenericWorkflowInputs)
+        if package_meta.package_type
+        else GenericWorkflowInputs
+    )
+    return selected_class(
+        name,
+        workflow,
+        package_meta,
+        release_meta,
+        log_prefix=log_prefix,
+    )
+
+
+def create_prepare_publish_workflow_inputs(
+    name: str,
+    workflow: Workflow,
+    package_meta: PackageMeta,
+    release_meta: ReleaseMeta,
+    log_prefix: str,
+) -> Behaviour:
+    cls_map = {
+        PackageType.DEBIAN: DebianWorkflowInputs,
+    }
+
+    selected_class = (
+        cls_map.get(package_meta.package_type, GenericWorkflowInputs)
+        if package_meta.package_type
+        else GenericWorkflowInputs
+    )
+    return selected_class(
+        name,
+        workflow,
+        package_meta,
+        release_meta,
+        log_prefix=log_prefix,
+    )
+
+
+class DebianWorkflowInputs(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.workflow = workflow
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=f"{name} - debian", log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.release_meta.release_type is not None:
+            self.workflow.inputs["release_type"] = self.release_meta.release_type.value
+        return Status.SUCCESS
+
+
 ### Conditions ###
 
 
@@ -595,6 +728,10 @@ class IsTargetRefIdentified(LoggingAction):
 
     def update(self) -> Status:
         if self.package_meta.ref is not None:
+            if self.log_once(
+                "target_ref_identified", self.package_meta.ephemeral.log_once_flags
+            ):
+                self.logger.info(f"Target ref identified: {self.package_meta.ref}")
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -607,6 +744,12 @@ class IsWorkflowTriggered(LoggingAction):
     def update(self) -> Status:
         self.logger.debug(f"IsWorkflowTriggered: {self.workflow}")
         if self.workflow.triggered_at is not None:
+            if self.log_once(
+                "workflow_triggered", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"Workflow is triggered at: {self.workflow.triggered_at}"
+                )
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -619,6 +762,12 @@ class IsWorkflowIdentified(LoggingAction):
     def update(self) -> Status:
         self.logger.debug(f"{self.workflow}")
         if self.workflow.run_id is not None:
+            if self.log_once(
+                "workflow_identified", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"Workflow is identified, run_id: {self.workflow.run_id}"
+                )
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -630,6 +779,10 @@ class IsWorkflowCompleted(LoggingAction):
 
     def update(self) -> Status:
         if self.workflow.status == WorkflowStatus.COMPLETED:
+            if self.log_once(
+                "workflow_completed", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(f"Workflow is completed")
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -641,6 +794,10 @@ class IsWorkflowSuccessful(LoggingAction):
 
     def update(self) -> Status:
         if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
+            if self.log_once(
+                "workflow_successful", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(f"Workflow completed with success status")
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -652,6 +809,10 @@ class HasWorkflowArtifacts(LoggingAction):
 
     def update(self) -> Status:
         if self.workflow.artifacts is not None:
+            if self.log_once(
+                "workflow_artifacts", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(f"Workflow has artifacts")
             return Status.SUCCESS
         return Status.FAILURE
 
@@ -663,11 +824,13 @@ class HasWorkflowResult(LoggingAction):
 
     def update(self) -> Status:
         if self.workflow.result is not None:
+            if self.log_once("workflow_result", self.workflow.ephemeral.log_once_flags):
+                self.logger.info(f"Workflow is successful and has result")
             return Status.SUCCESS
         return Status.FAILURE
 
 
-class NeedToPublish(LoggingAction):
+class NeedToPublishRelease(LoggingAction):
     """Check the release type and package configuration to determine if we need to run publish workflow."""
 
     def __init__(
@@ -682,20 +845,44 @@ class NeedToPublish(LoggingAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        # Check if this is an internal release by matching the pattern -int\d*$ in the tag
-        if self.release_meta.tag and re.search(r"-int\d*$", self.release_meta.tag):
-            self.logger.debug(f"Asssuming internal release: {self.release_meta.tag}")
+        if self.release_meta.release_type == ReleaseType.INTERNAL:
             if self.package_meta.publish_internal_release:
                 self.logger.debug(
-                    f"Publishing internal release: {self.release_meta.tag}"
+                    f"Internal release requires publishing: {self.release_meta.tag}"
                 )
                 return Status.SUCCESS
-            self.logger.debug(
-                f"Skip publishing internal release: {self.release_meta.tag}"
-            )
+            else:
+                self.logger.debug(
+                    f"Skip publishing internal release: {self.release_meta.tag}"
+                )
             return Status.FAILURE
+        return Status.FAILURE
 
-        self.logger.debug(f"Public release: {self.release_meta.tag}")
+
+class DetectReleaseType(LoggingAction):
+    def __init__(
+        self, name: str, release_meta: ReleaseMeta, log_prefix: str = ""
+    ) -> None:
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.release_meta.release_type is not None:
+            if self.log_once(
+                "release_type_detected", self.release_meta.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"Detected release type: {self.release_meta.release_type}"
+                )
+            return Status.SUCCESS
+        if self.release_meta.tag and re.search(r"-int\d*$", self.release_meta.tag):
+            self.release_meta.release_type = ReleaseType.INTERNAL
+        else:
+            self.release_meta.release_type = ReleaseType.PUBLIC
+        self.log_once(
+            "release_type_detected", self.release_meta.ephemeral.log_once_flags
+        )
+        self.logger.info(f"Detected release type: {self.release_meta.release_type}")
         return Status.SUCCESS
 
 

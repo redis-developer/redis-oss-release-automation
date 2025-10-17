@@ -11,7 +11,13 @@ from rich.console import Console
 from rich.pretty import pretty_repr
 from rich.table import Table
 
-from redis_release.models import WorkflowConclusion, WorkflowStatus
+from redis_release.models import (
+    PackageType,
+    ReleaseType,
+    WorkflowConclusion,
+    WorkflowStatus,
+    WorkflowType,
+)
 from redis_release.state_manager import S3Backed, logger
 
 from ..config import Config
@@ -31,9 +37,11 @@ class WorkflowEphemeral(BaseModel):
     timed_out: bool = False
     artifacts_download_failed: bool = False
     extract_result_failed: bool = False
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
 
 
 class Workflow(BaseModel):
+    workflow_type: Optional[WorkflowType] = None
     workflow_file: str = ""
     inputs: Dict[str, str] = Field(default_factory=dict)
     uuid: Optional[str] = None
@@ -56,11 +64,13 @@ class PackageMetaEphemeral(BaseModel):
 
     force_rebuild: bool = False
     identify_ref_failed: bool = False
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
 
 
 class PackageMeta(BaseModel):
     """Metadata for a package."""
 
+    package_type: Optional[PackageType] = None
     repo: str = ""
     ref: Optional[str] = None
     publish_internal_release: bool = False
@@ -77,10 +87,20 @@ class Package(BaseModel):
     publish: Workflow = Field(default_factory=Workflow)
 
 
+class ReleaseMetaEphemeral(BaseModel):
+    """Ephemeral release metadata that is not persisted."""
+
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
+
+
 class ReleaseMeta(BaseModel):
     """Metadata for the release."""
 
     tag: Optional[str] = None
+    release_type: Optional[ReleaseType] = None
+    ephemeral: ReleaseMetaEphemeral = Field(
+        default_factory=ReleaseMetaEphemeral, exclude=True
+    )
 
 
 class ReleaseState(BaseModel):
@@ -94,6 +114,11 @@ class ReleaseState(BaseModel):
         """Build ReleaseState from config with default values."""
         packages = {}
         for package_name, package_config in config.packages.items():
+            if not isinstance(package_config.package_type, PackageType):
+                raise ValueError(
+                    f"Package '{package_name}': package_type must be a PackageType, "
+                    f"got {type(package_config.package_type).__name__}"
+                )
             # Validate and get build workflow file
             if not isinstance(package_config.build_workflow, str):
                 raise ValueError(
@@ -120,11 +145,13 @@ class ReleaseState(BaseModel):
             package_meta = PackageMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
+                package_type=package_config.package_type,
                 publish_internal_release=package_config.publish_internal_release,
             )
 
             # Initialize build workflow
             build_workflow = Workflow(
+                workflow_type=WorkflowType.BUILD,
                 workflow_file=package_config.build_workflow,
                 inputs=package_config.build_inputs.copy(),
                 timeout_minutes=package_config.build_timeout_minutes,
@@ -132,6 +159,7 @@ class ReleaseState(BaseModel):
 
             # Initialize publish workflow
             publish_workflow = Workflow(
+                workflow_type=WorkflowType.PUBLISH,
                 workflow_file=package_config.publish_workflow,
                 inputs=package_config.publish_inputs.copy(),
                 timeout_minutes=package_config.publish_timeout_minutes,
@@ -346,7 +374,7 @@ class S3StateStorage(S3Backed):
             ReleaseState object or None if not found
         """
         state_key = f"release-state/{tag}-blackboard.json"
-        logger.info(f"Loading blackboard for tag: {tag}")
+        logger.debug(f"Loading blackboard for tag: {tag}")
 
         if self.s3_client is None:
             raise RuntimeError("S3 client not initialized")
@@ -355,13 +383,13 @@ class S3StateStorage(S3Backed):
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=state_key)
             state_data: dict = json.loads(response["Body"].read().decode("utf-8"))
 
-            logger.info("Blackboard loaded successfully")
+            logger.debug("Blackboard loaded successfully")
 
             return state_data
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.info(f"No existing blackboard found for tag: {tag}")
+                logger.debug(f"No existing blackboard found for tag: {tag}")
                 return None
             else:
                 logger.error(f"Failed to load blackboard: {e}")
@@ -374,7 +402,7 @@ class S3StateStorage(S3Backed):
             state: ReleaseState object to save
         """
         state_key = f"release-state/{tag}-blackboard.json"
-        logger.info(f"Saving blackboard for tag: {tag}")
+        logger.debug(f"Saving blackboard for tag: {tag}")
 
         if self.s3_client is None:
             raise RuntimeError("S3 client not initialized")
@@ -392,7 +420,7 @@ class S3StateStorage(S3Backed):
                 },
             )
 
-            logger.info("Blackboard saved successfully")
+            logger.debug("Blackboard saved successfully")
 
         except ClientError as e:
             logger.error(f"Failed to save blackboard: {e}")
@@ -408,7 +436,7 @@ class S3StateStorage(S3Backed):
             True if lock acquired successfully
         """
         lock_key = f"release-locks/{tag}.lock"
-        logger.info(f"Acquiring lock for tag: {tag}")
+        logger.debug(f"Acquiring lock for tag: {tag}")
 
         if self.s3_client is None:
             raise RuntimeError("S3 client not initialized")
@@ -429,7 +457,7 @@ class S3StateStorage(S3Backed):
                 IfNoneMatch="*",
             )
 
-            logger.info("Lock acquired successfully")
+            logger.debug("Lock acquired successfully")
             return True
 
         except ClientError as e:
@@ -460,7 +488,7 @@ class S3StateStorage(S3Backed):
             True if lock released successfully
         """
         lock_key = f"release-locks/{tag}.lock"
-        logger.info(f"Releasing lock for tag: {tag}")
+        logger.debug(f"Releasing lock for tag: {tag}")
 
         if self.s3_client is None:
             raise RuntimeError("S3 client not initialized")
@@ -475,12 +503,12 @@ class S3StateStorage(S3Backed):
                 return False
 
             self.s3_client.delete_object(Bucket=self.bucket_name, Key=lock_key)
-            logger.info("Lock released successfully")
+            logger.debug("Lock released successfully")
             return True
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.info(f"No lock found for tag: {tag}")
+                logger.debug(f"No lock found for tag: {tag}")
                 return True
             else:
                 logger.error(f"Failed to release lock: {e}")

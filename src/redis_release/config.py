@@ -6,12 +6,15 @@ from typing import Dict, Optional, Union
 import yaml
 from pydantic import BaseModel, Field
 
+from .models import PackageType
+
 
 class PackageConfig(BaseModel):
     """Configuration for a package type."""
 
     repo: str
     ref: Optional[str] = None
+    package_type: PackageType
     workflow_branch: str = "autodetect"
     publish_internal_release: bool = False
     build_workflow: Union[str, bool] = Field(default=False)

@@ -70,14 +70,14 @@ class ReleaseOrchestrator:
         return self._state_manager
 
     def _determine_release_type(
-        self, tag: str, override: ReleaseType = ReleaseType.AUTO
+        self, tag: str, override: ReleaseType = None
     ) -> ReleaseType:
         """Determine release type from tag name."""
-        if override != ReleaseType.AUTO:
+        if override is not None:
             return override
 
         if tag.endswith(tuple(f"-int{i}" for i in range(1, 100))):
-            return ReleaseType.PRIVATE
+            return ReleaseType.INTERNAL
 
         return ReleaseType.PUBLIC
 
@@ -155,7 +155,7 @@ class ReleaseOrchestrator:
         self,
         tag: str,
         force_rebuild: bool = False,
-        release_type: ReleaseType = ReleaseType.AUTO,
+        release_type: ReleaseType = None,
         dry_run: bool = False,
     ) -> ReleaseResult:
         """Execute the main release workflow.
