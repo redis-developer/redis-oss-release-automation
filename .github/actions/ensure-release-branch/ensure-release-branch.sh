@@ -120,6 +120,8 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
         execute_command --ignore-exit-code 1 --no-std -- git diff --quiet --cached "origin/$RELEASE_VERSION_BRANCH"
         diff_result=$last_cmd_result
         execute_command --ignore-errors --no-std -- git merge --abort
+        # Switch back to original branch
+        execute_command --no-std -- git switch -
         if [ "$diff_result" -eq 1 ]; then
             echo "Found file differences between $RELEASE_BRANCH and $RELEASE_VERSION_BRANCH"
             execute_command --no-std -- git diff --name-only "origin/$RELEASE_VERSION_BRANCH" "origin/$RELEASE_BRANCH"
