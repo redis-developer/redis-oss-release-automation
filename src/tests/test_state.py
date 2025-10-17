@@ -13,6 +13,7 @@ from redis_release.bht.state import (
     Workflow,
 )
 from redis_release.config import Config, PackageConfig
+from redis_release.models import PackageType
 
 
 class TestReleaseStateFromConfig:
@@ -26,6 +27,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -50,6 +52,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     build_timeout_minutes=60,
                     publish_workflow="publish.yml",
@@ -70,6 +73,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     ref="release/8.0",
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
@@ -88,6 +92,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     build_inputs={"key1": "value1", "key2": "value2"},
                     publish_workflow="publish.yml",
@@ -113,6 +118,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     ref="main",
                     build_workflow="build.yml",
                     build_timeout_minutes=60,
@@ -140,6 +146,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="",
                     publish_workflow="publish.yml",
                 )
@@ -156,6 +163,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="",
                 )
@@ -172,6 +180,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="   ",
                     publish_workflow="publish.yml",
                 )
@@ -188,6 +197,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="   ",
                 )
@@ -204,11 +214,13 @@ class TestReleaseStateFromConfig:
             packages={
                 "package1": PackageConfig(
                     repo="test/repo1",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build1.yml",
                     publish_workflow="publish1.yml",
                 ),
                 "package2": PackageConfig(
                     repo="test/repo2",
+                    package_type=PackageType.DOCKER,
                     build_workflow="build2.yml",
                     publish_workflow="publish2.yml",
                 ),
@@ -230,6 +242,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "my-special-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="",
                     publish_workflow="publish.yml",
                 )
@@ -246,6 +259,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow=False,
                     publish_workflow="publish.yml",
                 )
@@ -262,6 +276,7 @@ class TestReleaseStateFromConfig:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow=False,
                 )
@@ -343,6 +358,7 @@ class TestWorkflowEphemeral:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -409,6 +425,7 @@ class TestPackageMetaEphemeral:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -425,6 +442,7 @@ class TestPackageMetaEphemeral:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -442,6 +460,7 @@ class TestPackageMetaEphemeral:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -468,6 +487,7 @@ class TestStateSyncerWithArgs:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -487,11 +507,13 @@ class TestStateSyncerWithArgs:
             packages={
                 "docker": PackageConfig(
                     repo="test/docker",
+                    package_type=PackageType.DOCKER,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "redis": PackageConfig(
                     repo="test/redis",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
@@ -512,16 +534,19 @@ class TestStateSyncerWithArgs:
             packages={
                 "docker": PackageConfig(
                     repo="test/docker",
+                    package_type=PackageType.DOCKER,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "redis": PackageConfig(
                     repo="test/redis",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "snap": PackageConfig(
                     repo="test/snap",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
@@ -543,6 +568,7 @@ class TestStateSyncerWithArgs:
             packages={
                 "test-package": PackageConfig(
                     repo="test/repo",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 )
@@ -565,16 +591,19 @@ class TestStateSyncerWithArgs:
             packages={
                 "docker": PackageConfig(
                     repo="test/docker",
+                    package_type=PackageType.DOCKER,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "redis": PackageConfig(
                     repo="test/redis",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "snap": PackageConfig(
                     repo="test/snap",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
@@ -597,11 +626,13 @@ class TestStateSyncerWithArgs:
             packages={
                 "docker": PackageConfig(
                     repo="test/docker",
+                    package_type=PackageType.DOCKER,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),
                 "redis": PackageConfig(
                     repo="test/redis",
+                    package_type=PackageType.DEBIAN,
                     build_workflow="build.yml",
                     publish_workflow="publish.yml",
                 ),

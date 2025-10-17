@@ -298,7 +298,7 @@ class TriggerWorkflow(ReleaseAction):
             if self.log_once(
                 "workflow_triggered", self.workflow.ephemeral.log_once_flags
             ):
-                logger.info(
+                self.logger.info(
                     f"[green]Workflow triggered successfully:[/green] {self.workflow.uuid}"
                 )
             self.feedback_message = "workflow triggered"
@@ -480,6 +480,9 @@ class GetWorkflowArtifactsList(ReleaseAction):
             )
             return
 
+        self.logger.info(
+            f"Start getting artifacts for workflow {self.workflow.workflow_file}, run_id: {self.workflow.run_id}"
+        )
         self.task = asyncio.create_task(
             self.github_client.get_workflow_artifacts(
                 self.package_meta.repo, self.workflow.run_id
@@ -495,9 +498,12 @@ class GetWorkflowArtifactsList(ReleaseAction):
 
             result = self.task.result()
             self.workflow.artifacts = result
-            self.logger.info(
-                f"[green]Downloaded artifacts list:[/green] {len(result)} {result} artifacts"
-            )
+            if self.log_once(
+                "workflow_artifacts_list", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"[green]Downloaded artifacts list:[/green] {len(result)} artifacts"
+                )
             self.feedback_message = f"Downloaded {len(result)} artifacts"
             return Status.SUCCESS
         except Exception as e:
@@ -810,7 +816,7 @@ class HasWorkflowArtifacts(LoggingAction):
     def update(self) -> Status:
         if self.workflow.artifacts is not None:
             if self.log_once(
-                "workflow_artifacts", self.workflow.ephemeral.log_once_flags
+                "workflow_artifacts_list", self.workflow.ephemeral.log_once_flags
             ):
                 self.logger.info(f"Workflow has artifacts")
             return Status.SUCCESS
@@ -825,7 +831,9 @@ class HasWorkflowResult(LoggingAction):
     def update(self) -> Status:
         if self.workflow.result is not None:
             if self.log_once("workflow_result", self.workflow.ephemeral.log_once_flags):
-                self.logger.info(f"Workflow is successful and has result")
+                self.logger.info(
+                    f"Workflow {self.workflow.workflow_file}, run_id: {self.workflow.run_id} is successful and has result"
+                )
             return Status.SUCCESS
         return Status.FAILURE
 

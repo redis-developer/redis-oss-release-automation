@@ -238,7 +238,7 @@ class GitHubClientAsync:
         Returns:
             WorkflowRun object with basic information (workflow identification will be done separately)
         """
-        logger.info(f"[blue]Triggering workflow[/blue] {workflow_file} in {repo}")
+        logger.debug(f"[blue]Triggering workflow[/blue] {workflow_file} in {repo}")
         logger.debug(f"Inputs: {inputs}")
         logger.debug(f"Ref: {ref}")
         logger.debug(f"Workflow UUID: [cyan]{inputs['workflow_uuid']}[/cyan]")
@@ -264,7 +264,7 @@ class GitHubClientAsync:
                 timeout=30,
                 error_context="trigger workflow",
             )
-            logger.info(f"[green]Workflow triggered successfully[/green]")
+            logger.debug(f"[green]Workflow triggered successfully[/green]")
             return True
         except aiohttp.ClientError as e:
             logger.error(f"[red]Failed to trigger workflow:[/red] {e}")
@@ -283,7 +283,9 @@ class GitHubClientAsync:
         for run in runs:
             extracted_uuid = self._extract_uuid(run.workflow_id)
             if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
-                logger.info(f"[green]Found matching workflow run:[/green] {run.run_id}")
+                logger.debug(
+                    f"[green]Found matching workflow run:[/green] {run.run_id}"
+                )
                 logger.debug(f"Workflow name: {run.workflow_id}")
                 logger.debug(f"Extracted UUID: {extracted_uuid}")
                 run.workflow_uuid = workflow_uuid
@@ -436,7 +438,7 @@ class GitHubClientAsync:
             Each artifact dictionary contains: id, archive_download_url, created_at,
             expires_at, updated_at, size_in_bytes, digest
         """
-        logger.info(f"[blue]Getting artifacts for workflow {run_id} in {repo}[/blue]")
+        logger.debug(f"[blue]Getting artifacts for workflow {run_id} in {repo}[/blue]")
 
         url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
         headers = {
@@ -482,7 +484,7 @@ class GitHubClientAsync:
                 artifacts[artifact_name] = artifact_info
 
             if artifacts:
-                logger.info(f"[green]Found {len(artifacts)} artifacts[/green]")
+                logger.debug(f"[green]Found {len(artifacts)} artifacts[/green]")
                 for artifact_name, artifact_info in artifacts.items():
                     size_mb = round(
                         artifact_info.get("size_in_bytes", 0) / (1024 * 1024), 2
@@ -533,7 +535,7 @@ class GitHubClientAsync:
             logger.error(f"[red]{artifact_name} artifact has no ID[/red]")
             return None
 
-        logger.info(
+        logger.debug(
             f"[blue]Extracting {json_file_name} from artifact {artifact_id}[/blue]"
         )
 
@@ -570,7 +572,7 @@ class GitHubClientAsync:
                 if json_file_name in zip_file.namelist():
                     with zip_file.open(json_file_name) as json_file_obj:
                         result_data = json.load(json_file_obj)
-                        logger.info(
+                        logger.debug(
                             f"[green]Successfully extracted {json_file_name}[/green]"
                         )
                         return result_data
@@ -643,7 +645,7 @@ class GitHubClientAsync:
             if pattern:
                 branches = [branch for branch in branches if re.match(pattern, branch)]
 
-            logger.info(
+            logger.debug(
                 f"[green]Found {len(branches)} branches{' matching pattern' if pattern else ''}[/green]"
             )
             if pattern:
