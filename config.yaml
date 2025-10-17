@@ -1,0 +1,21 @@
+version: 1
+packages:
+  docker:
+    package_type: docker
+    repo: redis/docker-library-redis
+    build_workflow: release_build_and_test.yml
+    build_timeout_minutes: 45
+    build_inputs: {}
+    publish_internal_release: no
+    publish_workflow: release_publish.yml # may be boolean false
+    publish_timeout_minutes: 10
+    publish_inputs: {}
+  debian:
+    package_type: debian
+    repo: redis/redis-debian
+    build_workflow: release_build_and_test.yml
+    build_inputs: {}
+    publish_internal_release: yes
+    publish_workflow: release_publish.yml
+    publish_timeout_minutes: 10
+    publish_inputs: {}
