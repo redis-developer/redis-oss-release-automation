@@ -245,6 +245,7 @@ class StateSyncer:
         storage: StateStorage,
         config: Config,
         args: "ReleaseArgs",
+        read_only: bool = False,
     ):
         self.tag = args.release_tag
         self.storage = storage
@@ -253,8 +254,11 @@ class StateSyncer:
         self.last_dump: Optional[str] = None
         self._state: Optional[ReleaseState] = None
         self._lock_acquired = False
+        self.read_only = read_only
 
     def __enter__(self) -> "StateSyncer":
+        if self.read_only:
+            return self
         """Acquire lock when entering context."""
         if not self.storage.acquire_lock(self.tag):
             raise RuntimeError(f"Failed to acquire lock for tag: {self.tag}")
@@ -263,6 +267,8 @@ class StateSyncer:
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self.read_only:
+            return
         """Release lock when exiting context."""
         if self._lock_acquired:
             self.storage.release_lock(self.tag)
@@ -273,7 +279,15 @@ class StateSyncer:
     @property
     def state(self) -> ReleaseState:
         if self._state is None:
-            loaded = self.load()
+            loaded = None
+            if self.args.force_rebuild and "all" in self.args.force_rebuild:
+                logger.info(
+                    "Force rebuild 'all' enabled, using default state based on config"
+                )
+                loaded = self.default_state()
+            else:
+                loaded = self.load()
+
             if loaded is None:
                 self._state = self.default_state()
             else:
@@ -315,6 +329,8 @@ class StateSyncer:
 
     def sync(self) -> None:
         """Save state to storage backend if changed since last sync."""
+        if self.read_only:
+            raise RuntimeError("Cannot sync read-only state")
         current_dump = self.state.model_dump_json(indent=2)
 
         if current_dump != self.last_dump:

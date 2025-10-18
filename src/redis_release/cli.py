@@ -11,39 +11,10 @@ from rich.console import Console
 from rich.table import Table
 
 from redis_release.bht.args import ReleaseArgs
-from redis_release.bht.state import (
-    InMemoryStateStorage,
-    Package,
-    PackageMeta,
-    ReleaseMeta,
-    ReleaseState,
-    S3StateStorage,
-    StateSyncer,
-    Workflow,
-)
+from redis_release.bht.state import InMemoryStateStorage, S3StateStorage, StateSyncer
 
-from .bht.ppas import (
-    create_download_artifacts_ppa,
-    create_extract_artifact_result_ppa,
-    create_find_workflow_by_uuid_ppa,
-    create_identify_target_ref_ppa,
-    create_trigger_workflow_ppa,
-    create_workflow_completion_ppa,
-    create_workflow_success_ppa,
-)
-from .bht.tree import (
-    async_tick_tock,
-    create_build_workflow_tree_branch,
-    create_extract_result_tree_branch,
-    create_publish_workflow_tree_branch,
-    create_selector_branch,
-    create_sequence_branch,
-    create_workflow_complete_tree_branch,
-    create_workflow_with_result_tree_branch,
-    initialize_tree_and_state,
-)
+from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
-from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseType
 from .orchestrator import ReleaseOrchestrator
@@ -233,20 +204,12 @@ def release_print_bht(
         None,
         "--name",
         "-n",
-        help="""Name of specific PPA or tree branch to print.
-            PPAs:
-                'workflow_success',
-                'workflow_completion',
-                'find_workflow',
-                'trigger_workflow',
-                'identify_target_ref',
-                'download_artifacts',
-                'extract_artifact_result'.
-            Tree branches:
-                'workflow_complete_branch',
-                'workflow_with_result_branch',
-                'publish_workflow_branch',
-                'build_workflow_branch'""",
+        help=f"Name of specific PPA or tree branch to print. Available: {', '.join(TreeInspector.AVAILABLE_NAMES)}",
+    ),
+    only_packages: Optional[List[str]] = typer.Option(
+        None,
+        "--only-packages",
+        help="Only process specific packages (can be specified multiple times)",
     ),
 ) -> None:
     """Print and render (using graphviz) the release behaviour tree or a specific PPA."""
@@ -257,85 +220,26 @@ def release_print_bht(
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=[],
+        only_packages=only_packages or [],
     )
     setup_logging()
 
     if name:
-        # Print specific PPA or tree branch
-        github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN", "dummy"))
+        # Create TreeInspector and render the requested branch
+        inspector = TreeInspector(release_tag=release_tag)
 
-        # Create mock state objects for PPA creation
-        workflow = Workflow(workflow_file="test.yml", inputs={})
-        package_meta = PackageMeta(repo="redis/redis", ref="main")
-        release_meta = ReleaseMeta(tag=release_tag)
-        log_prefix = "test"
-
-        # Create mock ReleaseState for tree branch functions
-        package = Package(
-            meta=package_meta,
-            build=workflow,
-            publish=Workflow(workflow_file="publish.yml", inputs={}),
-        )
-        state = ReleaseState(meta=release_meta, packages={"docker": package})
-
-        # Map PPA names to creation functions
-        ppa_creators = {
-            "workflow_success": lambda: create_workflow_success_ppa(
-                workflow, log_prefix
-            ),
-            "workflow_completion": lambda: create_workflow_completion_ppa(
-                workflow, package_meta, github_client, log_prefix
-            ),
-            "find_workflow": lambda: create_find_workflow_by_uuid_ppa(
-                workflow, package_meta, github_client, log_prefix
-            ),
-            "trigger_workflow": lambda: create_trigger_workflow_ppa(
-                workflow, package_meta, release_meta, github_client, log_prefix
-            ),
-            "identify_target_ref": lambda: create_identify_target_ref_ppa(
-                package_meta, release_meta, github_client, log_prefix
-            ),
-            "download_artifacts": lambda: create_download_artifacts_ppa(
-                workflow, package_meta, github_client, log_prefix
-            ),
-            "extract_artifact_result": lambda: create_extract_artifact_result_ppa(
-                "test-artifact", workflow, package_meta, github_client, log_prefix
-            ),
-            # Tree branch functions
-            "workflow_complete_branch": lambda: create_workflow_complete_tree_branch(
-                workflow, package_meta, release_meta, github_client, ""
-            ),
-            "workflow_with_result_branch": lambda: create_workflow_with_result_tree_branch(
-                "artifact", workflow, package_meta, release_meta, github_client, ""
-            ),
-            "publish_workflow_branch": lambda: create_publish_workflow_tree_branch(
-                workflow,
-                workflow,
-                package_meta,
-                release_meta,
-                workflow,
-                github_client,
-                "",
-            ),
-            "build_workflow_branch": lambda: create_build_workflow_tree_branch(
-                package, release_meta, package, github_client, ""
-            ),
-            "demo_sequence": lambda: create_sequence_branch(),
-            "demo_selector": lambda: create_selector_branch(),
-        }
-
-        if name not in ppa_creators:
-            console.print(
-                f"[red]Error: Unknown name '{name}'. Available options: {', '.join(ppa_creators.keys())}[/red]"
-            )
+        try:
+            branch = inspector.create_by_name(name)
+            render_dot_tree(branch)
+            print(unicode_tree(branch))
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
             raise typer.Exit(1)
-
-        ppa = ppa_creators[name]()
-        render_dot_tree(ppa)
-        print(unicode_tree(ppa))
     else:
         # Print full release tree
-        with initialize_tree_and_state(config, args, InMemoryStateStorage()) as (
+        with initialize_tree_and_state(
+            config, args, InMemoryStateStorage(), read_only=True
+        ) as (
             tree,
             _,
         ):
@@ -354,6 +258,11 @@ def release_bht(
         "--force-rebuild",
         help="Force rebuild for specific packages (can be specified multiple times). Use 'all' to force rebuild all packages.",
     ),
+    only_packages: Optional[List[str]] = typer.Option(
+        None,
+        "--only-packages",
+        help="Only process specific packages (can be specified multiple times)",
+    ),
     tree_cutoff: int = typer.Option(
         2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
@@ -367,6 +276,7 @@ def release_bht(
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=force_rebuild or [],
+        only_packages=only_packages or [],
     )
 
     # Use context manager version with automatic lock management

@@ -10,4 +10,4 @@ class ReleaseArgs(BaseModel):
 
     release_tag: str
     force_rebuild: List[str] = Field(default_factory=list)
-
+    only_packages: List[str] = Field(default_factory=list)
