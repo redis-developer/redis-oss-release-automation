@@ -11,27 +11,20 @@ in a sense that we aim to make a more or less direct action without complex cond
 More complex behaviors, including pre- and post- conditions are defined in `ppas.py`.
 """
 
-from typing import Iterator, List, Optional
+from typing import Iterator, Optional
 from typing import Sequence as TypingSequence
 
 from py_trees.behaviour import Behaviour
-from py_trees.common import OneShotPolicy, Status
-from py_trees.composites import Composite, Selector, Sequence
+from py_trees.common import Status
+from py_trees.composites import Composite, Sequence
 from py_trees.decorators import Repeat, Retry, SuccessIsRunning, Timeout
 
 from ..github_client_async import GitHubClientAsync
 from .behaviours import (
     ExtractArtifactResult,
     GetWorkflowArtifactsList,
-    HasWorkflowArtifacts,
-    HasWorkflowResult,
     IdentifyTargetRef,
     IdentifyWorkflowByUUID,
-    IsTargetRefIdentified,
-    IsWorkflowCompleted,
-    IsWorkflowIdentified,
-    IsWorkflowSuccessful,
-    IsWorkflowTriggered,
     ResetPackageState,
     ResetWorkflowState,
     Sleep,

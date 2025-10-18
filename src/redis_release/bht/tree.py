@@ -15,6 +15,7 @@ from rich.text import Text
 
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
+from ..state_manager import S3StateStorage, StateStorage, StateSyncer
 from .args import ReleaseArgs
 from .backchain import latch_chains
 from .behaviours import NeedToPublishRelease
@@ -42,10 +43,8 @@ from .state import (
     PackageMeta,
     ReleaseMeta,
     ReleaseState,
-    S3StateStorage,
-    StateStorage,
-    StateSyncer,
     Workflow,
+    print_state_table,
 )
 
 logger = logging.getLogger(__name__)
@@ -218,7 +217,7 @@ def initialize_tree_and_state(
     storage: Optional[StateStorage] = None,
     read_only: bool = False,
 ) -> Iterator[Tuple[BehaviourTree, StateSyncer]]:
-    github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN"))
+    github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN") or "")
 
     if storage is None:
         storage = S3StateStorage()
@@ -246,6 +245,7 @@ def initialize_tree_and_state(
         tree.add_post_tick_handler(log_tree_state_with_markup)
 
         yield (tree, state_syncer)
+        print_state_table(state_syncer.state)
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:

@@ -6,14 +6,10 @@ from pathlib import Path
 import pytest
 
 from redis_release.bht.args import ReleaseArgs
-from redis_release.bht.state import (
-    InMemoryStateStorage,
-    ReleaseState,
-    StateSyncer,
-    Workflow,
-)
+from redis_release.bht.state import ReleaseState, Workflow
 from redis_release.config import Config, PackageConfig
 from redis_release.models import PackageType
+from redis_release.state_manager import InMemoryStateStorage, StateSyncer
 
 
 class TestReleaseStateFromConfig:

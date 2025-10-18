@@ -34,7 +34,7 @@ from .composites import (
     TriggerWorkflowGuarded,
     WaitForWorkflowCompletion,
 )
-from .state import PackageMeta, ReleaseMeta, ReleaseState, Workflow
+from .state import PackageMeta, ReleaseMeta, Workflow
 
 
 def create_workflow_success_ppa(
