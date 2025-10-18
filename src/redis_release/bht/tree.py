@@ -1,3 +1,8 @@
+"""
+This module contains tree initialization, larger branches creation
+and utility functions to run or inspect the tree.
+"""
+
 import asyncio
 import logging
 import os
@@ -48,125 +53,6 @@ from .state import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class TreeInspector:
-    """Inspector for creating and inspecting behavior tree branches and PPAs."""
-
-    # List of available branch/PPA names
-    AVAILABLE_NAMES = [
-        "workflow_success",
-        "workflow_completion",
-        "find_workflow",
-        "trigger_workflow",
-        "identify_target_ref",
-        "download_artifacts",
-        "extract_artifact_result",
-        "workflow_complete_branch",
-        "workflow_with_result_branch",
-        "publish_workflow_branch",
-        "build_workflow_branch",
-        "demo_sequence",
-        "demo_selector",
-    ]
-
-    def __init__(self, release_tag: str):
-        """Initialize TreeInspector.
-
-        Args:
-            release_tag: Release tag for creating mock ReleaseMeta
-        """
-        self.release_tag = release_tag
-
-    def get_names(self) -> List[str]:
-        """Get list of available branch/PPA names.
-
-        Returns:
-            List of available names that can be passed to create_by_name()
-        """
-        return self.AVAILABLE_NAMES.copy()
-
-    def create_by_name(self, name: str) -> Union[Selector, Sequence, Behaviour]:
-        """Create a branch or PPA by name.
-
-        Args:
-            name: Name of the branch or PPA to create
-
-        Returns:
-            The created behavior tree branch or PPA
-
-        Raises:
-            ValueError: If the name is not found in the available branches
-        """
-        if name not in self.AVAILABLE_NAMES:
-            available = ", ".join(self.get_names())
-            raise ValueError(f"Unknown name '{name}'. Available options: {available}")
-
-        # Create mock objects for PPA/branch creation
-        workflow = Workflow(workflow_file="test.yml", inputs={})
-        package_meta = PackageMeta(repo="redis/redis", ref="main")
-        release_meta = ReleaseMeta(tag=self.release_tag)
-        github_client = GitHubClientAsync(token="dummy")
-        package = Package(
-            meta=package_meta,
-            build=workflow,
-            publish=Workflow(workflow_file="publish.yml", inputs={}),
-        )
-        log_prefix = "test"
-
-        # Create and return the requested branch/PPA
-        if name == "workflow_success":
-            return create_workflow_success_ppa(workflow, log_prefix)
-        elif name == "workflow_completion":
-            return create_workflow_completion_ppa(
-                workflow, package_meta, github_client, log_prefix
-            )
-        elif name == "find_workflow":
-            return create_find_workflow_by_uuid_ppa(
-                workflow, package_meta, github_client, log_prefix
-            )
-        elif name == "trigger_workflow":
-            return create_trigger_workflow_ppa(
-                workflow, package_meta, release_meta, github_client, log_prefix
-            )
-        elif name == "identify_target_ref":
-            return create_identify_target_ref_ppa(
-                package_meta, release_meta, github_client, log_prefix
-            )
-        elif name == "download_artifacts":
-            return create_download_artifacts_ppa(
-                workflow, package_meta, github_client, log_prefix
-            )
-        elif name == "extract_artifact_result":
-            return create_extract_artifact_result_ppa(
-                "test-artifact", workflow, package_meta, github_client, log_prefix
-            )
-        elif name == "workflow_complete_branch":
-            return create_workflow_complete_tree_branch(
-                workflow, package_meta, release_meta, github_client, ""
-            )
-        elif name == "workflow_with_result_branch":
-            return create_workflow_with_result_tree_branch(
-                "artifact", workflow, package_meta, release_meta, github_client, ""
-            )
-        elif name == "publish_workflow_branch":
-            return create_publish_workflow_tree_branch(
-                workflow,
-                workflow,
-                package_meta,
-                release_meta,
-                workflow,
-                github_client,
-                "",
-            )
-        elif name == "build_workflow_branch":
-            return create_build_workflow_tree_branch(
-                package, release_meta, package, github_client, ""
-            )
-        elif name == "demo_sequence":
-            return create_sequence_branch()
-        else:  # name == "demo_selector"
-            return create_selector_branch()
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
@@ -244,8 +130,10 @@ def initialize_tree_and_state(
         tree.add_post_tick_handler(lambda _: state_syncer.sync())
         tree.add_post_tick_handler(log_tree_state_with_markup)
 
-        yield (tree, state_syncer)
-        print_state_table(state_syncer.state)
+        try:
+            yield (tree, state_syncer)
+        finally:
+            print_state_table(state_syncer.state)
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:
@@ -534,6 +422,125 @@ def create_extract_result_tree_branch(
     )
     latch_chains(extract_artifact_result, download_artifacts)
     return extract_artifact_result
+
+
+class TreeInspector:
+    """Inspector for creating and inspecting behavior tree branches and PPAs."""
+
+    # List of available branch/PPA names
+    AVAILABLE_NAMES = [
+        "workflow_success",
+        "workflow_completion",
+        "find_workflow",
+        "trigger_workflow",
+        "identify_target_ref",
+        "download_artifacts",
+        "extract_artifact_result",
+        "workflow_complete_branch",
+        "workflow_with_result_branch",
+        "publish_workflow_branch",
+        "build_workflow_branch",
+        "demo_sequence",
+        "demo_selector",
+    ]
+
+    def __init__(self, release_tag: str):
+        """Initialize TreeInspector.
+
+        Args:
+            release_tag: Release tag for creating mock ReleaseMeta
+        """
+        self.release_tag = release_tag
+
+    def get_names(self) -> List[str]:
+        """Get list of available branch/PPA names.
+
+        Returns:
+            List of available names that can be passed to create_by_name()
+        """
+        return self.AVAILABLE_NAMES.copy()
+
+    def create_by_name(self, name: str) -> Union[Selector, Sequence, Behaviour]:
+        """Create a branch or PPA by name.
+
+        Args:
+            name: Name of the branch or PPA to create
+
+        Returns:
+            The created behavior tree branch or PPA
+
+        Raises:
+            ValueError: If the name is not found in the available branches
+        """
+        if name not in self.AVAILABLE_NAMES:
+            available = ", ".join(self.get_names())
+            raise ValueError(f"Unknown name '{name}'. Available options: {available}")
+
+        # Create mock objects for PPA/branch creation
+        workflow = Workflow(workflow_file="test.yml", inputs={})
+        package_meta = PackageMeta(repo="redis/redis", ref="main")
+        release_meta = ReleaseMeta(tag=self.release_tag)
+        github_client = GitHubClientAsync(token="dummy")
+        package = Package(
+            meta=package_meta,
+            build=workflow,
+            publish=Workflow(workflow_file="publish.yml", inputs={}),
+        )
+        log_prefix = "test"
+
+        # Create and return the requested branch/PPA
+        if name == "workflow_success":
+            return create_workflow_success_ppa(workflow, log_prefix)
+        elif name == "workflow_completion":
+            return create_workflow_completion_ppa(
+                workflow, package_meta, github_client, log_prefix
+            )
+        elif name == "find_workflow":
+            return create_find_workflow_by_uuid_ppa(
+                workflow, package_meta, github_client, log_prefix
+            )
+        elif name == "trigger_workflow":
+            return create_trigger_workflow_ppa(
+                workflow, package_meta, release_meta, github_client, log_prefix
+            )
+        elif name == "identify_target_ref":
+            return create_identify_target_ref_ppa(
+                package_meta, release_meta, github_client, log_prefix
+            )
+        elif name == "download_artifacts":
+            return create_download_artifacts_ppa(
+                workflow, package_meta, github_client, log_prefix
+            )
+        elif name == "extract_artifact_result":
+            return create_extract_artifact_result_ppa(
+                "test-artifact", workflow, package_meta, github_client, log_prefix
+            )
+        elif name == "workflow_complete_branch":
+            return create_workflow_complete_tree_branch(
+                workflow, package_meta, release_meta, github_client, ""
+            )
+        elif name == "workflow_with_result_branch":
+            return create_workflow_with_result_tree_branch(
+                "artifact", workflow, package_meta, release_meta, github_client, ""
+            )
+        elif name == "publish_workflow_branch":
+            return create_publish_workflow_tree_branch(
+                workflow,
+                workflow,
+                package_meta,
+                release_meta,
+                workflow,
+                github_client,
+                "",
+            )
+        elif name == "build_workflow_branch":
+            return create_build_workflow_tree_branch(
+                package, release_meta, package, github_client, ""
+            )
+        elif name == "demo_sequence":
+            return create_sequence_branch()
+        else:  # name == "demo_selector"
+            return create_selector_branch()
 
 
 ### Demo ###
