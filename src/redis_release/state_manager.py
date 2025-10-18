@@ -145,7 +145,7 @@ class StateStorage(Protocol):
         ...
 
 
-class StateSyncer:
+class StateManager:
     """Syncs ReleaseState to storage backend only when changed.
 
     Can be used as a context manager to automatically acquire and release locks.
@@ -167,7 +167,7 @@ class StateSyncer:
         self._lock_acquired = False
         self.read_only = read_only
 
-    def __enter__(self) -> "StateSyncer":
+    def __enter__(self) -> "StateManager":
         if self.read_only:
             return self
         """Acquire lock when entering context."""

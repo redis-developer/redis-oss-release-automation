@@ -20,7 +20,7 @@ from rich.text import Text
 
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
-from ..state_manager import S3StateStorage, StateStorage, StateSyncer
+from ..state_manager import S3StateStorage, StateManager, StateStorage
 from .args import ReleaseArgs
 from .backchain import latch_chains
 from .behaviours import NeedToPublishRelease
@@ -102,14 +102,14 @@ def initialize_tree_and_state(
     args: ReleaseArgs,
     storage: Optional[StateStorage] = None,
     read_only: bool = False,
-) -> Iterator[Tuple[BehaviourTree, StateSyncer]]:
+) -> Iterator[Tuple[BehaviourTree, StateManager]]:
     github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN") or "")
 
     if storage is None:
         storage = S3StateStorage()
 
     # Create state syncer with storage backend and acquire lock
-    with StateSyncer(
+    with StateManager(
         storage=storage,
         config=config,
         args=args,

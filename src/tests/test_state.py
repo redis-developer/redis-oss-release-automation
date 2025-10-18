@@ -9,7 +9,7 @@ from redis_release.bht.args import ReleaseArgs
 from redis_release.bht.state import ReleaseState, Workflow
 from redis_release.config import Config, PackageConfig
 from redis_release.models import PackageType
-from redis_release.state_manager import InMemoryStateStorage, StateSyncer
+from redis_release.state_manager import InMemoryStateStorage, StateManager
 
 
 class TestReleaseStateFromConfig:
@@ -492,7 +492,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=[])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         assert syncer.state.meta.tag == "8.4-m01"
 
@@ -518,7 +518,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker"])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["redis"].meta.ephemeral.force_rebuild is False
@@ -551,7 +551,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker", "snap"])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
         assert syncer.state.packages["redis"].meta.ephemeral.force_rebuild is False
@@ -573,7 +573,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="test-tag", force_rebuild=[])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         assert syncer.state.meta.tag == "test-tag"
         assert (
@@ -608,7 +608,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["all"])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         # All packages should have force_rebuild set to True
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True
@@ -637,7 +637,7 @@ class TestStateSyncerWithArgs:
 
         args = ReleaseArgs(release_tag="8.4-m01", force_rebuild=["docker", "all"])
         storage = InMemoryStateStorage()
-        syncer = StateSyncer(storage=storage, config=config, args=args)
+        syncer = StateManager(storage=storage, config=config, args=args)
 
         # All packages should have force_rebuild set to True
         assert syncer.state.packages["docker"].meta.ephemeral.force_rebuild is True

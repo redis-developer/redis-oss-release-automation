@@ -13,7 +13,7 @@ from redis_release.bht.state import print_state_table
 from redis_release.state_manager import (
     InMemoryStateStorage,
     S3StateStorage,
-    StateSyncer,
+    StateManager,
 )
 
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
@@ -137,7 +137,7 @@ def status(
         force_rebuild=[],
     )
 
-    with StateSyncer(
+    with StateManager(
         storage=S3StateStorage(),
         config=config,
         args=args,
