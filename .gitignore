@@ -236,8 +236,6 @@ $RECYCLE.BIN/
 aws-credentials.json
 
 # Local test files
-test_*.py
-*_test.py
 temp_*.py
 
 # Local configuration
