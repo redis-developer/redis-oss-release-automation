@@ -248,8 +248,24 @@ class StateManager:
             return None
 
         state = ReleaseState(**state_data)
+
+        # Reset ephemeral fields to defaults if not in read-only mode
+        if not self.read_only:
+            self._reset_ephemeral_fields(state)
+
         self.last_dump = state.model_dump_json(indent=2)
         return state
+
+    def _reset_ephemeral_fields(self, state: ReleaseState) -> None:
+        """Reset ephemeral fields to defaults (except log_once_flags which are always reset)."""
+        # Reset release meta ephemeral
+        state.meta.ephemeral = state.meta.ephemeral.__class__()
+
+        # Reset package ephemeral fields
+        for package in state.packages.values():
+            package.meta.ephemeral = package.meta.ephemeral.__class__()
+            package.build.ephemeral = package.build.ephemeral.__class__()
+            package.publish.ephemeral = package.publish.ephemeral.__class__()
 
     def sync(self) -> None:
         """Save state to storage backend if changed since last sync."""

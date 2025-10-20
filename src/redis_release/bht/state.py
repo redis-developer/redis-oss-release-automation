@@ -22,15 +22,46 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowEphemeral(BaseModel):
-    """Ephemeral workflow state that is not persisted."""
+    """Ephemeral workflow state. Reset on each run.
 
-    trigger_failed: bool = False
-    trigger_attempted: bool = False
-    identify_failed: bool = False
-    timed_out: bool = False
-    artifacts_download_failed: bool = False
-    extract_result_failed: bool = False
-    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
+    Each workflow step has a pair of fields indicating the step status:
+    One ephemeral field is set when the step is attempted. It may have three states:
+    - `None` (default): Step has not been attempted
+    - `True`: Step has been attempted and failed
+    - `False`: Step has been attempted and succeeded
+
+    Ephemeral fields are reset on each run. Their values are persisted but only until
+    next run is started.
+    So they indicate either current (if run is in progress) or last run state.
+
+    The other field indicates the step result, it may either have some value or be empty.
+
+    For example for trigger step we have `trigger_failed` ephemeral
+    and `triggered_at` result fields.
+
+    Each step may be in one of the following states:
+        Not started
+        Failed
+        Succeeded or OK
+        Incorrect (this shouln't happen)
+
+    The following decision table show how step status is determined for trigger step.
+    In general this logic is used to display release state table.
+
+    tigger_failed -> | None (default) |   True    |   False   |
+    triggered_at:    |                |           |           |
+       None          |   Not started  |   Failed  | Incorrect |
+      Has value      |       OK       | Incorrect |     OK    |
+
+    """
+
+    trigger_failed: Optional[bool] = None
+    trigger_attempted: Optional[bool] = None
+    identify_failed: Optional[bool] = None
+    timed_out: Optional[bool] = None
+    artifacts_download_failed: Optional[bool] = None
+    extract_result_failed: Optional[bool] = None
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
 class Workflow(BaseModel):
@@ -47,17 +78,18 @@ class Workflow(BaseModel):
     conclusion: Optional[WorkflowConclusion] = None
     artifacts: Optional[Dict[str, Any]] = None
     result: Optional[Dict[str, Any]] = None
-    ephemeral: WorkflowEphemeral = Field(
-        default_factory=WorkflowEphemeral, exclude=True
-    )
+    ephemeral: WorkflowEphemeral = Field(default_factory=WorkflowEphemeral)
 
 
 class PackageMetaEphemeral(BaseModel):
-    """Ephemeral package metadata that is not persisted."""
+    """Ephemeral package metadata. Reset on each run.
+
+    See WorkflowEphemeral for more details.
+    """
 
     force_rebuild: bool = False
     identify_ref_failed: bool = False
-    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
 class PackageMeta(BaseModel):
@@ -67,9 +99,7 @@ class PackageMeta(BaseModel):
     repo: str = ""
     ref: Optional[str] = None
     publish_internal_release: bool = False
-    ephemeral: PackageMetaEphemeral = Field(
-        default_factory=PackageMetaEphemeral, exclude=True
-    )
+    ephemeral: PackageMetaEphemeral = Field(default_factory=PackageMetaEphemeral)
 
 
 class Package(BaseModel):
@@ -81,9 +111,12 @@ class Package(BaseModel):
 
 
 class ReleaseMetaEphemeral(BaseModel):
-    """Ephemeral release metadata that is not persisted."""
+    """Ephemeral release metadata. Reset on each run.
 
-    log_once_flags: Dict[str, bool] = Field(default_factory=dict)
+    See WorkflowEphemeral for more details.
+    """
+
+    log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
 class ReleaseMeta(BaseModel):
@@ -91,9 +124,7 @@ class ReleaseMeta(BaseModel):
 
     tag: Optional[str] = None
     release_type: Optional[ReleaseType] = None
-    ephemeral: ReleaseMetaEphemeral = Field(
-        default_factory=ReleaseMetaEphemeral, exclude=True
-    )
+    ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
 
 
 class ReleaseState(BaseModel):
