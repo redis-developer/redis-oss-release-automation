@@ -1,14 +1,26 @@
 version: 1
 packages:
   docker:
+    # available types: docker, debian
     package_type: docker
+    # repo where the workflow is started
     repo: redis/docker-library-redis
+    # ref it not specified it will be determined based on the tag and existing branches
+    # should be empty for real releas, is to be used for testing only
+    # ref: branch_name
+    # build workflow name
     build_workflow: release_build_and_test.yml
+    # build workflow timeout in minutes, optional
     build_timeout_minutes: 45
+    # static workflow inputs for build workflow
     build_inputs: {}
+    # whether to run publish workflow for internal releases
     publish_internal_release: no
-    publish_workflow: release_publish.yml # may be boolean false
+    # publish workflow name
+    publish_workflow: release_publish.yml
+    # publish workflow timeout in minutes, optional
     publish_timeout_minutes: 10
+    # static workflow inputs for publish workflow
     publish_inputs: {}
   debian:
     package_type: debian
