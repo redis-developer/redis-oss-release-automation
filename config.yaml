@@ -5,8 +5,9 @@ packages:
     package_type: docker
     # repo where the workflow is started
     repo: redis/docker-library-redis
-    # ref it not specified it will be determined based on the tag and existing branches
-    # should be empty for real releas, is to be used for testing only
+    # ref to use for workflow runs, if not specified it
+    # will be determined based on the tag and existing branches
+    # Should be empty for real use cases, is to be used for testing only
     # ref: branch_name
     # build workflow name
     build_workflow: release_build_and_test.yml
