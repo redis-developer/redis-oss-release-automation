@@ -151,4 +151,4 @@ class SSOApp(App):
 
 def run_sso_ui(tree_to_ui: janus.AsyncQueue, ui_to_tree: janus.SyncQueue) -> None:
     app = SSOApp(tree_to_ui, ui_to_tree)
-    app.run()
+    app.run(inline=True)

@@ -7,7 +7,7 @@ from io import IOBase
 from typing import Optional
 
 import janus
-from aws_sso_lib.sso import get_boto3_session
+from aws_sso_lib.sso import get_boto3_session, get_credentials, login
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 from py_trees.composites import Selector, Sequence
@@ -30,16 +30,24 @@ class AwsSSODefaults(BaseModel):
 class AwsState(BaseModel):
     """AWS credentials state."""
 
-    aws_sso_defaults: AwsSSODefaults = AwsSSODefaults()
+    model_config = {"arbitrary_types_allowed": True}  # Allow non-serializable types
 
+    aws_sso_defaults: AwsSSODefaults = AwsSSODefaults()
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
     aws_session_token: Optional[str] = None
     dialog: Optional[str] = None
     auth_choice: Optional[str] = None
-
     aws_authenticated: bool = False
     sso_failed: bool = False
+    credentials: Optional[dict] = None
+
+    def __init__(self, ui_to_tree: janus.SyncQueue, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._ui_to_tree = ui_to_tree
+
+    def notify_about_update(self) -> None:
+        self._ui_to_tree.put("state_updated")
 
 
 def create_aws_root_node(
@@ -110,10 +118,11 @@ def create_aws_root_node(
 
 
 def create_aws_tree(
+    aws_state: AwsState,
     tree_to_ui: janus.SyncQueue,
     ui_to_tree: janus.AsyncQueue,
 ) -> BehaviourTree:
-    root = create_aws_root_node(AwsState(), tree_to_ui, ui_to_tree)
+    root = create_aws_root_node(aws_state, tree_to_ui, ui_to_tree)
     tree = BehaviourTree(root)
     return tree
 
@@ -150,6 +159,19 @@ class ValidateAwsCredentials(LoggingAction):
             and self.last_result is not None
         ):
             return self.last_result
+
+        self.logger.debug(
+            f"Checking AWS credentials: {self.aws_state.aws_access_key_id}, {self.aws_state.aws_secret_access_key}, {self.aws_state.aws_session_token}"
+        )
+
+        if (
+            self.aws_state.aws_access_key_id is None
+            or self.aws_state.aws_secret_access_key is None
+            or self.aws_state.aws_session_token is None
+        ):
+            self.logger.info("AWS credentials not found in environment")
+            self.last_result = Status.FAILURE
+            return Status.FAILURE
 
         # Update self fields from AwsState
         self.aws_access_key_id = self.aws_state.aws_access_key_id
@@ -204,6 +226,16 @@ class ValidateAwsSSO(LoggingAction):
             self.logger.info("[green]AWS SSO credentials are valid[/green]")
             self.aws_state.aws_authenticated = True
             self.aws_state.sso_failed = False
+            # Get actual AWS credentials using the token
+            credentials = get_credentials(
+                session=session,
+                start_url=self.aws_state.aws_sso_defaults.start_url,
+                sso_region=self.aws_state.aws_sso_defaults.sso_region,
+                account_id=self.aws_state.aws_sso_defaults.account_id,
+                role_name=self.aws_state.aws_sso_defaults.role_name,
+            )
+            self.aws_state.credentials = credentials
+
             return Status.SUCCESS
 
         except Exception as e:
@@ -252,20 +284,16 @@ class LoginToSSO(LoggingAction):
                     self.tree_to_ui.put(["sso_output_chunk", s])
 
             to_ui_queue = StupidStreamRedirector(self.tree_to_ui)
-            with redirect_stdout(to_ui_queue), redirect_stderr(to_ui_queue):
-                session = get_boto3_session(
-                    start_url=self.aws_state.aws_sso_defaults.start_url,
-                    sso_region=self.aws_state.aws_sso_defaults.sso_region,
-                    account_id=self.aws_state.aws_sso_defaults.account_id,
-                    role_name=self.aws_state.aws_sso_defaults.role_name,
-                    region=self.aws_state.aws_sso_defaults.region,
-                    login=True,
-                )
 
-                # Test the session
-                sts = session.client("sts")
-                sts.get_caller_identity()
-                self.aws_state.sso_failed = False
+            self.logger.info("Starting SSO login process...")
+            login(
+                start_url=self.aws_state.aws_sso_defaults.start_url,
+                sso_region=self.aws_state.aws_sso_defaults.sso_region,
+                outfile=to_ui_queue,
+            )
+            self.logger.info("Completed SSO login process...")
+            self.aws_state.sso_failed = False
+            self.aws_state.notify_about_update()
 
         except Exception as e:
             self.tree_to_ui.put(
@@ -408,3 +436,9 @@ class UiQueueListener(LoggingAction):
             self.task.cancel()
         self.tree_to_ui.put("shutdown")
         super().terminate(new_status)
+
+
+def print_credentials_as_env_vars(credentials: dict) -> None:
+    print(f"export AWS_ACCESS_KEY_ID={credentials['access_key']}")
+    print(f"export AWS_SECRET_ACCESS_KEY={credentials['secret_key']}")
+    print(f"export AWS_SESSION_TOKEN={credentials['token']}")

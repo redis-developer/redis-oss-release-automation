@@ -5,12 +5,14 @@ import logging
 import os
 from typing import List, Optional
 
+import aws_sso_lib
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
 from rich.console import Console
 from rich.table import Table
 
 from redis_release.bht.args import ReleaseArgs
+from redis_release.bht.aws_auth import AwsState, print_credentials_as_env_vars
 from redis_release.bht.state import (
     InMemoryStateStorage,
     Package,
@@ -391,7 +393,8 @@ def sso(
     tree_to_ui = janus.Queue()
     ui_to_tree = janus.Queue()
 
-    tree = create_aws_tree(tree_to_ui.sync_q, ui_to_tree.async_q)
+    aws_state = AwsState(ui_to_tree=ui_to_tree.sync_q)
+    tree = create_aws_tree(aws_state, tree_to_ui.sync_q, ui_to_tree.async_q)
     if print_tree:
         render_dot_tree(tree.root)
         print(unicode_tree(tree.root))
@@ -417,6 +420,9 @@ def sso(
     tree_thread.join()
     tree_to_ui.close()
     ui_to_tree.close()
+
+    if aws_state.credentials:
+        print_credentials_as_env_vars(aws_state.credentials)
 
 
 if __name__ == "__main__":
