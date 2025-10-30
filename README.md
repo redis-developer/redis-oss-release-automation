@@ -59,7 +59,7 @@ redis-release release 8.2.0 --force-rebuild package-name
 redis-release release 8.2.0 --only-packages package1 --only-packages package2
 
 # Force release type (changes release-type even for existing state)
-redis-release release 8.2.0 --force-release-type rc
+redis-release release 8.2.0 --force-release-type internal
 ```
 
 ### Check Status
