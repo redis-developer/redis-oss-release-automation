@@ -799,6 +799,11 @@ class IsWorkflowSuccessful(LoggingAction):
             ):
                 self.logger.info(f"Workflow completed with success status")
             return Status.SUCCESS
+        elif self.workflow.conclusion == WorkflowConclusion.FAILURE:
+            if self.log_once(
+                "workflow_unsuccessful", self.workflow.ephemeral.log_once_flags
+            ):
+                self.logger.error(f"Workflow completed with failure status")
         return Status.FAILURE
 
 

@@ -334,7 +334,7 @@ class GitHubClientAsync:
             conclusion = None
             if github_conclusion == "success":
                 conclusion = WorkflowConclusion.SUCCESS
-            elif github_conclusion == "failure":
+            elif github_conclusion is not None:
                 conclusion = WorkflowConclusion.FAILURE
 
             workflow_name = data.get("name", "unknown")

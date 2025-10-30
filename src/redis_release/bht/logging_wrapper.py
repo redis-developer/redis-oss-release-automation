@@ -35,33 +35,17 @@ class PyTreesLoggerWrapper(py_trees.logging.Logger):
         self._logger = logger
 
     def debug(self, msg: str) -> None:
-        """Log a message with severity 'DEBUG'.
-
-        Args:
-            msg: The message to log
-        """
-        self._logger.debug(msg)
+        """Log a message with severity 'DEBUG'."""
+        self._logger.debug(msg, stacklevel=2)
 
     def info(self, msg: str) -> None:
-        """Log a message with severity 'INFO'.
-
-        Args:
-            msg: The message to log
-        """
-        self._logger.info(msg)
+        """Log a message with severity 'INFO'."""
+        self._logger.info(msg, stacklevel=2)
 
     def warning(self, msg: str) -> None:
-        """Log a message with severity 'WARNING'.
-
-        Args:
-            msg: The message to log
-        """
-        self._logger.warning(msg)
+        """Log a message with severity 'WARNING'."""
+        self._logger.warning(msg, stacklevel=2)
 
     def error(self, msg: str) -> None:
-        """Log a message with severity 'ERROR'.
-
-        Args:
-            msg: The message to log
-        """
-        self._logger.error(msg)
+        """Log a message with severity 'ERROR'."""
+        self._logger.error(msg, stacklevel=2)
