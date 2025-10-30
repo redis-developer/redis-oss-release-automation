@@ -8,8 +8,8 @@ from typing import List, Optional
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.bht.args import ReleaseArgs
 from redis_release.bht.state import print_state_table
+from redis_release.models import ReleaseType
 from redis_release.state_manager import (
     InMemoryStateStorage,
     S3StateStorage,
@@ -19,6 +19,7 @@ from redis_release.state_manager import (
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
 from .logging_config import setup_logging
+from .models import ReleaseArgs
 
 app = typer.Typer(
     name="redis-release",
@@ -101,6 +102,11 @@ def release(
     tree_cutoff: int = typer.Option(
         2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
+    force_release_type: Optional[ReleaseType] = typer.Option(
+        None,
+        "--force-release-type",
+        help="Force release type (public or internal)",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging()
@@ -112,6 +118,7 @@ def release(
         release_tag=release_tag,
         force_rebuild=force_rebuild or [],
         only_packages=only_packages or [],
+        force_release_type=force_release_type,
     )
 
     # Use context manager version with automatic lock management

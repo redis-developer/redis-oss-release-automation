@@ -20,8 +20,8 @@ from rich.text import Text
 
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
+from ..models import ReleaseArgs
 from ..state_manager import S3StateStorage, StateManager, StateStorage
-from .args import ReleaseArgs
 from .backchain import latch_chains
 from .behaviours import NeedToPublishRelease
 from .composites import (

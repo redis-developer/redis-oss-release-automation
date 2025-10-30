@@ -2,7 +2,7 @@
 
 import re
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -151,3 +151,12 @@ class RedisVersion(BaseModel):
             return True
 
         return self.suffix < other.suffix
+
+
+class ReleaseArgs(BaseModel):
+    """Arguments for release execution."""
+
+    release_tag: str
+    force_rebuild: List[str] = Field(default_factory=list)
+    only_packages: List[str] = Field(default_factory=list)
+    force_release_type: Optional[ReleaseType] = None

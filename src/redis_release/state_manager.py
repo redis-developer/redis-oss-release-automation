@@ -11,11 +11,11 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from rich.pretty import pretty_repr
 
-from redis_release.bht.args import ReleaseArgs
 from redis_release.bht.state import ReleaseState, logger, print_state_table
 from redis_release.config import Config
 
 from .bht.state import ReleaseState
+from .models import ReleaseArgs
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +226,10 @@ class StateManager:
                 for package_name in self.args.force_rebuild:
                     if package_name in state.packages:
                         state.packages[package_name].meta.ephemeral.force_rebuild = True
+
+            if self.args.force_release_type:
+                logger.info(f"Force release type: {self.args.force_release_type}")
+                state.meta.release_type = self.args.force_release_type
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""
