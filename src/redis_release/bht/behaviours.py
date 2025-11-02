@@ -262,7 +262,6 @@ class TriggerWorkflow(ReleaseAction):
             )
             self.feedback_message = "failed to trigger workflow"
             return
-        self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
         self.workflow.ephemeral.trigger_attempted = True
         if self.log_once(
@@ -713,6 +712,8 @@ class DebianWorkflowInputs(ReleaseAction):
     def update(self) -> Status:
         if self.release_meta.release_type is not None:
             self.workflow.inputs["release_type"] = self.release_meta.release_type.value
+        if self.release_meta.tag is not None:
+            self.workflow.inputs["release_tag"] = self.release_meta.tag
         return Status.SUCCESS
 
 
@@ -863,7 +864,7 @@ class NeedToPublishRelease(LoggingAction):
                     f"Skip publishing internal release: {self.release_meta.tag}"
                 )
             return Status.FAILURE
-        return Status.FAILURE
+        return Status.SUCCESS
 
 
 class DetectReleaseType(LoggingAction):
