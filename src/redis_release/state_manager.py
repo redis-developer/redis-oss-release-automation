@@ -167,14 +167,24 @@ class StateManager:
         self._lock_acquired = False
         self.read_only = read_only
 
+        # allow custom name for state, to be able to make test runs with real tags
+        # without affecting production state
+        if args.override_state_name:
+            logger.info(
+                f"Using custom state name instead of release tag: {args.override_state_name}"
+            )
+            self.state_name = args.override_state_name
+        else:
+            self.state_name = self.tag
+
     def __enter__(self) -> "StateManager":
         if self.read_only:
             return self
         """Acquire lock when entering context."""
-        if not self.storage.acquire_lock(self.tag):
-            raise RuntimeError(f"Failed to acquire lock for tag: {self.tag}")
+        if not self.storage.acquire_lock(self.state_name):
+            raise RuntimeError(f"Failed to acquire lock for tag: {self.state_name}")
         self._lock_acquired = True
-        logger.info(f"Lock acquired for tag: {self.tag}")
+        logger.info(f"Lock acquired for tag: {self.state_name}")
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -182,9 +192,9 @@ class StateManager:
             return
         """Release lock when exiting context."""
         if self._lock_acquired:
-            self.storage.release_lock(self.tag)
+            self.storage.release_lock(self.state_name)
             self._lock_acquired = False
-            logger.info(f"Lock released for tag: {self.tag}")
+            logger.info(f"Lock released for tag: {self.state_name}")
 
     @property
     def state(self) -> ReleaseState:
@@ -233,7 +243,7 @@ class StateManager:
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""
-        state_data = self.storage.get(self.tag)
+        state_data = self.storage.get(self.state_name)
         if state_data is None:
             return None
 
@@ -250,7 +260,7 @@ class StateManager:
         if current_dump != self.last_dump:
             self.last_dump = current_dump
             state_dict = json.loads(current_dump)
-            self.storage.put(self.tag, state_dict)
+            self.storage.put(self.state_name, state_dict)
             logger.debug("State saved")
 
 

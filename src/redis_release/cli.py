@@ -107,6 +107,11 @@ def release(
         "--force-release-type",
         help="Force release type (public or internal)",
     ),
+    override_state_name: Optional[str] = typer.Option(
+        None,
+        "--override-state-name",
+        help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging()
@@ -119,6 +124,7 @@ def release(
         force_rebuild=force_rebuild or [],
         only_packages=only_packages or [],
         force_release_type=force_release_type,
+        override_state_name=override_state_name,
     )
 
     # Use context manager version with automatic lock management

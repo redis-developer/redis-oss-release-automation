@@ -160,3 +160,4 @@ class ReleaseArgs(BaseModel):
     force_rebuild: List[str] = Field(default_factory=list)
     only_packages: List[str] = Field(default_factory=list)
     force_release_type: Optional[ReleaseType] = None
+    override_state_name: Optional[str] = None
