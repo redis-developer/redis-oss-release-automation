@@ -23,6 +23,7 @@ from ..github_client_async import GitHubClientAsync
 from ..models import ReleaseArgs
 from ..state_display import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
+from ..state_slack import SlackStatePrinter, init_slack_printer
 from .backchain import latch_chains
 from .behaviours import NeedToPublishRelease
 from .composites import (
@@ -123,6 +124,24 @@ def initialize_tree_and_state(
 
         tree.add_post_tick_handler(lambda _: state_syncer.sync())
         tree.add_post_tick_handler(log_tree_state_with_markup)
+
+        # Initialize Slack printer if Slack args are provided
+        slack_printer: Optional[SlackStatePrinter] = None
+        if args.slack_token or args.slack_channel_id:
+            try:
+                slack_printer = init_slack_printer(
+                    args.slack_token, args.slack_channel_id
+                )
+                # Capture the non-None printer in the closure
+                printer = slack_printer
+
+                def slack_tick_handler(_: BehaviourTree) -> None:
+                    printer.update_message(state_syncer.state)
+
+                tree.add_post_tick_handler(slack_tick_handler)
+            except ValueError as e:
+                logger.error(f"Failed to initialize Slack printer: {e}")
+                slack_printer = None
 
         try:
             yield (tree, state_syncer)

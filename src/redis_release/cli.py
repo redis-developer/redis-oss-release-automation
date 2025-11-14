@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 from typing import List, Optional
 
 import typer
@@ -15,6 +14,7 @@ from redis_release.state_manager import (
     S3StateStorage,
     StateManager,
 )
+from redis_release.state_slack import init_slack_printer
 
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
@@ -112,6 +112,16 @@ def release(
         "--override-state-name",
         help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
     ),
+    slack_token: Optional[str] = typer.Option(
+        None,
+        "--slack-token",
+        help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
+    ),
+    slack_channel_id: Optional[str] = typer.Option(
+        None,
+        "--slack-channel-id",
+        help="Slack channel ID to post status updates to",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging()
@@ -125,6 +135,8 @@ def release(
         only_packages=only_packages or [],
         force_release_type=force_release_type,
         override_state_name=override_state_name,
+        slack_token=slack_token,
+        slack_channel_id=slack_channel_id,
     )
 
     # Use context manager version with automatic lock management
@@ -138,8 +150,19 @@ def status(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
+    slack: bool = typer.Option(False, "--slack", help="Post status to Slack"),
+    slack_channel_id: Optional[str] = typer.Option(
+        None,
+        "--slack-channel-id",
+        help="Slack channel ID to post to (required if --slack is used)",
+    ),
+    slack_token: Optional[str] = typer.Option(
+        None,
+        "--slack-token",
+        help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
+    ),
 ) -> None:
-    """Run release using behaviour tree implementation."""
+    """Display release status in console and optionally post to Slack."""
     setup_logging()
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
@@ -156,7 +179,13 @@ def status(
         args=args,
         read_only=True,
     ) as state_syncer:
+        # Always print to console
         print_state_table(state_syncer.state)
+
+        # Post to Slack if requested
+        if slack:
+            printer = init_slack_printer(slack_token, slack_channel_id)
+            printer.update_message(state_syncer.state)
 
 
 if __name__ == "__main__":
