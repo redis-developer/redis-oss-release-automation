@@ -8,8 +8,8 @@ from typing import List, Optional
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.bht.state import print_state_table
 from redis_release.models import ReleaseType
+from redis_release.state_display import print_state_table
 from redis_release.state_manager import (
     InMemoryStateStorage,
     S3StateStorage,

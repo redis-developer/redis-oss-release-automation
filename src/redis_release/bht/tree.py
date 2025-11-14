@@ -21,6 +21,7 @@ from rich.text import Text
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
 from ..models import ReleaseArgs
+from ..state_display import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from .backchain import latch_chains
 from .behaviours import NeedToPublishRelease
@@ -43,14 +44,7 @@ from .ppas import (
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
 )
-from .state import (
-    Package,
-    PackageMeta,
-    ReleaseMeta,
-    ReleaseState,
-    Workflow,
-    print_state_table,
-)
+from .state import Package, PackageMeta, ReleaseMeta, ReleaseState, Workflow
 
 logger = logging.getLogger(__name__)
 

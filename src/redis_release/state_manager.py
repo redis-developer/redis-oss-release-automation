@@ -11,8 +11,9 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from rich.pretty import pretty_repr
 
-from redis_release.bht.state import ReleaseState, logger, print_state_table
+from redis_release.bht.state import ReleaseState, logger
 from redis_release.config import Config
+from redis_release.state_display import print_state_table
 
 from .bht.state import ReleaseState
 from .models import ReleaseArgs
