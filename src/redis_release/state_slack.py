@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from slack_sdk import WebClient
@@ -13,6 +14,21 @@ from redis_release.state_display import DisplayModel, StepStatus
 from .bht.state import Package, ReleaseState, Workflow
 
 logger = logging.getLogger(__name__)
+
+
+def get_workflow_link(repo: str, run_id: Optional[int]) -> Optional[str]:
+    """Generate GitHub workflow URL from repo and run_id.
+
+    Args:
+        repo: Repository in format "owner/repo"
+        run_id: GitHub workflow run ID
+
+    Returns:
+        GitHub workflow URL or None if run_id is not available
+    """
+    if not run_id or not repo:
+        return None
+    return f"https://github.com/{repo}/actions/runs/{run_id}"
 
 
 def init_slack_printer(
@@ -57,6 +73,7 @@ class SlackStatePrinter:
         self.channel_id = slack_channel_id
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
+        self.started_at = datetime.now(timezone.utc)
 
     def update_message(self, state: ReleaseState) -> bool:
         """Post or update Slack message with release state.
@@ -131,15 +148,33 @@ class SlackStatePrinter:
             }
         )
 
-        # Legend
+        # Show started date (when SlackStatePrinter was created)
+        started_str = self.started_at.strftime("%Y-%m-%d %H:%M:%S %Z")
         blocks.append(
             {
                 "type": "context",
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "*Legend:* ✅ Success  •  ❌ Failed  •  ⏳ In progress  •  ⚪ Not started",
+                        "text": f"*Started:* {started_str}",
                     }
+                ],
+            }
+        )
+
+        # Legend with two columns
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "✅ Success\n❌ Failed",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": "⏳ In progress\n⚪ Not started",
+                    },
                 ],
             }
         )
@@ -172,14 +207,32 @@ class SlackStatePrinter:
             if build_details or publish_details:
                 elements = []
                 if build_details:
+                    # Create link for Build Workflow if run_id exists
+                    build_link = get_workflow_link(
+                        package.meta.repo, package.build.run_id
+                    )
+                    build_title = (
+                        f"<{build_link}|*Build Workflow*>"
+                        if build_link
+                        else "*Build Workflow*"
+                    )
                     elements.append(
-                        {"type": "mrkdwn", "text": f"*Build Workflow*\n{build_details}"}
+                        {"type": "mrkdwn", "text": f"{build_title}\n{build_details}"}
                     )
                 if publish_details:
+                    # Create link for Publish Workflow if run_id exists
+                    publish_link = get_workflow_link(
+                        package.meta.repo, package.publish.run_id
+                    )
+                    publish_title = (
+                        f"<{publish_link}|*Publish Workflow*>"
+                        if publish_link
+                        else "*Publish Workflow*"
+                    )
                     elements.append(
                         {
                             "type": "mrkdwn",
-                            "text": f"*Publish Workflow*\n{publish_details}",
+                            "text": f"{publish_title}\n{publish_details}",
                         }
                     )
                 blocks.append({"type": "context", "elements": elements})
