@@ -481,6 +481,7 @@ class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
                     self.feedback_message = (
                         f"Timed out: {elapsed:.1f}s of {self.timeout_seconds}s"
                     )
+                    self.workflow.ephemeral.wait_for_completion_timed_out = True
                     return Status.FAILURE
 
             # Switch to sleep task

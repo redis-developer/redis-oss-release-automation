@@ -346,8 +346,10 @@ class RestartPackageGuarded(ConditionGuard):
 
         super().__init__(
             name,
+            # Don't restart if we already triggered the workflow or if ref is not set or workflow has timed out
             condition=lambda: workflow.ephemeral.trigger_workflow is not None
-            or package.meta.ref is None,
+            or package.meta.ref is None
+            or workflow.ephemeral.wait_for_completion_timed_out is True,
             child=reset_package_state_running,
             guard_status=Status.FAILURE,
             log_prefix=log_prefix,
@@ -383,8 +385,10 @@ class RestartWorkflowGuarded(ConditionGuard):
 
         super().__init__(
             name,
+            # Don't restart if we already triggered the workflow or if ref is not set or workflow has timed out
             condition=lambda: workflow.ephemeral.trigger_workflow is not None
-            or package_meta.ref is None,
+            or package_meta.ref is None
+            or workflow.ephemeral.wait_for_completion_timed_out is True,
             child=reset_workflow_state_running,
             guard_status=Status.FAILURE,
             log_prefix=log_prefix,

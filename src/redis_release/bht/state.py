@@ -77,6 +77,7 @@ class WorkflowEphemeral(BaseModel):
     trigger_workflow: Optional[common.Status] = None
     wait_for_completion: Optional[common.Status] = None
     wait_for_completion_message: Optional[str] = None
+    wait_for_completion_timed_out: Optional[bool] = False
     download_artifacts: Optional[common.Status] = None
     extract_artifact_result: Optional[common.Status] = None
 
