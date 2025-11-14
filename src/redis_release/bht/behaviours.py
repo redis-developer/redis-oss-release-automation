@@ -264,7 +264,6 @@ class TriggerWorkflow(ReleaseAction):
             return
         self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
-        self.workflow.ephemeral.trigger_attempted = True
         if self.log_once(
             "workflow_trigger_start", self.workflow.ephemeral.log_once_flags
         ):
@@ -366,7 +365,7 @@ class IdentifyWorkflowByUUID(ReleaseAction):
             return self.log_exception_and_return_failure(e)
 
 
-class UpdateWorkflowStatus(ReleaseAction):
+class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
     def __init__(
         self,
         name: str,
@@ -374,13 +373,32 @@ class UpdateWorkflowStatus(ReleaseAction):
         github_client: GitHubClientAsync,
         package_meta: PackageMeta,
         log_prefix: str = "",
+        timeout_seconds: int = 0,
+        cutoff: int = 0,
+        poll_interval: int = 3,
     ) -> None:
         self.github_client = github_client
         self.workflow = workflow
         self.package_meta = package_meta
+        self.timeout_seconds = timeout_seconds
+        self.cutoff = cutoff
+        self.interval = poll_interval
+        self.start_time: Optional[float] = None
+        self.tick_count: int = 0
+        self.is_sleeping: bool = False
         super().__init__(name=name, log_prefix=log_prefix)
 
     def initialise(self) -> None:
+        self.logger.debug(
+            f"Initialise: timeout: {self.timeout_seconds}, cutoff: {self.cutoff}, interval: {self.interval}"
+        )
+        self.start_time = asyncio.get_event_loop().time()
+        self.is_sleeping = False
+        self.tick_count = 0
+        self.feedback_message = ""
+        self._initialise_status_task()
+
+    def _initialise_status_task(self) -> None:
         if self.workflow.run_id is None:
             self.logger.error(
                 "[red]Workflow run_id is None - cannot check completion[/red]"
@@ -398,6 +416,11 @@ class UpdateWorkflowStatus(ReleaseAction):
                 self.package_meta.repo, self.workflow.run_id
             )
         )
+        self.is_sleeping = False
+
+    def _initialise_sleep_task(self) -> None:
+        self.task = asyncio.create_task(asyncio.sleep(self.interval))
+        self.is_sleeping = True
 
     def update(self) -> Status:
         try:
@@ -406,7 +429,15 @@ class UpdateWorkflowStatus(ReleaseAction):
             if not self.task.done():
                 return Status.RUNNING
 
+            # If we just finished sleeping, switch back to status request
+            if self.is_sleeping:
+                self._initialise_status_task()
+                return Status.RUNNING
+
+            # We just finished a status request
             result = self.task.result()
+            self.tick_count += 1
+
             if self.log_once(
                 "workflow_status_current", self.workflow.ephemeral.log_once_flags
             ):
@@ -426,9 +457,46 @@ class UpdateWorkflowStatus(ReleaseAction):
             self.feedback_message = (
                 f" {self.workflow.status}, {self.workflow.conclusion}"
             )
-            return Status.SUCCESS
+
+            if self.workflow.conclusion is not None:
+                if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
+                    return Status.SUCCESS
+                self.feedback_message = f"Workflow failed"
+                return Status.FAILURE
+
+            # Check cutoff (0 means no limit)
+            if self.cutoff > 0 and self.tick_count >= self.cutoff:
+                self.logger.debug(f"Cutoff reached: {self.tick_count} ticks")
+                self.feedback_message = f"Cutoff reached: {self.tick_count}"
+                return Status.FAILURE
+
+            # Check timeout (0 means no limit)
+            if self.timeout_seconds > 0 and self.start_time is not None:
+                elapsed = asyncio.get_event_loop().time() - self.start_time
+                self.feedback_message = (
+                    f"{self.feedback_message}, elapsed: {elapsed:.1f}s"
+                )
+                if elapsed >= self.timeout_seconds:
+                    self.logger.debug(f"Timeout reached: {elapsed:.1f}s")
+                    self.feedback_message = (
+                        f"Timed out: {elapsed:.1f}s of {self.timeout_seconds}s"
+                    )
+                    return Status.FAILURE
+
+            # Switch to sleep task
+            self._initialise_sleep_task()
+            return Status.RUNNING
+
         except Exception as e:
             return self.log_exception_and_return_failure(e)
+
+    def terminate(self, new_status: Status) -> None:
+        """Cancel the current task if it's running."""
+        if self.task is not None and not self.task.done():
+            self.task.cancel()
+            self.logger.debug(
+                f"Cancelled task during terminate with status: {new_status}"
+            )
 
 
 class Sleep(LoggingAction):

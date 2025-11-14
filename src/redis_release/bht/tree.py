@@ -248,7 +248,7 @@ def create_build_workflow_tree_branch(
     assert isinstance(build_workflow, Selector)
 
     reset_package_state = RestartPackageGuarded(
-        "",
+        "BuildRestartCondition",
         package,
         package.build,
         default_package,
@@ -296,7 +296,7 @@ def create_publish_workflow_tree_branch(
         ),
     )
     reset_publish_workflow_state = RestartWorkflowGuarded(
-        "",
+        "PublishRestartCondition",
         publish_workflow,
         package_meta,
         default_publish_workflow,

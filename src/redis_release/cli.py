@@ -140,7 +140,7 @@ def status(
     ),
 ) -> None:
     """Run release using behaviour tree implementation."""
-    setup_logging(logging.INFO)
+    setup_logging()
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 

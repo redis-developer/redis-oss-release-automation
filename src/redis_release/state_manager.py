@@ -247,7 +247,7 @@ class StateManager:
         if state_data is None:
             return None
 
-        state = ReleaseState(**state_data)
+        state = ReleaseState.from_json(state_data)
 
         # Reset ephemeral fields to defaults if not in read-only mode
         if not self.read_only:

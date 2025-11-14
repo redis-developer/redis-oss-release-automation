@@ -1,9 +1,12 @@
 import json
 import logging
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from py_trees import common
+from py_trees.common import Status
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.table import Table
@@ -20,15 +23,20 @@ from ..config import Config
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_STATE_VERSION = 2
+
 
 class WorkflowEphemeral(BaseModel):
     """Ephemeral workflow state. Reset on each run.
 
+    The main purpose of ephemeral fields is to prevent retry loops and to allow extensive status reporting.
+
     Each workflow step has a pair of fields indicating the step status:
-    One ephemeral field is set when the step is attempted. It may have three states:
+    One ephemeral field is set when the step is attempted. It may have four states:
     - `None` (default): Step has not been attempted
-    - `True`: Step has been attempted and failed
-    - `False`: Step has been attempted and succeeded
+    - `common.Status.RUNNING`: Step is currently running
+    - `common.Status.FAILURE`: Step has been attempted and failed
+    - `common.Status.SUCCESS`: Step has been attempted and succeeded
 
     Ephemeral fields are reset on each run. Their values are persisted but only until
     next run is started.
@@ -36,9 +44,13 @@ class WorkflowEphemeral(BaseModel):
 
     The other field indicates the step result, it may either have some value or be empty.
 
-    For example for trigger step we have `trigger_failed` ephemeral
+    For example for trigger step we have `trigger_workflow` ephemeral
     and `triggered_at` result fields.
 
+    Optional message field may be used to provide additional information about the step.
+    For example wait_for_completion_message may contain information about timeout.
+
+    Given combination of ephemeral and result fields we can determine step status.
     Each step may be in one of the following states:
         Not started
         Failed
@@ -46,21 +58,31 @@ class WorkflowEphemeral(BaseModel):
         Incorrect (this shouln't happen)
 
     The following decision table show how step status is determined for trigger step.
-    In general this logic is used to display release state table.
+    In general this is applicable to all steps.
 
-    tigger_failed -> | None (default) |   True    |   False   |
-    triggered_at:    |                |           |           |
-       None          |   Not started  |   Failed  | Incorrect |
-      Has value      |       OK       | Incorrect |     OK    |
+    tigger_workflow -> | None (default) |     Running    |   Failure   |  Success   |
+    triggered_at:      |                |                |             |            |
+       None            |   Not started  |   In progress  |    Failed   |  Incorrect |
+      Has value        |       OK       |    Incorrect   |  Incorrect  |     OK     |
 
+    The result field (triggered_at in this case) should not be set while step is
+    running, if step was not started or if it's failed.
+    And it should be set if trigger_workflow is successful.
+    It may be set if trigger_workflow is None, which is the case when release
+    process was restarted and all ephemeral fields are reset, but the particular
+    step was successful in previous run.
+
+    Correct values are not eforced it's up to the implementation to correctly
+    set the fields.
     """
 
-    trigger_failed: Optional[bool] = None
-    trigger_attempted: Optional[bool] = None
-    identify_failed: Optional[bool] = None
-    timed_out: Optional[bool] = None
-    artifacts_download_failed: Optional[bool] = None
-    extract_result_failed: Optional[bool] = None
+    identify_workflow: Optional[common.Status] = None
+    trigger_workflow: Optional[common.Status] = None
+    wait_for_completion: Optional[common.Status] = None
+    wait_for_completion_message: Optional[str] = None
+    download_artifacts: Optional[common.Status] = None
+    extract_artifact_result: Optional[common.Status] = None
+
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
@@ -89,6 +111,7 @@ class PackageMetaEphemeral(BaseModel):
 
     force_rebuild: bool = False
     identify_ref_failed: bool = False
+    identify_ref: Optional[common.Status] = None
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
@@ -130,6 +153,7 @@ class ReleaseMeta(BaseModel):
 class ReleaseState(BaseModel):
     """Release state adapted for behavior tree usage."""
 
+    version: int = 2
     meta: ReleaseMeta = Field(default_factory=ReleaseMeta)
     packages: Dict[str, Package] = Field(default_factory=dict)
 
@@ -209,6 +233,11 @@ class ReleaseState(BaseModel):
         else:
             json_data = data
 
+        if json_data.get("version") != SUPPORTED_STATE_VERSION:
+            raise ValueError(
+                f"Unsupported state version: {json_data.get('version')}, "
+                f"expected: {SUPPORTED_STATE_VERSION}"
+            )
         return cls(**json_data)
 
 
@@ -252,24 +281,25 @@ def print_state_table(state: ReleaseState, console: Optional[Console] = None) ->
     table = Table(
         title=f"[bold cyan]Release State: {state.meta.tag or 'N/A'}[/bold cyan]",
         show_header=True,
+        show_lines=True,
         header_style="bold magenta",
         border_style="bright_blue",
         title_style="bold cyan",
     )
 
     # Add columns
-    table.add_column("Package", style="cyan", no_wrap=True, width=20)
-    table.add_column("Build", justify="center", width=15)
-    table.add_column("Publish", justify="center", width=15)
-    table.add_column("Details", style="yellow", width=40)
+    table.add_column("Package", style="cyan", no_wrap=True, min_width=20, width=20)
+    table.add_column("Build", justify="center", no_wrap=True, min_width=20, width=20)
+    table.add_column("Publish", justify="center", no_wrap=True, min_width=20, width=20)
+    table.add_column("Details", style="yellow", width=100)
 
     # Process each package
     for package_name, package in sorted(state.packages.items()):
         # Determine build status
-        build_status = _get_workflow_status_display(package.build)
+        build_status = _get_workflow_status_display(package, package.build)
 
         # Determine publish status
-        publish_status = _get_workflow_status_display(package.publish)
+        publish_status = _get_workflow_status_display(package, package.publish)
 
         # Collect details from workflows
         details = _collect_details(package)
@@ -288,28 +318,119 @@ def print_state_table(state: ReleaseState, console: Optional[Console] = None) ->
     console.print()
 
 
-def _get_workflow_status_display(workflow: Workflow) -> str:
+class StepStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    RUNNING = "in_progress"
+    FAILED = "failed"
+    SUCCEEDED = "succeeded"
+    INCORRECT = "incorrect"
+
+
+# Decision table for step status
+# See WorkflowEphemeral for more details on the flags
+_step_status_mapping = {
+    None: {False: StepStatus.NOT_STARTED, True: StepStatus.SUCCEEDED},
+    Status.RUNNING: {False: StepStatus.RUNNING},
+    Status.FAILURE: {False: StepStatus.FAILED},
+    Status.SUCCESS: {True: StepStatus.SUCCEEDED},
+}
+
+
+def _get_step_status(
+    step_result: bool, step_status_flag: Optional[common.Status]
+) -> StepStatus:
+    """Get step status based on result and ephemeral flag.
+
+    See WorkflowEphemeral for more details on the flags.
+    """
+    if step_status_flag in _step_status_mapping:
+        if step_result in _step_status_mapping[step_status_flag]:
+            return _step_status_mapping[step_status_flag][step_result]
+    return StepStatus.INCORRECT
+
+
+def _get_workflow_status(
+    package: Package, workflow: Workflow
+) -> tuple[StepStatus, List[tuple[StepStatus, str, Optional[str]]]]:
+    """Get workflow status based on ephemeral and result fields.
+
+    Returns tuple of overall status and list of step statuses.
+
+    See WorkflowEphemeral for more details on the flags.
+    """
+    steps_status: List[tuple[StepStatus, str, Optional[str]]] = []
+    steps = [
+        (
+            package.meta.ref is not None,
+            package.meta.ephemeral.identify_ref,
+            "Identify target ref",
+            None,
+        ),
+        (
+            workflow.triggered_at is not None,
+            workflow.ephemeral.trigger_workflow,
+            "Trigger workflow",
+            None,
+        ),
+        (
+            workflow.run_id is not None,
+            workflow.ephemeral.identify_workflow,
+            "Find workflow run",
+            None,
+        ),
+        (
+            workflow.conclusion == WorkflowConclusion.SUCCESS,
+            workflow.ephemeral.wait_for_completion,
+            "Wait for completion",
+            workflow.ephemeral.wait_for_completion_message,
+        ),
+        (
+            workflow.artifacts is not None,
+            workflow.ephemeral.download_artifacts,
+            "Download artifacts",
+            None,
+        ),
+        (
+            workflow.result is not None,
+            workflow.ephemeral.extract_artifact_result,
+            "Get result",
+            None,
+        ),
+    ]
+    for result, status_flag, name, status_msg in steps:
+        s = _get_step_status(result, status_flag)
+        steps_status.append((s, name, status_msg))
+        if s != StepStatus.SUCCEEDED:
+            return (s, steps_status)
+    return (StepStatus.SUCCEEDED, steps_status)
+
+
+def _get_workflow_status_display(package: Package, workflow: Workflow) -> str:
     """Get a rich-formatted status display for a workflow.
 
     Args:
+        package: The package containing the workflow
         workflow: The workflow to check
 
     Returns:
         Rich-formatted status string
     """
-    # Check result field - if we have result, we succeeded
-    if workflow.result is not None:
+    workflow_status = _get_workflow_status(package, workflow)
+    if workflow_status[0] == StepStatus.SUCCEEDED:
         return "[bold green]✓ Success[/bold green]"
+    elif workflow_status[0] == StepStatus.RUNNING:
+        return "[bold yellow]⏳ In Progress[/bold yellow]"
+    elif workflow_status[0] == StepStatus.NOT_STARTED:
+        return "[dim]Not Started[/dim]"
+    elif workflow_status[0] == StepStatus.INCORRECT:
+        return "[bold red]✗ Invalid state![/bold red]"
 
-    # Check if workflow was triggered
-    if workflow.triggered_at is None:
-        return "[dim]− Not Started[/dim]"
-
-    # Workflow was triggered but no result - it failed
     return "[bold red]✗ Failed[/bold red]"
 
 
-def _collect_workflow_details(workflow: Workflow, prefix: str) -> List[str]:
+def _collect_workflow_details(
+    package: Package, workflow: Workflow, prefix: str
+) -> List[str]:
     """Collect details from a workflow using bottom-up approach.
 
     Shows successes until the first failure, then stops.
@@ -324,70 +445,24 @@ def _collect_workflow_details(workflow: Workflow, prefix: str) -> List[str]:
     """
     details: List[str] = []
 
-    # Stage 1: Trigger (earliest/bottom)
-    if workflow.ephemeral.trigger_failed or workflow.triggered_at is None:
-        details.append(f"[red]✗ Trigger {prefix} workflow failed[/red]")
-        return details
-    else:
-        details.append(f"[green]✓ {prefix} workflow triggered[/green]")
-
-    # Stage 2: Identify
-    if workflow.ephemeral.identify_failed or workflow.run_id is None:
-        details.append(f"[red]✗ {prefix} workflow not found[/red]")
-        return details
-    else:
-        details.append(f"[green]✓ {prefix} workflow found[/green]")
-
-    # Stage 3: Timeout (only ephemeral)
-    if workflow.ephemeral.timed_out:
-        details.append(f"[yellow]⏱ {prefix} timed out[/yellow]")
+    workflow_status = _get_workflow_status(package, workflow)
+    if workflow_status[0] == StepStatus.NOT_STARTED:
         return details
 
-    # Stage 4: Workflow conclusion
-    if workflow.conclusion == WorkflowConclusion.FAILURE:
-        details.append(f"[red]✗ {prefix} workflow failed[/red]")
-        return details
+    details.append(f"{prefix} Workflow")
+    indent = " " * 2
 
-    # Stage 5: Artifacts download
-    if workflow.ephemeral.artifacts_download_failed or workflow.artifacts is None:
-        details.append(f"[red]✗ {prefix} artifacts download failed[/red]")
-        return details
-    else:
-        details.append(f"[green]✓ {prefix} artifacts downloaded[/green]")
-
-    # Stage 6: Result extraction (latest/top)
-    if workflow.result is None or workflow.ephemeral.extract_result_failed:
-        details.append(f"[red]✗ {prefix} failed to extract result[/red]")
-        return details
-    else:
-        details.append(f"[green]✓ {prefix} result extracted[/green]")
-
-    # Check for other workflow states
-    if workflow.status == WorkflowStatus.IN_PROGRESS:
-        details.append(f"[blue]⟳ {prefix} in progress[/blue]")
-    elif workflow.status == WorkflowStatus.QUEUED:
-        details.append(f"[cyan]⋯ {prefix} queued[/cyan]")
-    elif workflow.status == WorkflowStatus.PENDING:
-        details.append(f"[dim]○ {prefix} pending[/dim]")
-
-    return details
-
-
-def _collect_package_details(package: Package) -> List[str]:
-    """Collect details from package metadata.
-
-    Args:
-        package: The package to check
-
-    Returns:
-        List of detail strings (may be empty)
-    """
-    details: List[str] = []
-
-    if package.meta.ephemeral.identify_ref_failed:
-        details.append("[red]✗ Identify target ref to run workflow failed[/red]")
-    elif package.meta.ref is not None:
-        details.append(f"[green]✓ Target Ref identified: {package.meta.ref}[/green]")
+    for step_status, step_name, step_message in workflow_status[1]:
+        if step_status == StepStatus.SUCCEEDED:
+            details.append(f"{indent}[green]✓ {step_name}[/green]")
+        elif step_status == StepStatus.RUNNING:
+            details.append(f"{indent}[yellow]⏳ {step_name}[/yellow]")
+        elif step_status == StepStatus.NOT_STARTED:
+            details.append(f"{indent}[dim]Not started: {step_name}[/dim]")
+        else:
+            msg = f" ({step_message})" if step_message else ""
+            details.append(f"{indent}[red]✗ {step_name} failed[/red]{msg}")
+            break
 
     return details
 
@@ -403,14 +478,7 @@ def _collect_details(package: Package) -> str:
     """
     details: List[str] = []
 
-    # Collect package-level details
-    details.extend(_collect_package_details(package))
-
-    # Collect build workflow details
-    details.extend(_collect_workflow_details(package.build, "Build"))
-
-    # Only collect publish details if build succeeded (has result)
-    if package.build.result is not None:
-        details.extend(_collect_workflow_details(package.publish, "Publish"))
+    details.extend(_collect_workflow_details(package, package.build, "Build"))
+    details.extend(_collect_workflow_details(package, package.publish, "Publish"))
 
     return "\n".join(details)
