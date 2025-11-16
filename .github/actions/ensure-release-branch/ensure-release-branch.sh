@@ -22,11 +22,17 @@ SCRIPT_DIR="$(dirname -- "$( readlink -f -- "$0"; )")"
 # Parse arguments
 ALLOW_MODIFY=""
 TAG=""
+RELEASE_BRANCH=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --allow-modify)
             ALLOW_MODIFY=1
+            shift
+            ;;
+        --release-branch)
+            RELEASE_BRANCH="$2"
+            shift
             shift
             ;;
         -*)
@@ -47,7 +53,7 @@ done
 
 if [ -z "$TAG" ]; then
     echo "Error: TAG is required as argument"
-    echo "Usage: $0 [--allow-modify] <TAG>"
+    echo "Usage: $0 [--allow-modify] [--release-branch BRANCH] <TAG>"
     exit 1
 fi
 
@@ -59,8 +65,11 @@ echo "release_version_branch=$RELEASE_VERSION_BRANCH" >> "$GITHUB_OUTPUT"
 echo "TAG: $TAG"
 echo "RELEASE_VERSION_BRANCH: $RELEASE_VERSION_BRANCH"
 
-# Detect RELEASE_BRANCH name (release/X.Y format)
-RELEASE_BRANCH="release/$(echo "$TAG" | grep -Po '^\d+\.\d+')"
+if [ -z "$RELEASE_BRANCH" ]; then
+    # Detect RELEASE_BRANCH name (release/X.Y format)
+    RELEASE_BRANCH="release/$(echo "$TAG" | grep -Po '^\d+\.\d+')"
+fi
+
 echo "RELEASE_BRANCH: $RELEASE_BRANCH"
 echo "release_branch=$RELEASE_BRANCH" >> "$GITHUB_OUTPUT"
 
