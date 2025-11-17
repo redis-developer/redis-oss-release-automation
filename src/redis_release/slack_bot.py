@@ -183,7 +183,7 @@ class ReleaseStatusBot:
                 state = state_syncer.state
 
                 # Check if state exists (has any data beyond defaults)
-                if not state.packages:
+                if not state.meta.last_started_at:
                     if self.reply_in_thread:
                         await self.app.client.chat_postMessage(
                             channel=channel,

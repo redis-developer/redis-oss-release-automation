@@ -90,7 +90,6 @@ class Workflow(BaseModel):
     inputs: Dict[str, str] = Field(default_factory=dict)
     uuid: Optional[str] = None
     triggered_at: Optional[datetime] = None
-    started_at: Optional[datetime] = None
     run_id: Optional[int] = None
     url: Optional[str] = None
     timeout_minutes: int = 45
@@ -145,6 +144,7 @@ class ReleaseMeta(BaseModel):
 
     tag: Optional[str] = None
     release_type: Optional[ReleaseType] = None
+    last_started_at: Optional[datetime] = None
     ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
 
 

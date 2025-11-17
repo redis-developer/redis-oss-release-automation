@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Iterator, List, Optional, Set, Tuple, Union
 
 from py_trees.behaviour import Behaviour
@@ -117,6 +118,9 @@ def initialize_tree_and_state(
             args.only_packages,
         )
         tree = BehaviourTree(root)
+
+        if not read_only:
+            state_syncer.state.meta.last_started_at = datetime.now(tz=timezone.utc)
 
         # Add snapshot visitor to track visited nodes
         snapshot_visitor = SnapshotVisitor()
