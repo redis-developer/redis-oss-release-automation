@@ -74,11 +74,11 @@ class S3Backed:
                         region_name=self.aws_region,
                     )
                 else:
-                    logger.error("AWS credentials not found")
-                    logger.warning(
-                        "Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables"
+                    # Fall back to default credential chain (includes EC2 instance profile, ECS task role, etc.)
+                    logger.info(
+                        "Using AWS default credential chain (EC2 instance profile, ECS task role, etc.)"
                     )
-                    raise NoCredentialsError()
+                    self._s3_client = boto3.client("s3", region_name=self.aws_region)
 
                 # Test connection
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
@@ -92,6 +92,11 @@ class S3Backed:
                     logger.error(f"S3 error: {e}")
                     raise
             except NoCredentialsError:
+                logger.error("AWS credentials not found")
+                logger.warning(
+                    "Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables, "
+                    "or run on EC2 instance with IAM role"
+                )
                 raise
             except Exception as e:
                 logger.error(f"AWS authentication error: {e}")
