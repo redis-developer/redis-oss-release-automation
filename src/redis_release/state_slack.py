@@ -75,6 +75,26 @@ class SlackStatePrinter:
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
 
+    def format_package_name(self, package_name: str, state: ReleaseState) -> str:
+        """Format package name with capital letter and release type.
+
+        Args:
+            package_name: The raw package name
+            state: The ReleaseState to get release type from
+
+        Returns:
+            Formatted package name with capital letter and release type in parentheses
+        """
+        # Capitalize first letter of package name
+        formatted = package_name.capitalize()
+
+        # Add release type if available
+        if state.meta.release_type:
+            release_type_str = state.meta.release_type.value
+            formatted = f"{formatted} ({release_type_str})"
+
+        return formatted
+
     def update_message(self, state: ReleaseState) -> bool:
         """Post or update Slack message with release state.
 
@@ -148,19 +168,20 @@ class SlackStatePrinter:
             }
         )
 
-        # Show started date (when SlackStatePrinter was created)
-        started_str = self.started_at.strftime("%Y-%m-%d %H:%M:%S %Z")
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Started:* {started_str}",
-                    }
-                ],
-            }
-        )
+        # Show started date from state.meta.last_started_at if available
+        if state.meta.last_started_at:
+            started_str = state.meta.last_started_at.strftime("%Y-%m-%d %H:%M:%S %Z")
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Started:* {started_str}",
+                        }
+                    ],
+                }
+            )
 
         # Legend with two columns
         blocks.append(
@@ -183,6 +204,9 @@ class SlackStatePrinter:
 
         # Process each package
         for package_name, package in sorted(state.packages.items()):
+            # Format package name with capital letter and release type
+            formatted_name = self.format_package_name(package_name, state)
+
             # Get workflow statuses
             build_status_emoji = self._get_status_emoji(package, package.build)
             publish_status_emoji = self._get_status_emoji(package, package.publish)
@@ -193,7 +217,7 @@ class SlackStatePrinter:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{package_name}*\n*Build:* {build_status_emoji}   |   *Publish:* {publish_status_emoji}",
+                        "text": f"*{formatted_name}*\n*Build:* {build_status_emoji}   |   *Publish:* {publish_status_emoji}",
                     },
                 }
             )
