@@ -4,10 +4,11 @@ import asyncio
 import logging
 import os
 import re
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
+from slack_bolt.context.say.async_say import AsyncSay
 
 from redis_release.config import Config, load_config
 from redis_release.models import ReleaseArgs
@@ -71,7 +72,9 @@ class ReleaseStatusBot:
         """Register Slack event handlers."""
 
         @self.app.event("app_mention")
-        async def handle_app_mention(event, say, logger) -> None:
+        async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
+            event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
+        ) -> None:
             """Handle app mentions and check for status requests."""
             try:
                 text = event.get("text", "").lower()
@@ -81,6 +84,13 @@ class ReleaseStatusBot:
                 thread_ts = event.get(
                     "thread_ts", ts
                 )  # Use thread_ts if in thread, else use message ts
+
+                # Validate required fields
+                if not channel or not user or not thread_ts:
+                    logger.error(
+                        f"Missing required fields in event: channel={channel}, user={user}, thread_ts={thread_ts}"
+                    )
+                    return
 
                 logger.info(
                     f"Received mention from user {user} in channel {channel}: {text}"
@@ -118,10 +128,11 @@ class ReleaseStatusBot:
             except Exception as e:
                 logger.error(f"Error handling app mention: {e}", exc_info=True)
                 # Reply in thread if configured
-                if self.reply_in_thread:
+                channel = event.get("channel")
+                if self.reply_in_thread and channel:
                     await self.app.client.chat_postMessage(
-                        channel=event.get("channel"),
-                        thread_ts=event.get("thread_ts", event.get("ts")),
+                        channel=channel,
+                        thread_ts=event.get("thread_ts", event.get("ts", "")),
                         text=f"Sorry, I encountered an error: {str(e)}",
                     )
                 else:
