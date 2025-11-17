@@ -31,6 +31,7 @@ dependencies = [
     "py_trees>=2.2,<3.0",
     "pyyaml>=6.0.3",
     "slack-sdk>=3.38.0",
+    "slack-bolt>=1.27.0",
 ]
 
 [project.optional-dependencies]

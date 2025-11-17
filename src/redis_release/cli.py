@@ -188,5 +188,58 @@ def status(
             printer.update_message(state_syncer.state)
 
 
+@app.command()
+def slack_bot(
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    slack_bot_token: Optional[str] = typer.Option(
+        None,
+        "--slack-bot-token",
+        help="Slack bot token (xoxb-...). If not provided, uses SLACK_BOT_TOKEN env var",
+    ),
+    slack_app_token: Optional[str] = typer.Option(
+        None,
+        "--slack-app-token",
+        help="Slack app token (xapp-...). If not provided, uses SLACK_APP_TOKEN env var",
+    ),
+    reply_in_thread: bool = typer.Option(
+        True,
+        "--reply-in-thread/--no-reply-in-thread",
+        help="Reply in thread instead of main channel",
+    ),
+    broadcast_to_channel: bool = typer.Option(
+        False,
+        "--broadcast/--no-broadcast",
+        help="When replying in thread, also show in main channel",
+    ),
+) -> None:
+    """Run Slack bot that listens for status requests.
+
+    The bot listens for mentions containing 'status' and a version tag (e.g., '8.4-m01'),
+    and responds by posting the release status to the channel.
+
+    By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
+    to post directly in the channel. Use --broadcast to show thread replies in the main channel.
+
+    Requires Socket Mode to be enabled in your Slack app configuration.
+    """
+    from redis_release.slack_bot import run_bot
+
+    setup_logging()
+    config_path = config_file or "config.yaml"
+
+    logger.info("Starting Slack bot...")
+    asyncio.run(
+        run_bot(
+            config_path,
+            slack_bot_token,
+            slack_app_token,
+            reply_in_thread,
+            broadcast_to_channel,
+        )
+    )
+
+
 if __name__ == "__main__":
     app()
