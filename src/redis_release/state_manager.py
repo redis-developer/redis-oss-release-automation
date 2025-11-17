@@ -11,8 +11,9 @@ import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from rich.pretty import pretty_repr
 
-from redis_release.bht.state import ReleaseState, logger, print_state_table
+from redis_release.bht.state import ReleaseState, logger
 from redis_release.config import Config
+from redis_release.state_display import print_state_table
 
 from .bht.state import ReleaseState
 from .models import ReleaseArgs
@@ -73,11 +74,11 @@ class S3Backed:
                         region_name=self.aws_region,
                     )
                 else:
-                    logger.error("AWS credentials not found")
-                    logger.warning(
-                        "Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables"
+                    # Fall back to default credential chain (includes EC2 instance profile, ECS task role, etc.)
+                    logger.info(
+                        "Using AWS default credential chain (EC2 instance profile, ECS task role, etc.)"
                     )
-                    raise NoCredentialsError()
+                    self._s3_client = boto3.client("s3", region_name=self.aws_region)
 
                 # Test connection
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
@@ -91,6 +92,11 @@ class S3Backed:
                     logger.error(f"S3 error: {e}")
                     raise
             except NoCredentialsError:
+                logger.error("AWS credentials not found")
+                logger.warning(
+                    "Set AWS_PROFILE or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables, "
+                    "or run on EC2 instance with IAM role"
+                )
                 raise
             except Exception as e:
                 logger.error(f"AWS authentication error: {e}")
@@ -247,9 +253,25 @@ class StateManager:
         if state_data is None:
             return None
 
-        state = ReleaseState(**state_data)
+        state = ReleaseState.from_json(state_data)
+
+        # Reset ephemeral fields to defaults if not in read-only mode
+        if not self.read_only:
+            self._reset_ephemeral_fields(state)
+
         self.last_dump = state.model_dump_json(indent=2)
         return state
+
+    def _reset_ephemeral_fields(self, state: ReleaseState) -> None:
+        """Reset ephemeral fields to defaults (except log_once_flags which are always reset)."""
+        # Reset release meta ephemeral
+        state.meta.ephemeral = state.meta.ephemeral.__class__()
+
+        # Reset package ephemeral fields
+        for package in state.packages.values():
+            package.meta.ephemeral = package.meta.ephemeral.__class__()
+            package.build.ephemeral = package.build.ephemeral.__class__()
+            package.publish.ephemeral = package.publish.ephemeral.__class__()
 
     def sync(self) -> None:
         """Save state to storage backend if changed since last sync."""

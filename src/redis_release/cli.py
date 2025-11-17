@@ -2,19 +2,19 @@
 
 import asyncio
 import logging
-import os
 from typing import List, Optional
 
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.bht.state import print_state_table
 from redis_release.models import ReleaseType
+from redis_release.state_display import print_state_table
 from redis_release.state_manager import (
     InMemoryStateStorage,
     S3StateStorage,
     StateManager,
 )
+from redis_release.state_slack import init_slack_printer
 
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
@@ -112,6 +112,16 @@ def release(
         "--override-state-name",
         help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
     ),
+    slack_token: Optional[str] = typer.Option(
+        None,
+        "--slack-token",
+        help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
+    ),
+    slack_channel_id: Optional[str] = typer.Option(
+        None,
+        "--slack-channel-id",
+        help="Slack channel ID to post status updates to",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging()
@@ -125,6 +135,8 @@ def release(
         only_packages=only_packages or [],
         force_release_type=force_release_type,
         override_state_name=override_state_name,
+        slack_token=slack_token,
+        slack_channel_id=slack_channel_id,
     )
 
     # Use context manager version with automatic lock management
@@ -138,9 +150,20 @@ def status(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
+    slack: bool = typer.Option(False, "--slack", help="Post status to Slack"),
+    slack_channel_id: Optional[str] = typer.Option(
+        None,
+        "--slack-channel-id",
+        help="Slack channel ID to post to (required if --slack is used)",
+    ),
+    slack_token: Optional[str] = typer.Option(
+        None,
+        "--slack-token",
+        help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
+    ),
 ) -> None:
-    """Run release using behaviour tree implementation."""
-    setup_logging(logging.INFO)
+    """Display release status in console and optionally post to Slack."""
+    setup_logging()
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -156,7 +179,66 @@ def status(
         args=args,
         read_only=True,
     ) as state_syncer:
+        # Always print to console
         print_state_table(state_syncer.state)
+
+        # Post to Slack if requested
+        if slack:
+            printer = init_slack_printer(slack_token, slack_channel_id)
+            printer.update_message(state_syncer.state)
+
+
+@app.command()
+def slack_bot(
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    slack_bot_token: Optional[str] = typer.Option(
+        None,
+        "--slack-bot-token",
+        help="Slack bot token (xoxb-...). If not provided, uses SLACK_BOT_TOKEN env var",
+    ),
+    slack_app_token: Optional[str] = typer.Option(
+        None,
+        "--slack-app-token",
+        help="Slack app token (xapp-...). If not provided, uses SLACK_APP_TOKEN env var",
+    ),
+    reply_in_thread: bool = typer.Option(
+        True,
+        "--reply-in-thread/--no-reply-in-thread",
+        help="Reply in thread instead of main channel",
+    ),
+    broadcast_to_channel: bool = typer.Option(
+        False,
+        "--broadcast/--no-broadcast",
+        help="When replying in thread, also show in main channel",
+    ),
+) -> None:
+    """Run Slack bot that listens for status requests.
+
+    The bot listens for mentions containing 'status' and a version tag (e.g., '8.4-m01'),
+    and responds by posting the release status to the channel.
+
+    By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
+    to post directly in the channel. Use --broadcast to show thread replies in the main channel.
+
+    Requires Socket Mode to be enabled in your Slack app configuration.
+    """
+    from redis_release.slack_bot import run_bot
+
+    setup_logging()
+    config_path = config_file or "config.yaml"
+
+    logger.info("Starting Slack bot...")
+    asyncio.run(
+        run_bot(
+            config_path,
+            slack_bot_token,
+            slack_app_token,
+            reply_in_thread,
+            broadcast_to_channel,
+        )
+    )
 
 
 if __name__ == "__main__":

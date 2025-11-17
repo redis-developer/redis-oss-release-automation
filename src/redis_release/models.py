@@ -161,3 +161,5 @@ class ReleaseArgs(BaseModel):
     only_packages: List[str] = Field(default_factory=list)
     force_release_type: Optional[ReleaseType] = None
     override_state_name: Optional[str] = None
+    slack_token: Optional[str] = None
+    slack_channel_id: Optional[str] = None

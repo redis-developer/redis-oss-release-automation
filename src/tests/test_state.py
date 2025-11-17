@@ -290,50 +290,59 @@ class TestWorkflowEphemeral:
         workflow = Workflow(workflow_file="test.yml")
 
         assert hasattr(workflow, "ephemeral")
-        assert workflow.ephemeral.trigger_failed is False
-        assert workflow.ephemeral.timed_out is False
+        assert workflow.ephemeral.trigger_workflow is None
+        assert workflow.ephemeral.wait_for_completion is None
 
     def test_ephemeral_field_can_be_modified(self) -> None:
         """Test that ephemeral field values can be modified."""
+        from py_trees.common import Status
+
         workflow = Workflow(workflow_file="test.yml")
 
-        workflow.ephemeral.trigger_failed = True
-        workflow.ephemeral.timed_out = True
+        workflow.ephemeral.trigger_workflow = Status.FAILURE
+        workflow.ephemeral.wait_for_completion = Status.RUNNING
 
-        assert workflow.ephemeral.trigger_failed is True
-        assert workflow.ephemeral.timed_out is True
+        assert workflow.ephemeral.trigger_workflow == Status.FAILURE
+        assert workflow.ephemeral.wait_for_completion == Status.RUNNING
 
     def test_ephemeral_field_not_serialized_to_json(self) -> None:
-        """Test that ephemeral field is excluded from JSON serialization."""
+        """Test that ephemeral field is serialized but log_once_flags are excluded."""
+        from py_trees.common import Status
+
         workflow = Workflow(workflow_file="test.yml")
-        workflow.ephemeral.trigger_failed = True
-        workflow.ephemeral.timed_out = True
+        workflow.ephemeral.trigger_workflow = Status.FAILURE
+        workflow.ephemeral.wait_for_completion = Status.SUCCESS
+        workflow.ephemeral.log_once_flags["test_flag"] = True
 
         # Serialize to JSON
         json_str = workflow.model_dump_json()
         json_data = json.loads(json_str)
 
-        # Verify ephemeral field is not in JSON
-        assert "ephemeral" not in json_data
-        assert "trigger_failed" not in json_data
-        assert "timed_out" not in json_data
+        # Verify ephemeral field IS in JSON (except log_once_flags)
+        assert "ephemeral" in json_data
+        assert json_data["ephemeral"]["trigger_workflow"] == "FAILURE"
+        assert json_data["ephemeral"]["wait_for_completion"] == "SUCCESS"
+        assert "log_once_flags" not in json_data["ephemeral"]
 
         # Verify other fields are present
         assert "workflow_file" in json_data
         assert json_data["workflow_file"] == "test.yml"
 
     def test_ephemeral_field_not_in_model_dump(self) -> None:
-        """Test that ephemeral field is excluded from model_dump."""
+        """Test that ephemeral field is in model_dump but log_once_flags are excluded."""
+        from py_trees.common import Status
+
         workflow = Workflow(workflow_file="test.yml")
-        workflow.ephemeral.trigger_failed = True
+        workflow.ephemeral.trigger_workflow = Status.SUCCESS
+        workflow.ephemeral.log_once_flags["test_flag"] = True
 
         # Get dict representation
         data = workflow.model_dump()
 
-        # Verify ephemeral field is not in dict
-        assert "ephemeral" not in data
-        assert "trigger_failed" not in data
-        assert "timed_out" not in data
+        # Verify ephemeral field IS in dict (except log_once_flags)
+        assert "ephemeral" in data
+        assert data["ephemeral"]["trigger_workflow"] == Status.SUCCESS
+        assert "log_once_flags" not in data["ephemeral"]
 
     def test_ephemeral_field_initialized_on_deserialization(self) -> None:
         """Test that ephemeral field is initialized when loading from JSON."""
@@ -343,11 +352,13 @@ class TestWorkflowEphemeral:
 
         # Ephemeral field should be initialized with defaults
         assert hasattr(workflow, "ephemeral")
-        assert workflow.ephemeral.trigger_failed is False
-        assert workflow.ephemeral.timed_out is False
+        assert workflow.ephemeral.trigger_workflow is None
+        assert workflow.ephemeral.wait_for_completion is None
 
     def test_release_state_ephemeral_not_serialized(self) -> None:
-        """Test that ephemeral fields are not serialized in ReleaseState."""
+        """Test that ephemeral fields are serialized but log_once_flags are excluded."""
+        from py_trees.common import Status
+
         config = Config(
             version=1,
             packages={
@@ -363,21 +374,26 @@ class TestWorkflowEphemeral:
         state = ReleaseState.from_config(config)
 
         # Modify ephemeral fields
-        state.packages["test-package"].build.ephemeral.trigger_failed = True
-        state.packages["test-package"].publish.ephemeral.timed_out = True
+        state.packages["test-package"].build.ephemeral.trigger_workflow = Status.FAILURE
+        state.packages["test-package"].publish.ephemeral.wait_for_completion = (
+            Status.SUCCESS
+        )
+        state.packages["test-package"].build.ephemeral.log_once_flags["test"] = True
 
         # Serialize to JSON
         json_str = state.model_dump_json()
         json_data = json.loads(json_str)
 
-        # Verify ephemeral fields are not in JSON
+        # Verify ephemeral fields ARE in JSON (except log_once_flags)
         build_workflow = json_data["packages"]["test-package"]["build"]
         publish_workflow = json_data["packages"]["test-package"]["publish"]
 
-        assert "ephemeral" not in build_workflow
-        assert "trigger_failed" not in build_workflow
-        assert "ephemeral" not in publish_workflow
-        assert "timed_out" not in publish_workflow
+        assert "ephemeral" in build_workflow
+        assert build_workflow["ephemeral"]["trigger_workflow"] == "FAILURE"
+        assert "log_once_flags" not in build_workflow["ephemeral"]
+        assert "ephemeral" in publish_workflow
+        assert publish_workflow["ephemeral"]["wait_for_completion"] == "SUCCESS"
+        assert "log_once_flags" not in publish_workflow["ephemeral"]
 
 
 class TestReleaseMeta:
@@ -449,7 +465,7 @@ class TestPackageMetaEphemeral:
         assert state.packages["test-package"].meta.ephemeral.force_rebuild is True
 
     def test_ephemeral_not_serialized(self) -> None:
-        """Test that ephemeral field is not serialized to JSON."""
+        """Test that ephemeral field is serialized but log_once_flags are excluded."""
         config = Config(
             version=1,
             packages={
@@ -464,12 +480,21 @@ class TestPackageMetaEphemeral:
 
         state = ReleaseState.from_config(config)
         state.packages["test-package"].meta.ephemeral.force_rebuild = True
+        state.packages["test-package"].meta.ephemeral.log_once_flags["test"] = True
 
         json_str = state.model_dump_json()
         json_data = json.loads(json_str)
 
-        assert "ephemeral" not in json_data["packages"]["test-package"]["meta"]
-        assert "force_rebuild" not in json_data["packages"]["test-package"]["meta"]
+        # Ephemeral field IS serialized (except log_once_flags)
+        assert "ephemeral" in json_data["packages"]["test-package"]["meta"]
+        assert (
+            json_data["packages"]["test-package"]["meta"]["ephemeral"]["force_rebuild"]
+            is True
+        )
+        assert (
+            "log_once_flags"
+            not in json_data["packages"]["test-package"]["meta"]["ephemeral"]
+        )
 
 
 class TestStateSyncerWithArgs:

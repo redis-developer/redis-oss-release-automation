@@ -30,8 +30,8 @@ from .behaviours import (
     Sleep,
 )
 from .behaviours import TriggerWorkflow as TriggerWorkflow
-from .behaviours import UpdateWorkflowStatus
-from .decorators import FlagGuard
+from .behaviours import UpdateWorkflowStatusUntilCompletion
+from .decorators import ConditionGuard, FlagGuard, StatusFlagGuard
 from .state import Package, PackageMeta, ReleaseMeta, Workflow
 
 
@@ -110,7 +110,7 @@ class ParallelBarrier(Composite):
         yield self
 
 
-class FindWorkflowByUUID(FlagGuard):
+class FindWorkflowByUUID(StatusFlagGuard):
     max_retries: int = 3
     poll_interval: int = 5
 
@@ -145,12 +145,12 @@ class FindWorkflowByUUID(FlagGuard):
             None if name == "" else name,
             identify_loop,
             workflow.ephemeral,
-            "identify_failed",
+            "identify_workflow",
             log_prefix=log_prefix,
         )
 
 
-class WaitForWorkflowCompletion(FlagGuard):
+class WaitForWorkflowCompletion(StatusFlagGuard):
     poll_interval: int
     timeout_seconds: int
 
@@ -166,36 +166,26 @@ class WaitForWorkflowCompletion(FlagGuard):
         self.poll_interval = poll_interval
         self.timeout_seconds = workflow.timeout_minutes * 60
 
-        update_workflow_status = UpdateWorkflowStatus(
-            "Update Workflow Status",
+        update_workflow_status = UpdateWorkflowStatusUntilCompletion(
+            "Update status until completion",
             workflow,
             github_client,
             package_meta,
             log_prefix=log_prefix,
+            timeout_seconds=self.timeout_seconds,
+            poll_interval=self.poll_interval,
         )
-        update_workflow_status_with_pause = Sequence(
-            "Update Workflow Status with Pause",
-            memory=True,
-            children=[
-                Sleep("Sleep", self.poll_interval, log_prefix=log_prefix),
-                update_workflow_status,
-            ],
-        )
-
         super().__init__(
             None,
-            Timeout(
-                f"Timeout {workflow.timeout_minutes}m",
-                Repeat("Repeat", update_workflow_status_with_pause, -1),
-                self.timeout_seconds,
-            ),
+            update_workflow_status,
             workflow.ephemeral,
-            "timed_out",
+            "wait_for_completion",
+            "wait_for_completion_message",
             log_prefix=log_prefix,
         )
 
 
-class TriggerWorkflowGuarded(FlagGuard):
+class TriggerWorkflowGuarded(StatusFlagGuard):
     def __init__(
         self,
         name: str,
@@ -217,12 +207,12 @@ class TriggerWorkflowGuarded(FlagGuard):
             None if name == "" else name,
             trigger_workflow,
             workflow.ephemeral,
-            "trigger_failed",
+            "trigger_workflow",
             log_prefix=log_prefix,
         )
 
 
-class IdentifyTargetRefGuarded(FlagGuard):
+class IdentifyTargetRefGuarded(StatusFlagGuard):
     def __init__(
         self,
         name: str,
@@ -241,12 +231,12 @@ class IdentifyTargetRefGuarded(FlagGuard):
                 log_prefix=log_prefix,
             ),
             package_meta.ephemeral,
-            "identify_ref_failed",
+            "identify_ref",
             log_prefix=log_prefix,
         )
 
 
-class DownloadArtifactsListGuarded(FlagGuard):
+class DownloadArtifactsListGuarded(StatusFlagGuard):
     def __init__(
         self,
         name: str,
@@ -265,12 +255,12 @@ class DownloadArtifactsListGuarded(FlagGuard):
                 log_prefix=log_prefix,
             ),
             workflow.ephemeral,
-            "artifacts_download_failed",
+            "download_artifacts",
             log_prefix=log_prefix,
         )
 
 
-class ExtractArtifactResultGuarded(FlagGuard):
+class ExtractArtifactResultGuarded(StatusFlagGuard):
     def __init__(
         self,
         name: str,
@@ -291,7 +281,7 @@ class ExtractArtifactResultGuarded(FlagGuard):
                 log_prefix=log_prefix,
             ),
             workflow.ephemeral,
-            "extract_result_failed",
+            "extract_artifact_result",
             log_prefix=log_prefix,
         )
 
@@ -326,7 +316,7 @@ class ResetPackageStateGuarded(FlagGuard):
         )
 
 
-class RestartPackageGuarded(FlagGuard):
+class RestartPackageGuarded(ConditionGuard):
     """
     Reset package if we didn't trigger the workflow in current run
     This is intended to be used for build workflow since if build has failed
@@ -353,29 +343,20 @@ class RestartPackageGuarded(FlagGuard):
         reset_package_state_running = SuccessIsRunning(
             "Success is Running", reset_package_state
         )
-        reset_package_state_guarded = FlagGuard(
-            None if name == "" else name,
-            reset_package_state_running,
-            package.meta.ephemeral,
-            "identify_ref_failed",
-            flag_value=True,
-            raise_on=[],
-            guard_status=Status.FAILURE,
-            log_prefix=log_prefix,
-        )
+
         super().__init__(
-            None if name == "" else name,
-            reset_package_state_guarded,
-            workflow.ephemeral,
-            "trigger_attempted",
-            flag_value=True,
-            raise_on=[],
+            name,
+            # Don't restart if we already triggered the workflow or if ref is not set or workflow has timed out
+            condition=lambda: workflow.ephemeral.trigger_workflow is not None
+            or package.meta.ref is None
+            or workflow.ephemeral.wait_for_completion_timed_out is True,
+            child=reset_package_state_running,
             guard_status=Status.FAILURE,
             log_prefix=log_prefix,
         )
 
 
-class RestartWorkflowGuarded(FlagGuard):
+class RestartWorkflowGuarded(ConditionGuard):
     """
     Reset workflow if we didn't trigger the workflow in current run and if there was no identify target ref error
 
@@ -401,23 +382,14 @@ class RestartWorkflowGuarded(FlagGuard):
         reset_workflow_state_running = SuccessIsRunning(
             "Success is Running", reset_workflow_state
         )
-        reset_workflow_state_guarded = FlagGuard(
-            None if name == "" else name,
-            reset_workflow_state_running,
-            package_meta.ephemeral,
-            "identify_ref_failed",
-            flag_value=True,
-            raise_on=[],
-            guard_status=Status.FAILURE,
-            log_prefix=log_prefix,
-        )
+
         super().__init__(
-            None if name == "" else name,
-            reset_workflow_state_guarded,
-            workflow.ephemeral,
-            "trigger_attempted",
-            flag_value=True,
-            raise_on=[],
+            name,
+            # Don't restart if we already triggered the workflow or if ref is not set or workflow has timed out
+            condition=lambda: workflow.ephemeral.trigger_workflow is not None
+            or package_meta.ref is None
+            or workflow.ephemeral.wait_for_completion_timed_out is True,
+            child=reset_workflow_state_running,
             guard_status=Status.FAILURE,
             log_prefix=log_prefix,
         )

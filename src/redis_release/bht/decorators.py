@@ -1,5 +1,5 @@
 import logging
-from typing import Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 from py_trees.decorators import Decorator, behaviour, common
 from pydantic import BaseModel
@@ -21,9 +21,59 @@ class DecoratorWithLogging(Decorator):
         )
 
 
+class ConditionGuard(DecoratorWithLogging):
+    """
+    A decorator that guards behaviour execution based on a condition function.
+
+    If the condition function returns True, the guard returns guard_status
+    and does not execute the decorated behaviour.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        child: behaviour.Behaviour,
+        condition: Callable[[], bool],
+        guard_status: common.Status,
+        log_prefix: str = "",
+    ):
+        self.condition = condition
+        self.guard_status = guard_status
+        super(ConditionGuard, self).__init__(
+            name=name, child=child, log_prefix=log_prefix
+        )
+
+    def update(self) -> common.Status:
+        if self.condition():
+            self.logger.debug(
+                f"Condition met, returning guard status: {self.guard_status}"
+            )
+            return self.guard_status
+        self.logger.debug(
+            f"Condition not met, returning child status: {self.decorated.status}"
+        )
+        return self.decorated.status
+
+    def tick(self) -> Iterator[behaviour.Behaviour]:
+        """
+        Tick the child or bounce back with guard status if condition is met.
+
+        Yields:
+            a reference to itself or a behaviour in it's child subtree
+        """
+        if self.condition():
+            # ignore the child, condition is met
+            for node in behaviour.Behaviour.tick(self):
+                yield node
+        else:
+            # tick the child, condition not met
+            for node in Decorator.tick(self):
+                yield node
+
+
 class FlagGuard(DecoratorWithLogging):
     """
-    A decorator that guards behaviour execution based on a flag value.
+    A decorator that guards behaviour execution based on a boolean flag value.
 
     If the flag in the container matches the expected flag_value, the guard
     returns guard_status immediately without executing the decorated behaviour.
@@ -116,3 +166,103 @@ class FlagGuard(DecoratorWithLogging):
             )
         else:
             self.logger.debug(f"Terminating with status {new_status}, no flag change")
+
+
+class StatusFlagGuard(DecoratorWithLogging):
+    """
+    A decorator that guards behaviour execution based on a status flag value.
+
+    In contrast to FlagGuard, flag may have 4 values: None, SUCCESS, FAILURE, RUNNING
+
+    If the flag in the container matches the guard_status, the guard
+    returns guard_status immediately without executing the decorated behaviour.
+
+    On any child status update, the flag is set to the child's status value.
+
+    Args:
+        name: the decorator name
+        child: the child behaviour or subtree
+        container: the BaseModel instance containing the flag
+        flag: the name of the flag field in the container (can hold common.Status or None)
+        message_field: optional name of the field in the container that holds additional message
+        guard_status: the status that prevents execution (FAILURE or SUCCESS, default: FAILURE)
+    """
+
+    def __init__(
+        self,
+        name: Optional[str],
+        child: behaviour.Behaviour,
+        container: BaseModel,
+        flag: str,
+        message_field: Optional[str] = None,
+        guard_status: common.Status = common.Status.FAILURE,
+        log_prefix: str = "",
+    ):
+        if guard_status not in (common.Status.FAILURE, common.Status.SUCCESS):
+            raise ValueError(
+                f"guard_status must be FAILURE or SUCCESS, got {guard_status}"
+            )
+
+        if not hasattr(container, flag):
+            raise ValueError(
+                f"Field '{flag}' does not exist on {container.__class__.__name__}"
+            )
+
+        if message_field is not None and not hasattr(container, message_field):
+            raise ValueError(
+                f"Field '{message_field}' does not exist on {container.__class__.__name__}"
+            )
+
+        current_value = getattr(container, flag)
+        if current_value is not None and not isinstance(current_value, common.Status):
+            raise TypeError(
+                f"Field '{flag}' must be either common.Status or None, got {type(current_value)}"
+            )
+
+        self.container = container
+        self.flag = flag
+        self.message_field = message_field
+        self.guard_status = guard_status
+        if name is None:
+            status_text = (
+                "failed" if guard_status == common.Status.FAILURE else "succeeded"
+            )
+            name = f"Unless {flag} {status_text}"
+        super(StatusFlagGuard, self).__init__(
+            name=name, child=child, log_prefix=log_prefix
+        )
+
+    def _is_guard_active(self) -> bool:
+        current_flag_value = getattr(self.container, self.flag, None)
+        return current_flag_value == self.guard_status
+
+    def update(self) -> common.Status:
+        current_flag_value = getattr(self.container, self.flag, None)
+        if current_flag_value == self.guard_status:
+            self.logger.debug(f"Returning guard status: {self.guard_status}")
+            return self.guard_status
+
+        child_status = self.decorated.status
+        # Update flag with child's current status
+        setattr(self.container, self.flag, child_status)
+        if self.message_field is not None:
+            setattr(self.container, self.message_field, self.decorated.feedback_message)
+        self.logger.debug(f"Updated {self.flag} to {child_status}")
+        self.feedback_message = f"{self.flag} set to {child_status}"
+        return child_status
+
+    def tick(self) -> Iterator[behaviour.Behaviour]:
+        """
+        Tick the child or bounce back with the original status if guard is active.
+
+        Yields:
+            a reference to itself or a behaviour in it's child subtree
+        """
+        if self._is_guard_active():
+            # ignore the child
+            for node in behaviour.Behaviour.tick(self):
+                yield node
+        else:
+            # tick the child
+            for node in Decorator.tick(self):
+                yield node
