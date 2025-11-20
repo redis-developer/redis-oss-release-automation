@@ -213,6 +213,11 @@ def slack_bot(
         "--broadcast/--no-broadcast",
         help="When replying in thread, also show in main channel",
     ),
+    authorized_users: Optional[List[str]] = typer.Option(
+        None,
+        "--authorized-user",
+        help="User ID authorized to run releases (can be specified multiple times). If not specified, all users are authorized",
+    ),
 ) -> None:
     """Run Slack bot that listens for status requests.
 
@@ -221,6 +226,9 @@ def slack_bot(
 
     By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
     to post directly in the channel. Use --broadcast to show thread replies in the main channel.
+
+    Only users specified with --authorized-user can run releases. Status command is available to all users.
+    You can also include the word 'broadcast' in the release message to broadcast updates to the main channel.
 
     Requires Socket Mode to be enabled in your Slack app configuration.
     """
@@ -237,6 +245,7 @@ def slack_bot(
             slack_app_token,
             reply_in_thread,
             broadcast_to_channel,
+            authorized_users,
         )
     )
 

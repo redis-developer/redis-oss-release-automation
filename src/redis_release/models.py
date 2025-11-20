@@ -163,3 +163,5 @@ class ReleaseArgs(BaseModel):
     override_state_name: Optional[str] = None
     slack_token: Optional[str] = None
     slack_channel_id: Optional[str] = None
+    slack_thread_ts: Optional[str] = None
+    slack_reply_broadcast: bool = False

@@ -134,7 +134,10 @@ def initialize_tree_and_state(
         if args.slack_token or args.slack_channel_id:
             try:
                 slack_printer = init_slack_printer(
-                    args.slack_token, args.slack_channel_id
+                    args.slack_token,
+                    args.slack_channel_id,
+                    args.slack_thread_ts,
+                    args.slack_reply_broadcast,
                 )
                 # Capture the non-None printer in the closure
                 printer = slack_printer

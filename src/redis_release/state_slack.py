@@ -32,13 +32,18 @@ def get_workflow_link(repo: str, run_id: Optional[int]) -> Optional[str]:
 
 
 def init_slack_printer(
-    slack_token: Optional[str], slack_channel_id: Optional[str]
+    slack_token: Optional[str],
+    slack_channel_id: Optional[str],
+    thread_ts: Optional[str] = None,
+    reply_broadcast: bool = False,
 ) -> "SlackStatePrinter":
     """Initialize SlackStatePrinter with validation.
 
     Args:
         slack_token: Slack bot token (if None, uses SLACK_BOT_TOKEN env var)
         slack_channel_id: Slack channel ID to post to
+        thread_ts: Optional thread timestamp to post messages in a thread
+        reply_broadcast: If True and thread_ts is set, also show in main channel
 
     Returns:
         SlackStatePrinter instance
@@ -56,21 +61,31 @@ def init_slack_printer(
             "Slack token not provided. Use slack_token argument or set SLACK_BOT_TOKEN environment variable"
         )
 
-    return SlackStatePrinter(token, slack_channel_id)
+    return SlackStatePrinter(token, slack_channel_id, thread_ts, reply_broadcast)
 
 
 class SlackStatePrinter:
     """Handles posting and updating release state to Slack channel."""
 
-    def __init__(self, slack_token: str, slack_channel_id: str):
+    def __init__(
+        self,
+        slack_token: str,
+        slack_channel_id: str,
+        thread_ts: Optional[str] = None,
+        reply_broadcast: bool = False,
+    ):
         """Initialize the Slack printer.
 
         Args:
             slack_token: Slack bot token
             slack_channel_id: Slack channel ID to post messages to
+            thread_ts: Optional thread timestamp to post messages in a thread
+            reply_broadcast: If True and thread_ts is set, also show in main channel
         """
         self.client = WebClient(token=slack_token)
         self.channel_id = slack_channel_id
+        self.thread_ts = thread_ts
+        self.reply_broadcast = reply_broadcast
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
@@ -119,15 +134,26 @@ class SlackStatePrinter:
         try:
             if self.message_ts is None:
                 # Post new message
-                response = self.client.chat_postMessage(
-                    channel=self.channel_id,
-                    text=text,
-                    blocks=blocks,
-                )
+                kwargs: Dict[str, Any] = {
+                    "channel": self.channel_id,
+                    "text": text,
+                    "blocks": blocks,
+                }
+
+                # Add thread parameters if thread_ts is set
+                if self.thread_ts:
+                    kwargs["thread_ts"] = self.thread_ts
+                    if self.reply_broadcast:
+                        kwargs["reply_broadcast"] = True
+
+                response = self.client.chat_postMessage(**kwargs)
                 self.message_ts = response["ts"]
                 # Update channel_id from response (authoritative)
                 self.channel_id = response["channel"]
-                logger.info(f"Posted Slack message ts={self.message_ts}")
+                logger.info(
+                    f"Posted Slack message ts={self.message_ts}"
+                    + (f" in thread {self.thread_ts}" if self.thread_ts else "")
+                )
             else:
                 # Update existing message
                 self.client.chat_update(
