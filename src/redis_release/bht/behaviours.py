@@ -715,56 +715,6 @@ class GenericWorkflowInputs(ReleaseAction):
         return Status.SUCCESS
 
 
-def create_prepare_build_workflow_inputs(
-    name: str,
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Behaviour:
-    cls_map = {
-        PackageType.DEBIAN: DebianWorkflowInputs,
-    }
-
-    selected_class = (
-        cls_map.get(package_meta.package_type, GenericWorkflowInputs)
-        if package_meta.package_type
-        else GenericWorkflowInputs
-    )
-    return selected_class(
-        name,
-        workflow,
-        package_meta,
-        release_meta,
-        log_prefix=log_prefix,
-    )
-
-
-def create_prepare_publish_workflow_inputs(
-    name: str,
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Behaviour:
-    cls_map = {
-        PackageType.DEBIAN: DebianWorkflowInputs,
-    }
-
-    selected_class = (
-        cls_map.get(package_meta.package_type, GenericWorkflowInputs)
-        if package_meta.package_type
-        else GenericWorkflowInputs
-    )
-    return selected_class(
-        name,
-        workflow,
-        package_meta,
-        release_meta,
-        log_prefix=log_prefix,
-    )
-
-
 class DebianWorkflowInputs(ReleaseAction):
     def __init__(
         self,

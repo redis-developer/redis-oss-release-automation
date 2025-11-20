@@ -23,8 +23,6 @@ from .behaviours import (
     IsWorkflowIdentified,
     IsWorkflowSuccessful,
     IsWorkflowTriggered,
-    create_prepare_build_workflow_inputs,
-    create_prepare_publish_workflow_inputs,
 )
 from .composites import (
     DownloadArtifactsListGuarded,
@@ -35,6 +33,10 @@ from .composites import (
     WaitForWorkflowCompletion,
 )
 from .state import PackageMeta, ReleaseMeta, Workflow
+from .tree_factory import (
+    create_build_workflow_inputs_behaviour,
+    create_publish_workflow_inputs_behaviour,
+)
 
 
 def create_workflow_success_ppa(
@@ -220,7 +222,7 @@ def create_build_workflow_inputs_ppa(
 ) -> Union[Selector, Sequence]:
     return create_PPA(
         "Set Build Workflow Inputs",
-        create_prepare_build_workflow_inputs(
+        create_build_workflow_inputs_behaviour(
             "Set Build Workflow Inputs",
             workflow,
             package_meta,
@@ -238,7 +240,7 @@ def create_publish_workflow_inputs_ppa(
 ) -> Union[Selector, Sequence]:
     return create_PPA(
         "Set Publish Workflow Inputs",
-        create_prepare_publish_workflow_inputs(
+        create_publish_workflow_inputs_behaviour(
             "Set Publish Workflow Inputs",
             workflow,
             package_meta,
