@@ -2,15 +2,17 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from py_trees import common
 from py_trees.common import Status
 from pydantic import BaseModel, Field
 
 from redis_release.models import (
+    HomebrewChannel,
     PackageType,
     ReleaseType,
+    SnapRiskLevel,
     WorkflowConclusion,
     WorkflowStatus,
     WorkflowType,
@@ -113,8 +115,9 @@ class PackageMetaEphemeral(BaseModel):
 
 
 class PackageMeta(BaseModel):
-    """Metadata for a package."""
+    """Metadata for a package (base/generic type)."""
 
+    serialization_hint: Literal["generic"] = "generic"
     package_type: Optional[PackageType] = None
     repo: str = ""
     ref: Optional[str] = None
@@ -122,10 +125,33 @@ class PackageMeta(BaseModel):
     ephemeral: PackageMetaEphemeral = Field(default_factory=PackageMetaEphemeral)
 
 
-class Package(BaseModel):
-    """State for a package in the release."""
+class HomebrewMeta(PackageMeta):
+    """Metadata for Homebrew package."""
 
-    meta: PackageMeta = Field(default_factory=PackageMeta)
+    serialization_hint: Literal["homebrew"] = "homebrew"  # type: ignore[assignment]
+    homebrew_channel: Optional[HomebrewChannel] = None
+
+
+class SnapMeta(PackageMeta):
+    """Metadata for Snap package."""
+
+    serialization_hint: Literal["snap"] = "snap"  # type: ignore[assignment]
+    snap_risk_level: Optional[SnapRiskLevel] = None
+
+
+class Package(BaseModel):
+    """State for a package in the release.
+
+    The meta field uses a discriminated union based on the serialization_hint field.
+    This ensures correct deserialization:
+    - serialization_hint="generic" -> PackageMeta
+    - serialization_hint="homebrew" -> HomebrewMeta
+    - serialization_hint="snap" -> SnapMeta
+    """
+
+    meta: Union[HomebrewMeta, SnapMeta, PackageMeta] = Field(
+        default_factory=PackageMeta, discriminator="serialization_hint"
+    )
     build: Workflow = Field(default_factory=Workflow)
     publish: Workflow = Field(default_factory=Workflow)
 
@@ -160,11 +186,6 @@ class ReleaseState(BaseModel):
         """Build ReleaseState from config with default values."""
         packages = {}
         for package_name, package_config in config.packages.items():
-            if not isinstance(package_config.package_type, PackageType):
-                raise ValueError(
-                    f"Package '{package_name}': package_type must be a PackageType, "
-                    f"got {type(package_config.package_type).__name__}"
-                )
             # Validate and get build workflow file
             if not isinstance(package_config.build_workflow, str):
                 raise ValueError(
@@ -187,13 +208,34 @@ class ReleaseState(BaseModel):
                     f"Package '{package_name}': publish_workflow cannot be empty"
                 )
 
-            # Initialize package metadata
-            package_meta = PackageMeta(
-                repo=package_config.repo,
-                ref=package_config.ref,
-                package_type=package_config.package_type,
-                publish_internal_release=package_config.publish_internal_release,
-            )
+            # Initialize package metadata - create appropriate subclass based on package_type
+            package_meta: Union[HomebrewMeta, SnapMeta, PackageMeta]
+            if package_config.package_type == PackageType.HOMEBREW:
+                package_meta = HomebrewMeta(
+                    repo=package_config.repo,
+                    ref=package_config.ref,
+                    package_type=package_config.package_type,
+                    publish_internal_release=package_config.publish_internal_release,
+                )
+            elif package_config.package_type == PackageType.SNAP:
+                package_meta = SnapMeta(
+                    repo=package_config.repo,
+                    ref=package_config.ref,
+                    package_type=package_config.package_type,
+                    publish_internal_release=package_config.publish_internal_release,
+                )
+            elif package_config.package_type is not None:
+                package_meta = PackageMeta(
+                    repo=package_config.repo,
+                    ref=package_config.ref,
+                    package_type=package_config.package_type,
+                    publish_internal_release=package_config.publish_internal_release,
+                )
+            else:
+                raise ValueError(
+                    f"Package '{package_name}': package_type must be a PackageType, "
+                    f"got {type(package_config.package_type).__name__}"
+                )
 
             # Initialize build workflow
             build_workflow = Workflow(

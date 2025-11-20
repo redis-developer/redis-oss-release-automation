@@ -19,6 +19,37 @@ class PackageType(str, Enum):
 
     DOCKER = "docker"
     DEBIAN = "debian"
+    RPM = "rpm"
+    HOMEBREW = "homebrew"
+    SNAP = "snap"
+
+
+class PackageSerializationType(str, Enum):
+    """Package serialization type for discriminated union.
+
+    This enum is used as a discriminator field for Pydantic's discriminated union
+    to correctly deserialize different PackageMeta subclasses.
+    """
+
+    DEFAULT = "default"  # For generic PackageMeta
+    HOMEBREW = "homebrew"  # For HomebrewMeta
+    SNAP = "snap"  # For SnapMeta
+
+
+class HomebrewChannel(str, Enum):
+    """Homebrew channel enumeration."""
+
+    STABLE = "stable"
+    RC = "rc"
+
+
+class SnapRiskLevel(str, Enum):
+    """Snap channel enumeration."""
+
+    STABLE = "stable"
+    CANDIDATE = "candidate"
+    BETA = "beta"
+    EDGE = "edge"
 
 
 class ReleaseType(str, Enum):
