@@ -147,7 +147,7 @@ def release(
         help="Only process specific packages (can be specified multiple times)",
     ),
     tree_cutoff: int = typer.Option(
-        2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
+        5000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
     force_release_type: Optional[List[str]] = typer.Option(
         None,

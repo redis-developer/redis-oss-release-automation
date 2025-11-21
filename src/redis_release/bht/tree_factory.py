@@ -15,9 +15,8 @@ from ..github_client_async import GitHubClientAsync
 from ..models import PackageType
 from .backchain import create_PPA, latch_chains
 from .behaviours import (
-    ClassifyHomebrewVersion,
-    DebianWorkflowInputs,
     DetectHombrewReleaseAndChannel,
+    DockerWorkflowInputs,
     GenericWorkflowInputs,
     HomewbrewWorkflowInputs,
     NeedToPublishRelease,
@@ -351,12 +350,8 @@ class GenericPackageFactory(ABC):
         return extract_artifact_result
 
 
-class DebianFactory(GenericPackageFactory):
-    """Factory for Debian packages.
-
-    Inherits from GenericFactory and overrides only the methods that need
-    Debian-specific behavior.
-    """
+class DockerFactory(GenericPackageFactory):
+    """Factory for Docker packages."""
 
     def create_build_workflow_inputs(
         self,
@@ -366,8 +361,7 @@ class DebianFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-
-        return DebianWorkflowInputs(
+        return DockerWorkflowInputs(
             name, workflow, package_meta, release_meta, log_prefix=log_prefix
         )
 
@@ -379,16 +373,16 @@ class DebianFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        from .behaviours import DebianWorkflowInputs
-
-        return DebianWorkflowInputs(
+        return DockerWorkflowInputs(
             name, workflow, package_meta, release_meta, log_prefix=log_prefix
         )
 
 
-class DockerFactory(GenericPackageFactory):
-    """Factory for Docker packages."""
+class DebianFactory(GenericPackageFactory):
+    pass
 
+
+class RPMFactory(GenericPackageFactory):
     pass
 
 
@@ -539,8 +533,9 @@ class HomebrewFactory(GenericPackageFactory):
 
 # Factory registry
 _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
-    PackageType.DEBIAN: DebianFactory(),
     PackageType.DOCKER: DockerFactory(),
+    PackageType.DEBIAN: DebianFactory(),
+    PackageType.RPM: RPMFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
 }
 
