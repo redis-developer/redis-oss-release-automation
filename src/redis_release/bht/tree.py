@@ -21,7 +21,7 @@ from rich.text import Text
 
 from ..config import Config
 from ..github_client_async import GitHubClientAsync
-from ..models import ReleaseArgs
+from ..models import PackageType, ReleaseArgs
 from ..state_display import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
@@ -221,17 +221,23 @@ class TreeInspector:
         "workflow_with_result_branch",
         "publish_workflow_branch",
         "build_workflow_branch",
+        "package_release_branch",
+        "package_release_goal_branch",
         "demo_sequence",
         "demo_selector",
     ]
 
-    def __init__(self, release_tag: str):
+    def __init__(self, release_tag: str, package_type: Optional[str] = None):
         """Initialize TreeInspector.
 
         Args:
             release_tag: Release tag for creating mock ReleaseMeta
         """
         self.release_tag = release_tag
+        if package_type:
+            self.package_type = PackageType(package_type)
+        else:
+            self.package_type = PackageType.DOCKER
 
     def get_names(self) -> List[str]:
         """Get list of available branch/PPA names.
@@ -297,15 +303,17 @@ class TreeInspector:
                 "test-artifact", workflow, package_meta, github_client, log_prefix
             )
         elif name == "workflow_complete_branch":
-            return create_workflow_complete_tree_branch(
+            return get_factory(self.package_type).create_workflow_complete_tree_branch(
                 workflow, package_meta, release_meta, github_client, ""
             )
         elif name == "workflow_with_result_branch":
-            return create_workflow_with_result_tree_branch(
+            return get_factory(
+                self.package_type
+            ).create_workflow_with_result_tree_branch(
                 "artifact", workflow, package_meta, release_meta, github_client, ""
             )
         elif name == "publish_workflow_branch":
-            return create_publish_workflow_tree_branch(
+            return get_factory(self.package_type).create_publish_workflow_tree_branch(
                 workflow,
                 workflow,
                 package_meta,
@@ -315,7 +323,17 @@ class TreeInspector:
                 "",
             )
         elif name == "build_workflow_branch":
-            return create_build_workflow_tree_branch(
+            return get_factory(self.package_type).create_build_workflow_tree_branch(
+                package, release_meta, package, github_client, ""
+            )
+        elif name == "package_release_branch":
+            return get_factory(self.package_type).create_package_release_tree_branch(
+                package, release_meta, package, github_client, ""
+            )
+        elif name == "package_release_goal_branch":
+            return get_factory(
+                self.package_type
+            ).create_package_release_goal_tree_branch(
                 package, release_meta, package, github_client, ""
             )
         elif name == "demo_sequence":

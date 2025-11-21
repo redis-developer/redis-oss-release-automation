@@ -33,6 +33,12 @@ logger = logging.getLogger(__name__)
 @app.command()
 def release_print(
     release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    package_type: Optional[str] = typer.Option(
+        None,
+        "--package-type",
+        "-p",
+        help="Package type to use for creating the tree (default: docker)",
+    ),
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
@@ -62,7 +68,7 @@ def release_print(
 
     if name:
         # Create TreeInspector and render the requested branch
-        inspector = TreeInspector(release_tag=release_tag)
+        inspector = TreeInspector(release_tag=release_tag, package_type=package_type)
 
         try:
             branch = inspector.create_by_name(name)
