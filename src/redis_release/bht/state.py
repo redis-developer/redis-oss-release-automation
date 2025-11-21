@@ -22,7 +22,7 @@ from ..config import Config, PackageConfig
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_STATE_VERSION = 2
+SUPPORTED_STATE_VERSION = 3
 
 
 class WorkflowEphemeral(BaseModel):
@@ -155,6 +155,11 @@ class HomebrewMeta(PackageMeta):
 
     serialization_hint: Literal["homebrew"] = "homebrew"  # type: ignore[assignment]
     homebrew_channel: Optional[HomebrewChannel] = None
+    # remote_version field is for status display only (e.g. to pair with
+    # classify_remote_versions flag) actual decision is based on
+    # ephemeral.is_version_acceptable which is reset on each run to always
+    # reflect recent remote version
+    remote_version: Optional[str] = None
     ephemeral: HomebrewMetaEphemeral = Field(default_factory=HomebrewMetaEphemeral)  # type: ignore[assignment]
 
 
@@ -163,6 +168,11 @@ class SnapMeta(PackageMeta):
 
     serialization_hint: Literal["snap"] = "snap"  # type: ignore[assignment]
     snap_risk_level: Optional[SnapRiskLevel] = None
+    # remote_version field is for status display only (e.g. to pair with
+    # classify_remote_versions flag) actual decision is based on
+    # ephemeral.is_version_acceptable which is reset on each run to always
+    # reflect recent remote version
+    remote_version: Optional[str] = None
     ephemeral: SnapMetaEphemeral = Field(default_factory=SnapMetaEphemeral)  # type: ignore[assignment]
 
 
@@ -203,7 +213,7 @@ class ReleaseMeta(BaseModel):
 class ReleaseState(BaseModel):
     """Release state adapted for behavior tree usage."""
 
-    version: int = 2
+    version: int = SUPPORTED_STATE_VERSION
     meta: ReleaseMeta = Field(default_factory=ReleaseMeta)
     packages: Dict[str, Package] = Field(default_factory=dict)
 

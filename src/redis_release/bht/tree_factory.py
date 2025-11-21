@@ -16,11 +16,15 @@ from ..models import PackageType
 from .backchain import create_PPA, latch_chains
 from .behaviours import (
     ClassifyHomebrewVersion,
-    DetectHomebrewChannel,
+    DebianWorkflowInputs,
+    DetectHombrewReleaseAndChannel,
     GenericWorkflowInputs,
+    HomewbrewWorkflowInputs,
     NeedToPublishRelease,
+    NeedToReleaseHomebrew,
 )
 from .composites import (
+    ClassifyHomebrewVersionGuarded,
     ResetPackageStateGuarded,
     RestartPackageGuarded,
     RestartWorkflowGuarded,
@@ -47,7 +51,7 @@ from .state import (
 logger = logging.getLogger(__name__)
 
 
-class GenericFactory(ABC):
+class GenericPackageFactory(ABC):
     """Default factory for packages without specific customizations."""
 
     def create_package_release_goal_tree_branch(
@@ -347,7 +351,7 @@ class GenericFactory(ABC):
         return extract_artifact_result
 
 
-class DebianFactory(GenericFactory):
+class DebianFactory(GenericPackageFactory):
     """Factory for Debian packages.
 
     Inherits from GenericFactory and overrides only the methods that need
@@ -362,7 +366,6 @@ class DebianFactory(GenericFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        from .behaviours import DebianWorkflowInputs
 
         return DebianWorkflowInputs(
             name, workflow, package_meta, release_meta, log_prefix=log_prefix
@@ -383,13 +386,13 @@ class DebianFactory(GenericFactory):
         )
 
 
-class DockerFactory(GenericFactory):
+class DockerFactory(GenericPackageFactory):
     """Factory for Docker packages."""
 
     pass
 
 
-class HomebrewFactory(GenericFactory):
+class HomebrewFactory(GenericPackageFactory):
     def create_package_release_goal_tree_branch(
         self,
         package: Package,
@@ -398,27 +401,39 @@ class HomebrewFactory(GenericFactory):
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
-        logger.error("Creating Homebrew package release goal tree branch")
         package_release = self.create_package_release_tree_branch(
             package, release_meta, default_package, github_client, package_name
         )
+        need_to_release = NeedToReleaseHomebrew(
+            "Need To Release?",
+            cast(HomebrewMeta, package.meta),
+            release_meta,
+            log_prefix=package_name,
+        )
         release_goal = Selector(
-            f"Package Release {package_name} Goal",
+            f"Release Workflows {package_name} Goal",
             memory=False,
-            children=[AlwaysFailure("Yes"), package_release],
+            children=[Inverter("Not", need_to_release), package_release],
+        )
+        reset_package_state = ResetPackageStateGuarded(
+            "",
+            package,
+            default_package,
+            log_prefix=package_name,
         )
         return Sequence(
-            f"Release Validation {package_name}",
+            f"Release {package_name}",
             memory=False,
             children=[
-                DetectHomebrewChannel(
+                reset_package_state,
+                DetectHombrewReleaseAndChannel(
                     "Detect Homebrew Channel",
                     cast(HomebrewMeta, package.meta),
                     release_meta,
                     log_prefix=package_name,
                 ),
-                ClassifyHomebrewVersion(
-                    "Classify Homebrew Version",
+                ClassifyHomebrewVersionGuarded(
+                    "",
                     cast(HomebrewMeta, package.meta),
                     release_meta,
                     github_client,
@@ -427,6 +442,39 @@ class HomebrewFactory(GenericFactory):
                 release_goal,
             ],
         )
+
+    def create_package_release_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]:
+        build = self.create_build_workflow_tree_branch(
+            package,
+            release_meta,
+            default_package,
+            github_client,
+            package_name,
+        )
+        build.name = f"Build {package_name}"
+        publish = self.create_publish_workflow_tree_branch(
+            package.build,
+            package.publish,
+            package.meta,
+            release_meta,
+            default_package.publish,
+            github_client,
+            package_name,
+        )
+        publish.name = f"Publish {package_name}"
+        package_release = Sequence(
+            f"Execute Workflows {package_name}",
+            memory=False,
+            children=[build, publish],
+        )
+        return package_release
 
     def create_workflow_complete_tree_branch(
         self,
@@ -471,18 +519,35 @@ class HomebrewFactory(GenericFactory):
         )
         return workflow_complete
 
+    def create_build_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+
+        return HomewbrewWorkflowInputs(
+            name,
+            workflow,
+            cast(HomebrewMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
 
 # Factory registry
-_FACTORIES: Dict[PackageType, GenericFactory] = {
+_FACTORIES: Dict[PackageType, GenericPackageFactory] = {
     PackageType.DEBIAN: DebianFactory(),
     PackageType.DOCKER: DockerFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
 }
 
-_DEFAULT_FACTORY = GenericFactory()
+_DEFAULT_FACTORY = GenericPackageFactory()
 
 
-def get_factory(package_type: Optional[PackageType]) -> GenericFactory:
+def get_factory(package_type: Optional[PackageType]) -> GenericPackageFactory:
     """Get the factory for a given package type.
 
     Args:

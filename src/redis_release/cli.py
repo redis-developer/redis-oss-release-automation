@@ -116,7 +116,7 @@ def release_print(
             render_dot_tree(branch)
             print(unicode_tree(branch))
         except ValueError as e:
-            logger.error(f"[red]Error: {e}[/red]")
+            logger.error(f"[red]Error: {e}[/red]", exc_info=True)
             raise typer.Exit(1)
     else:
         # Print full release tree
@@ -197,6 +197,11 @@ def status(
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
+    override_state_name: Optional[str] = typer.Option(
+        None,
+        "--override-state-name",
+        help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
+    ),
     slack: bool = typer.Option(False, "--slack", help="Post status to Slack"),
     slack_channel_id: Optional[str] = typer.Option(
         None,
@@ -218,6 +223,7 @@ def status(
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=[],
+        override_state_name=override_state_name,
     )
 
     with StateManager(

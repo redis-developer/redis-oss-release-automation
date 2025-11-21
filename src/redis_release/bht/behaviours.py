@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from py import log
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 
@@ -738,7 +739,31 @@ class DebianWorkflowInputs(ReleaseAction):
         return Status.SUCCESS
 
 
-class DetectHomebrewChannel(ReleaseAction):
+class HomewbrewWorkflowInputs(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.workflow = workflow
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=f"{name} - homebrew", log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.release_type is not None:
+            self.workflow.inputs["release_type"] = self.package_meta.release_type.value
+        if self.release_meta.tag is not None:
+            self.workflow.inputs["release_tag"] = self.release_meta.tag
+        if self.package_meta.homebrew_channel is not None:
+            self.workflow.inputs["channel"] = self.package_meta.homebrew_channel.value
+        return Status.SUCCESS
+
+
+class DetectHombrewReleaseAndChannel(ReleaseAction):
     def __init__(
         self,
         name: str,
@@ -748,12 +773,17 @@ class DetectHomebrewChannel(ReleaseAction):
     ) -> None:
         self.package_meta = package_meta
         self.release_meta = release_meta
+        self.release_version: Optional[RedisVersion] = None
         super().__init__(name=name, log_prefix=log_prefix)
 
     def initialise(self) -> None:
         if self.release_meta.tag is None:
             self.logger.error("Release tag is not set")
             return
+        if self.release_version is not None:
+            return
+
+        self.feedback_message = ""
         try:
             self.release_version = RedisVersion.parse(self.release_meta.tag)
         except ValueError as e:
@@ -762,24 +792,37 @@ class DetectHomebrewChannel(ReleaseAction):
 
     def update(self) -> Status:
         if self.release_meta.tag is None:
+            logger.error("Release tag is not set")
             return Status.FAILURE
 
-        msg = ""
-        if self.release_version.is_internal:
-            msg = "Hombebrew internal release detected"
-        if self.release_version.is_rc:
-            self.package_meta.homebrew_channel = HomebrewChannel.RC
-            msg = "Homebrew channel detected: rc"
-        elif self.release_version.is_ga:
-            msg = "Homebrew channel detected: stable"
-            self.package_meta.homebrew_channel = HomebrewChannel.STABLE
+        if (
+            self.package_meta.homebrew_channel is not None
+            and self.package_meta.release_type is not None
+        ):
+            pass
         else:
-            msg = "Homebrew channel not detected"
+            assert self.release_version is not None
+            if self.release_version.is_internal:
+                self.package_meta.release_type = ReleaseType.INTERNAL
+                self.package_meta.homebrew_channel = HomebrewChannel.RC
+            else:
+                if self.release_version.is_ga:
+                    self.package_meta.release_type = ReleaseType.PUBLIC
+                    self.package_meta.homebrew_channel = HomebrewChannel.STABLE
+                elif self.release_version.is_rc:
+                    self.package_meta.release_type = ReleaseType.PUBLIC
+                    self.package_meta.homebrew_channel = HomebrewChannel.RC
+                else:
+                    self.package_meta.release_type = ReleaseType.INTERNAL
+                    self.package_meta.homebrew_channel = HomebrewChannel.RC
+        self.feedback_message = f"release_type: {self.package_meta.release_type.value}, homebrew_channel: {self.package_meta.homebrew_channel.value}"
 
         if self.log_once(
             "homebrew_channel_detected", self.package_meta.ephemeral.log_once_flags
         ):
-            self.logger.info(msg)
+            self.logger.info(
+                f"Hombrew release_type: {self.package_meta.release_type}, homebrew_channel: {self.package_meta.homebrew_channel}"
+            )
 
         return Status.SUCCESS
 
@@ -810,6 +853,10 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
     def initialise(self) -> None:
         """Initialize by validating inputs and starting download task."""
+        if self.package_meta.ephemeral.is_version_acceptable is not None:
+            return
+
+        self.feedback_message = ""
         # Validate homebrew_channel is set
         if self.package_meta.homebrew_channel is None:
             self.logger.error("Homebrew channel is not set")
@@ -829,6 +876,10 @@ class ClassifyHomebrewVersion(ReleaseAction):
             self.logger.error("Release tag is not set")
             return
 
+        if self.package_meta.release_type is None:
+            self.logger.error("Package release type is not set")
+            return
+
         try:
             self.release_version = RedisVersion.parse(self.release_meta.tag)
             self.logger.debug(f"Parsed release version: {self.release_version}")
@@ -838,9 +889,9 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
         # Determine which cask file to download based on channel
         if self.package_meta.homebrew_channel == HomebrewChannel.STABLE:
-            cask_file = "Casks/redis.rb"
+            cask_file = "zCasks/redis.rb"
         elif self.package_meta.homebrew_channel == HomebrewChannel.RC:
-            cask_file = "Casks/redis-rc.rb"
+            cask_file = "zCasks/redis-rc.rb"
         else:
             self.logger.error(
                 f"Unknown homebrew channel: {self.package_meta.homebrew_channel}"
@@ -860,14 +911,10 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
     def update(self) -> Status:
         """Process downloaded cask file and classify version."""
+        if self.package_meta.ephemeral.is_version_acceptable is not None:
+            return Status.SUCCESS
+
         try:
-            # Validate prerequisites
-            if self.package_meta.homebrew_channel is None:
-                return Status.FAILURE
-
-            if self.release_version is None:
-                return Status.FAILURE
-
             assert self.task is not None
 
             # Wait for download to complete
@@ -882,8 +929,6 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
             # Parse version from cask file
             # Look for: version "X.Y.Z"
-            import re
-
             version_match = re.search(
                 r'^\s*version\s+"([^"]+)"', cask_content, re.MULTILINE
             )
@@ -905,26 +950,34 @@ class ClassifyHomebrewVersion(ReleaseAction):
                 return Status.FAILURE
 
             # Compare versions: cask version >= release version means acceptable
-            if self.cask_version >= self.release_version:  # type: ignore[operator]
+            assert self.release_version is not None
+            self.package_meta.remote_version = str(self.cask_version)
+            log_prepend = ""
+            prepend_color = "green"
+            if self.release_version >= self.cask_version:
                 self.package_meta.ephemeral.is_version_acceptable = True
-                self.logger.info(
-                    f"[green]Version acceptable:[/green] cask {self.cask_version} >= release {self.release_version}"
+                self.feedback_message = (
+                    f"release {self.release_version} >= cask {self.cask_version}"
                 )
+                log_prepend = "Version acceptable: "
             else:
                 self.package_meta.ephemeral.is_version_acceptable = False
-                self.logger.info(
-                    f"[yellow]Version not acceptable:[/yellow] cask {self.cask_version} < release {self.release_version}"
+                log_prepend = "Version NOT acceptable: "
+                prepend_color = "yellow"
+                self.feedback_message = (
+                    f"release {self.release_version} < cask {self.cask_version}"
                 )
-
+            if self.log_once(
+                "homebrew_version_classified",
+                self.package_meta.ephemeral.log_once_flags,
+            ):
+                self.logger.info(
+                    f"[{prepend_color}]{log_prepend}{self.feedback_message}[/]"
+                )
             return Status.SUCCESS
 
         except Exception as e:
             return self.log_exception_and_return_failure(e)
-
-    def terminate(self, new_status: Status) -> None:
-        """Terminate the behavior."""
-        # TODO: Cancel task if needed
-        pass
 
 
 ### Conditions ###
@@ -1118,5 +1171,23 @@ class IsForceRebuild(LoggingAction):
 
     def update(self) -> Status:
         if self.package_meta.ephemeral.force_rebuild:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class NeedToReleaseHomebrew(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.ephemeral.is_version_acceptable is True:
             return Status.SUCCESS
         return Status.FAILURE

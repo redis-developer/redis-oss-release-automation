@@ -173,7 +173,7 @@ class RedisVersion(BaseModel):
 
         # internal versions are always lower than their GA/rc/m counterparts
         if self.is_internal:
-            suffix_weight = suffix_weight[0] + "E"
+            suffix_weight = suffix_weight[:1] + "E"
 
         return suffix_weight
 

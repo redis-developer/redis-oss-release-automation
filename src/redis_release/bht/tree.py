@@ -19,7 +19,7 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 from rich.text import Text
 
-from ..config import Config
+from ..config import Config, PackageConfig
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType, ReleaseArgs
 from ..state_display import print_state_table
@@ -42,7 +42,14 @@ from .ppas import (
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
 )
-from .state import Package, PackageMeta, ReleaseMeta, ReleaseState, Workflow
+from .state import (
+    SUPPORTED_STATE_VERSION,
+    Package,
+    PackageMeta,
+    ReleaseMeta,
+    ReleaseState,
+    Workflow,
+)
 from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
@@ -263,16 +270,24 @@ class TreeInspector:
             available = ", ".join(self.get_names())
             raise ValueError(f"Unknown name '{name}'. Available options: {available}")
 
-        # Create mock objects for PPA/branch creation
-        workflow = Workflow(workflow_file="test.yml", inputs={})
-        package_meta = PackageMeta(repo="redis/redis", ref="main")
-        release_meta = ReleaseMeta(tag=self.release_tag)
-        github_client = GitHubClientAsync(token="dummy")
-        package = Package(
-            meta=package_meta,
-            build=workflow,
-            publish=Workflow(workflow_file="publish.yml", inputs={}),
+        config = Config(
+            version=SUPPORTED_STATE_VERSION,
+            packages={
+                "inspected": PackageConfig(
+                    repo="test/repo",
+                    package_type=self.package_type,
+                    build_workflow="build.yml",
+                    publish_workflow="publish.yml",
+                )
+            },
         )
+        state = ReleaseState.from_config(config)
+        # Create mock objects for PPA/branch creation
+        workflow = state.packages["inspected"].build
+        package_meta = state.packages["inspected"].meta
+        release_meta = state.meta
+        github_client = GitHubClientAsync(token="dummy")
+        package = state.packages["inspected"]
         log_prefix = "test"
 
         # Create and return the requested branch/PPA
