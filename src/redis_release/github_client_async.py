@@ -1,5 +1,6 @@
 """Async GitHub API client for workflow operations."""
 
+import base64
 import io
 import json
 import logging
@@ -602,6 +603,69 @@ class GitHubClientAsync:
         uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
         uuid_match = re.search(uuid_pattern, text, re.IGNORECASE)
         return uuid_match.group() if uuid_match else None
+
+    async def download_file(
+        self, repo: str, file_path: str, ref: str = "main"
+    ) -> Optional[str]:
+        """Download a specific file from a repository at a specific branch/ref.
+
+        Args:
+            repo: Repository name (e.g., "redis/redis")
+            file_path: Path to the file in the repository (e.g., "config.yaml", "src/main.py")
+            ref: Git reference (branch, tag, or commit SHA) to download from (default: "main")
+
+        Returns:
+            File content as a string, or None if the file is not found or an error occurs
+        """
+        url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github.v3+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        params = {"ref": ref}
+
+        try:
+            logger.debug(
+                f"[blue]Downloading file[/blue] {file_path} from {repo} at ref {ref}"
+            )
+
+            data = await self.github_request(
+                url=url,
+                headers=headers,
+                method="GET",
+                params=params,
+                timeout=30,
+                error_context=f"download file {file_path}",
+            )
+
+            # GitHub API returns file content base64-encoded
+            if "content" in data and data.get("encoding") == "base64":
+                content = base64.b64decode(data["content"]).decode("utf-8")
+                logger.debug(
+                    f"[green]Successfully downloaded {file_path}[/green] ({len(content)} bytes)"
+                )
+                return content
+            else:
+                logger.error(
+                    f"[red]Unexpected response format for file {file_path}[/red]"
+                )
+                return None
+
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                logger.warning(
+                    f"[yellow]File {file_path} not found in {repo} at ref {ref}[/yellow]"
+                )
+            else:
+                logger.error(f"[red]Failed to download file {file_path}: {e}[/red]")
+            return None
+        except aiohttp.ClientError as e:
+            logger.error(f"[red]Failed to download file {file_path}: {e}[/red]")
+            return None
+        except Exception as e:
+            logger.error(f"[red]Error downloading file {file_path}: {e}[/red]")
+            return None
 
     async def list_remote_branches(
         self, repo: str, pattern: Optional[str] = None
