@@ -889,9 +889,9 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
         # Determine which cask file to download based on channel
         if self.package_meta.homebrew_channel == HomebrewChannel.STABLE:
-            cask_file = "zCasks/redis.rb"
+            cask_file = "Casks/redis.rb"
         elif self.package_meta.homebrew_channel == HomebrewChannel.RC:
-            cask_file = "zCasks/redis-rc.rb"
+            cask_file = "Casks/redis-rc.rb"
         else:
             self.logger.error(
                 f"Unknown homebrew channel: {self.package_meta.homebrew_channel}"
