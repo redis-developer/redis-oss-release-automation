@@ -83,19 +83,19 @@ class SlackStatePrinter:
             reply_broadcast: If True and thread_ts is set, also show in main channel
         """
         self.client = WebClient(token=slack_token)
-        self.channel_id = slack_channel_id
+        self.channel_id: str = slack_channel_id
         self.thread_ts = thread_ts
         self.reply_broadcast = reply_broadcast
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
 
-    def format_package_name(self, package_name: str, state: ReleaseState) -> str:
+    def format_package_name(self, package_name: str, package: Package) -> str:
         """Format package name with capital letter and release type.
 
         Args:
             package_name: The raw package name
-            state: The ReleaseState to get release type from
+            package: The Package to get release type from
 
         Returns:
             Formatted package name with capital letter and release type in parentheses
@@ -104,8 +104,8 @@ class SlackStatePrinter:
         formatted = package_name.capitalize()
 
         # Add release type if available
-        if state.meta.release_type:
-            release_type_str = state.meta.release_type.value
+        if package.meta.release_type:
+            release_type_str = package.meta.release_type.value
             formatted = f"{formatted} ({release_type_str})"
 
         return formatted
@@ -149,7 +149,9 @@ class SlackStatePrinter:
                 response = self.client.chat_postMessage(**kwargs)
                 self.message_ts = response["ts"]
                 # Update channel_id from response (authoritative)
-                self.channel_id = response["channel"]
+                channel = response.get("channel")
+                if isinstance(channel, str):
+                    self.channel_id = channel
                 logger.info(
                     f"Posted Slack message ts={self.message_ts}"
                     + (f" in thread {self.thread_ts}" if self.thread_ts else "")
@@ -231,7 +233,7 @@ class SlackStatePrinter:
         # Process each package
         for package_name, package in sorted(state.packages.items()):
             # Format package name with capital letter and release type
-            formatted_name = self.format_package_name(package_name, state)
+            formatted_name = self.format_package_name(package_name, package)
 
             # Get workflow statuses
             build_status_emoji = self._get_status_emoji(package, package.build)

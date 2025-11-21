@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
@@ -28,6 +28,47 @@ app = typer.Typer(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def parse_force_release_type(
+    force_release_type_list: Optional[List[str]],
+) -> Dict[str, ReleaseType]:
+    """Parse force_release_type arguments from 'package_name:release_type' format.
+
+    Args:
+        force_release_type_list: List of strings in format 'package_name:release_type'
+
+    Returns:
+        Dictionary mapping package names to ReleaseType
+
+    Raises:
+        typer.BadParameter: If format is invalid or release type is unknown
+    """
+    if not force_release_type_list:
+        return {}
+
+    result = {}
+    for item in force_release_type_list:
+        if ":" not in item:
+            raise typer.BadParameter(
+                f"Invalid format '{item}'. Expected 'package_name:release_type' (e.g., 'docker:internal')"
+            )
+
+        package_name, release_type_str = item.split(":", 1)
+        package_name = package_name.strip()
+        release_type_str = release_type_str.strip().lower()
+
+        try:
+            release_type = ReleaseType(release_type_str)
+        except ValueError:
+            valid_types = ", ".join([rt.value for rt in ReleaseType])
+            raise typer.BadParameter(
+                f"Invalid release type '{release_type_str}'. Valid types: {valid_types}"
+            )
+
+        result[package_name] = release_type
+
+    return result
 
 
 @app.command()
@@ -108,10 +149,10 @@ def release(
     tree_cutoff: int = typer.Option(
         2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
-    force_release_type: Optional[ReleaseType] = typer.Option(
+    force_release_type: Optional[List[str]] = typer.Option(
         None,
         "--force-release-type",
-        help="Force release type (public or internal)",
+        help="Force release type per package in format 'package_name:release_type' (e.g., 'docker:internal' or 'all:public'). Can be specified multiple times.",
     ),
     override_state_name: Optional[str] = typer.Option(
         None,
@@ -139,7 +180,7 @@ def release(
         release_tag=release_tag,
         force_rebuild=force_rebuild or [],
         only_packages=only_packages or [],
-        force_release_type=force_release_type,
+        force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
         slack_token=slack_token,
         slack_channel_id=slack_channel_id,

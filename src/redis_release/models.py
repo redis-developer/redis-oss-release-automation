@@ -3,7 +3,7 @@
 import functools
 import re
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -235,7 +235,7 @@ class ReleaseArgs(BaseModel):
     release_tag: str
     force_rebuild: List[str] = Field(default_factory=list)
     only_packages: List[str] = Field(default_factory=list)
-    force_release_type: Optional[ReleaseType] = None
+    force_release_type: Dict[str, ReleaseType] = Field(default_factory=dict)
     override_state_name: Optional[str] = None
     slack_token: Optional[str] = None
     slack_channel_id: Optional[str] = None

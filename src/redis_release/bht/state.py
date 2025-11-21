@@ -143,6 +143,7 @@ class PackageMeta(BaseModel):
 
     serialization_hint: Literal["generic"] = "generic"
     package_type: Optional[PackageType] = None
+    release_type: Optional[ReleaseType] = None
     repo: str = ""
     ref: Optional[str] = None
     publish_internal_release: bool = False
@@ -195,7 +196,6 @@ class ReleaseMeta(BaseModel):
     """Metadata for the release."""
 
     tag: Optional[str] = None
-    release_type: Optional[ReleaseType] = None
     last_started_at: Optional[datetime] = None
     ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
 

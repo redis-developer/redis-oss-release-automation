@@ -50,9 +50,6 @@ class S3Backed:
         self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
         self.aws_session_token = os.getenv("AWS_SESSION_TOKEN")
 
-        # local state cache for dry run mode
-        self._local_state_cache = {}
-
     @property
     def s3_client(self) -> Optional[boto3.client]:
         """Lazy initialization of S3 client."""
@@ -245,7 +242,31 @@ class StateManager:
 
             if self.args.force_release_type:
                 logger.info(f"Force release type: {self.args.force_release_type}")
-                state.meta.release_type = self.args.force_release_type
+                # Handle "all" keyword to apply to all packages
+                if "all" in self.args.force_release_type:
+                    release_type = self.args.force_release_type["all"]
+                    for package_name in state.packages:
+                        state.packages[package_name].meta.release_type = release_type
+                        logger.info(
+                            f"Set release type for package '{package_name}': {release_type}"
+                        )
+                else:
+                    # Set release type for specific packages
+                    for (
+                        package_name,
+                        release_type,
+                    ) in self.args.force_release_type.items():
+                        if package_name in state.packages:
+                            state.packages[package_name].meta.release_type = (
+                                release_type
+                            )
+                            logger.info(
+                                f"Set release type for package '{package_name}': {release_type}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Package '{package_name}' not found in state, skipping release type override"
+                            )
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""

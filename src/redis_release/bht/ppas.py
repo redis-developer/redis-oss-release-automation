@@ -137,12 +137,15 @@ def create_identify_target_ref_ppa(
 
 
 def create_detect_release_type_ppa(
+    package_meta: PackageMeta,
     release_meta: ReleaseMeta,
     log_prefix: str,
 ) -> Union[Selector, Sequence]:
     return create_PPA(
         "Detect Release Type",
-        DetectReleaseType("Detect Release Type", release_meta, log_prefix=log_prefix),
+        DetectReleaseType(
+            "Detect Release Type", package_meta, release_meta, log_prefix=log_prefix
+        ),
     )
 
 

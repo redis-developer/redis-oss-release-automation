@@ -133,6 +133,7 @@ class GenericFactory(ABC):
             log_prefix,
         )
         detect_release_type = create_detect_release_type_ppa(
+            package_meta,
             release_meta,
             log_prefix,
         )

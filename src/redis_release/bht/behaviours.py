@@ -731,8 +731,8 @@ class DebianWorkflowInputs(ReleaseAction):
         super().__init__(name=f"{name} - debian", log_prefix=log_prefix)
 
     def update(self) -> Status:
-        if self.release_meta.release_type is not None:
-            self.workflow.inputs["release_type"] = self.release_meta.release_type.value
+        if self.package_meta.release_type is not None:
+            self.workflow.inputs["release_type"] = self.package_meta.release_type.value
         if self.release_meta.tag is not None:
             self.workflow.inputs["release_tag"] = self.release_meta.tag
         return Status.SUCCESS
@@ -765,6 +765,8 @@ class DetectHomebrewChannel(ReleaseAction):
             return Status.FAILURE
 
         msg = ""
+        if self.release_version.is_internal:
+            msg = "Hombebrew internal release detected"
         if self.release_version.is_rc:
             self.package_meta.homebrew_channel = HomebrewChannel.RC
             msg = "Homebrew channel detected: rc"
@@ -1061,7 +1063,7 @@ class NeedToPublishRelease(LoggingAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        if self.release_meta.release_type == ReleaseType.INTERNAL:
+        if self.package_meta.release_type == ReleaseType.INTERNAL:
             if self.package_meta.publish_internal_release:
                 self.logger.debug(
                     f"Internal release requires publishing: {self.release_meta.tag}"
@@ -1077,28 +1079,33 @@ class NeedToPublishRelease(LoggingAction):
 
 class DetectReleaseType(LoggingAction):
     def __init__(
-        self, name: str, release_meta: ReleaseMeta, log_prefix: str = ""
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
     ) -> None:
         self.release_meta = release_meta
+        self.package_meta = package_meta
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        if self.release_meta.release_type is not None:
+        if self.package_meta.release_type is not None:
             if self.log_once(
-                "release_type_detected", self.release_meta.ephemeral.log_once_flags
+                "release_type_detected", self.package_meta.ephemeral.log_once_flags
             ):
                 self.logger.info(
-                    f"Detected release type: {self.release_meta.release_type}"
+                    f"Detected release type: {self.package_meta.release_type}"
                 )
             return Status.SUCCESS
         if self.release_meta.tag and re.search(r"-int\d*$", self.release_meta.tag):
-            self.release_meta.release_type = ReleaseType.INTERNAL
+            self.package_meta.release_type = ReleaseType.INTERNAL
         else:
-            self.release_meta.release_type = ReleaseType.PUBLIC
+            self.package_meta.release_type = ReleaseType.PUBLIC
         self.log_once(
             "release_type_detected", self.release_meta.ephemeral.log_once_flags
         )
-        self.logger.info(f"Detected release type: {self.release_meta.release_type}")
+        self.logger.info(f"Detected release type: {self.package_meta.release_type}")
         return Status.SUCCESS
 
 
