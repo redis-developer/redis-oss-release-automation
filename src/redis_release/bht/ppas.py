@@ -3,7 +3,7 @@ Here we define PPAs (Postcondition-Precondition-Action) composites to be used in
 
 See backchain.py for more details on backchaining.
 
-Chains are formed and latched in `tree.py`
+Chains are formed and latched in `tree_factory.py`
 
 """
 
@@ -33,10 +33,6 @@ from .composites import (
     WaitForWorkflowCompletion,
 )
 from .state import PackageMeta, ReleaseMeta, Workflow
-from .tree_factory import (
-    create_build_workflow_inputs_behaviour,
-    create_publish_workflow_inputs_behaviour,
-)
 
 
 def create_workflow_success_ppa(
@@ -209,42 +205,6 @@ def create_attach_release_handle_ppa(
             "Attach Release Handle",
             build_workflow,
             publish_workflow,
-            log_prefix=log_prefix,
-        ),
-    )
-
-
-def create_build_workflow_inputs_ppa(
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Set Build Workflow Inputs",
-        create_build_workflow_inputs_behaviour(
-            "Set Build Workflow Inputs",
-            workflow,
-            package_meta,
-            release_meta,
-            log_prefix=log_prefix,
-        ),
-    )
-
-
-def create_publish_workflow_inputs_ppa(
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Set Publish Workflow Inputs",
-        create_publish_workflow_inputs_behaviour(
-            "Set Publish Workflow Inputs",
-            workflow,
-            package_meta,
-            release_meta,
             log_prefix=log_prefix,
         ),
     )

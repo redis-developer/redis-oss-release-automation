@@ -1,5 +1,6 @@
 """Data models for Redis release automation."""
 
+import functools
 import re
 from enum import Enum
 from typing import List, Optional
@@ -86,6 +87,7 @@ class WorkflowRun(BaseModel):
     conclusion: Optional[WorkflowConclusion] = None
 
 
+@functools.total_ordering
 class RedisVersion(BaseModel):
     """Represents a parsed Redis version.
 
@@ -139,6 +141,21 @@ class RedisVersion(BaseModel):
         return self.suffix.lower().endswith("-eol")
 
     @property
+    def is_rc(self) -> bool:
+        """Check if this version is a release candidate."""
+        return self.suffix.lower().startswith("rc")
+
+    @property
+    def is_ga(self) -> bool:
+        """Check if this version is a general availability (GA) release."""
+        return not self.is_milestone
+
+    @property
+    def is_internal(self) -> bool:
+        """Check if this version is an internal release."""
+        return self.suffix.lower().startswith("int")
+
+    @property
     def mainline_version(self) -> str:
         """Get the mainline version string (major.minor)."""
         return f"{self.major}.{self.minor}"
@@ -182,6 +199,39 @@ class RedisVersion(BaseModel):
             return True
 
         return self.suffix < other.suffix
+
+    def __le__(self, other: "RedisVersion") -> bool:
+        """Less than or equal comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return self < other or self == other
+
+    def __gt__(self, other: "RedisVersion") -> bool:
+        """Greater than comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return not self <= other
+
+    def __ge__(self, other: "RedisVersion") -> bool:
+        """Greater than or equal comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return not self < other
+
+    def __eq__(self, other: object) -> bool:
+        """Equality comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return (
+            self.major == other.major
+            and self.minor == other.minor
+            and (self.patch or 0) == (other.patch or 0)
+            and self.suffix == other.suffix
+        )
+
+    def __hash__(self) -> int:
+        """Hash for use in sets and dicts."""
+        return hash((self.major, self.minor, self.patch or 0, self.suffix))
 
 
 class ReleaseArgs(BaseModel):

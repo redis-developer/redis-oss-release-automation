@@ -264,12 +264,13 @@ class StateManager:
 
     def _reset_ephemeral_fields(self, state: ReleaseState) -> None:
         """Reset ephemeral fields to defaults (except log_once_flags which are always reset)."""
+
         # Reset release meta ephemeral
         state.meta.ephemeral = state.meta.ephemeral.__class__()
 
         # Reset package ephemeral fields
         for package in state.packages.values():
-            package.meta.ephemeral = package.meta.ephemeral.__class__()
+            package.meta.ephemeral = package.meta.ephemeral.__class__()  # type: ignore
             package.build.ephemeral = package.build.ephemeral.__class__()
             package.publish.ephemeral = package.publish.ephemeral.__class__()
 

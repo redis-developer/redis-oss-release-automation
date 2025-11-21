@@ -26,6 +26,7 @@ from redis_release.bht.state import reset_model_to_defaults
 
 from ..github_client_async import GitHubClientAsync
 from ..models import (
+    HomebrewChannel,
     PackageType,
     RedisVersion,
     ReleaseType,
@@ -33,7 +34,7 @@ from ..models import (
     WorkflowStatus,
 )
 from .logging_wrapper import PyTreesLoggerWrapper
-from .state import Package, PackageMeta, ReleaseMeta, Workflow
+from .state import HomebrewMeta, Package, PackageMeta, ReleaseMeta, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -735,6 +736,193 @@ class DebianWorkflowInputs(ReleaseAction):
         if self.release_meta.tag is not None:
             self.workflow.inputs["release_tag"] = self.release_meta.tag
         return Status.SUCCESS
+
+
+class DetectHomebrewChannel(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        if self.release_meta.tag is None:
+            self.logger.error("Release tag is not set")
+            return
+        try:
+            self.release_version = RedisVersion.parse(self.release_meta.tag)
+        except ValueError as e:
+            self.logger.error(f"Failed to parse release tag: {e}")
+            return
+
+    def update(self) -> Status:
+        if self.release_meta.tag is None:
+            return Status.FAILURE
+
+        msg = ""
+        if self.release_version.is_rc:
+            self.package_meta.homebrew_channel = HomebrewChannel.RC
+            msg = "Homebrew channel detected: rc"
+        elif self.release_version.is_ga:
+            msg = "Homebrew channel detected: stable"
+            self.package_meta.homebrew_channel = HomebrewChannel.STABLE
+        else:
+            msg = "Homebrew channel not detected"
+
+        if self.log_once(
+            "homebrew_channel_detected", self.package_meta.ephemeral.log_once_flags
+        ):
+            self.logger.info(msg)
+
+        return Status.SUCCESS
+
+
+class ClassifyHomebrewVersion(ReleaseAction):
+    """Classify Homebrew version by downloading and parsing the cask file.
+
+    This behavior downloads the appropriate Homebrew cask file (redis.rb or redis-rc.rb)
+    based on the homebrew_channel, extracts the version, and compares it with the
+    release tag version to determine if the version is acceptable.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        self.github_client = github_client
+        self.task: Optional[asyncio.Task] = None
+        self.release_version: Optional[RedisVersion] = None
+        self.cask_version: Optional[RedisVersion] = None
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        """Initialize by validating inputs and starting download task."""
+        # Validate homebrew_channel is set
+        if self.package_meta.homebrew_channel is None:
+            self.logger.error("Homebrew channel is not set")
+            return
+
+        # Validate repo and ref are set
+        if not self.package_meta.repo:
+            self.logger.error("Package repository is not set")
+            return
+
+        if not self.package_meta.ref:
+            self.logger.error("Package ref is not set")
+            return
+
+        # Parse release version from tag
+        if self.release_meta.tag is None:
+            self.logger.error("Release tag is not set")
+            return
+
+        try:
+            self.release_version = RedisVersion.parse(self.release_meta.tag)
+            self.logger.debug(f"Parsed release version: {self.release_version}")
+        except ValueError as e:
+            self.logger.error(f"Failed to parse release tag: {e}")
+            return
+
+        # Determine which cask file to download based on channel
+        if self.package_meta.homebrew_channel == HomebrewChannel.STABLE:
+            cask_file = "Casks/redis.rb"
+        elif self.package_meta.homebrew_channel == HomebrewChannel.RC:
+            cask_file = "Casks/redis-rc.rb"
+        else:
+            self.logger.error(
+                f"Unknown homebrew channel: {self.package_meta.homebrew_channel}"
+            )
+            return
+
+        self.logger.debug(
+            f"Downloading cask file: {cask_file} from {self.package_meta.repo}@{self.package_meta.ref}"
+        )
+
+        # Start async task to download the cask file from package repo and ref
+        self.task = asyncio.create_task(
+            self.github_client.download_file(
+                self.package_meta.repo, cask_file, self.package_meta.ref
+            )
+        )
+
+    def update(self) -> Status:
+        """Process downloaded cask file and classify version."""
+        try:
+            # Validate prerequisites
+            if self.package_meta.homebrew_channel is None:
+                return Status.FAILURE
+
+            if self.release_version is None:
+                return Status.FAILURE
+
+            assert self.task is not None
+
+            # Wait for download to complete
+            if not self.task.done():
+                return Status.RUNNING
+
+            # Get the downloaded content
+            cask_content = self.task.result()
+            if cask_content is None:
+                self.logger.error("Failed to download cask file")
+                return Status.FAILURE
+
+            # Parse version from cask file
+            # Look for: version "X.Y.Z"
+            import re
+
+            version_match = re.search(
+                r'^\s*version\s+"([^"]+)"', cask_content, re.MULTILINE
+            )
+            if not version_match:
+                self.logger.error("Could not find version declaration in cask file")
+                return Status.FAILURE
+
+            version_str = version_match.group(1)
+            self.logger.debug(f"Found version in cask file: {version_str}")
+
+            # Parse the cask version
+            try:
+                self.cask_version = RedisVersion.parse(version_str)
+                self.logger.info(
+                    f"Cask version: {self.cask_version}, Release version: {self.release_version}"
+                )
+            except ValueError as e:
+                self.logger.error(f"Failed to parse cask version '{version_str}': {e}")
+                return Status.FAILURE
+
+            # Compare versions: cask version >= release version means acceptable
+            if self.cask_version >= self.release_version:  # type: ignore[operator]
+                self.package_meta.ephemeral.is_version_acceptable = True
+                self.logger.info(
+                    f"[green]Version acceptable:[/green] cask {self.cask_version} >= release {self.release_version}"
+                )
+            else:
+                self.package_meta.ephemeral.is_version_acceptable = False
+                self.logger.info(
+                    f"[yellow]Version not acceptable:[/yellow] cask {self.cask_version} < release {self.release_version}"
+                )
+
+            return Status.SUCCESS
+
+        except Exception as e:
+            return self.log_exception_and_return_failure(e)
+
+    def terminate(self, new_status: Status) -> None:
+        """Terminate the behavior."""
+        # TODO: Cancel task if needed
+        pass
 
 
 ### Conditions ###

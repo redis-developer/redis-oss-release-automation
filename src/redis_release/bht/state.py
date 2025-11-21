@@ -18,7 +18,7 @@ from redis_release.models import (
     WorkflowType,
 )
 
-from ..config import Config
+from ..config import Config, PackageConfig
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,30 @@ class PackageMetaEphemeral(BaseModel):
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
+class HomebrewMetaEphemeral(PackageMetaEphemeral):
+    """Ephemeral metadata for Homebrew package.
+
+    Extends base ephemeral metadata with Homebrew-specific fields.
+    """
+
+    classify_remote_versions: Optional[common.Status] = None
+
+    is_version_acceptable: Optional[bool] = None
+
+
+class SnapMetaEphemeral(PackageMetaEphemeral):
+    """Ephemeral metadata for Snap package.
+
+    Extends base ephemeral metadata with Snap-specific fields.
+    """
+
+    classify_remote_versions: Optional[common.Status] = None
+
+    is_version_acceptable: Optional[bool] = None
+
+    pass
+
+
 class PackageMeta(BaseModel):
     """Metadata for a package (base/generic type)."""
 
@@ -130,6 +154,7 @@ class HomebrewMeta(PackageMeta):
 
     serialization_hint: Literal["homebrew"] = "homebrew"  # type: ignore[assignment]
     homebrew_channel: Optional[HomebrewChannel] = None
+    ephemeral: HomebrewMetaEphemeral = Field(default_factory=HomebrewMetaEphemeral)  # type: ignore[assignment]
 
 
 class SnapMeta(PackageMeta):
@@ -137,6 +162,7 @@ class SnapMeta(PackageMeta):
 
     serialization_hint: Literal["snap"] = "snap"  # type: ignore[assignment]
     snap_risk_level: Optional[SnapRiskLevel] = None
+    ephemeral: SnapMetaEphemeral = Field(default_factory=SnapMetaEphemeral)  # type: ignore[assignment]
 
 
 class Package(BaseModel):
@@ -181,6 +207,47 @@ class ReleaseState(BaseModel):
     meta: ReleaseMeta = Field(default_factory=ReleaseMeta)
     packages: Dict[str, Package] = Field(default_factory=dict)
 
+    @staticmethod
+    def _create_package_meta_from_config(
+        package_config: "PackageConfig",
+    ) -> Union[HomebrewMeta, SnapMeta, PackageMeta]:
+        """Create appropriate PackageMeta subclass based on package_type.
+
+        Args:
+            package_config: Package configuration
+
+        Returns:
+            PackageMeta subclass instance (HomebrewMeta, SnapMeta, or PackageMeta)
+
+        Raises:
+            ValueError: If package_type is None
+        """
+        if package_config.package_type == PackageType.HOMEBREW:
+            return HomebrewMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.SNAP:
+            return SnapMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type is not None:
+            return PackageMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        else:
+            raise ValueError(
+                f"package_type must be a PackageType, got {type(package_config.package_type).__name__}"
+            )
+
     @classmethod
     def from_config(cls, config: Config) -> "ReleaseState":
         """Build ReleaseState from config with default values."""
@@ -209,33 +276,10 @@ class ReleaseState(BaseModel):
                 )
 
             # Initialize package metadata - create appropriate subclass based on package_type
-            package_meta: Union[HomebrewMeta, SnapMeta, PackageMeta]
-            if package_config.package_type == PackageType.HOMEBREW:
-                package_meta = HomebrewMeta(
-                    repo=package_config.repo,
-                    ref=package_config.ref,
-                    package_type=package_config.package_type,
-                    publish_internal_release=package_config.publish_internal_release,
-                )
-            elif package_config.package_type == PackageType.SNAP:
-                package_meta = SnapMeta(
-                    repo=package_config.repo,
-                    ref=package_config.ref,
-                    package_type=package_config.package_type,
-                    publish_internal_release=package_config.publish_internal_release,
-                )
-            elif package_config.package_type is not None:
-                package_meta = PackageMeta(
-                    repo=package_config.repo,
-                    ref=package_config.ref,
-                    package_type=package_config.package_type,
-                    publish_internal_release=package_config.publish_internal_release,
-                )
-            else:
-                raise ValueError(
-                    f"Package '{package_name}': package_type must be a PackageType, "
-                    f"got {type(package_config.package_type).__name__}"
-                )
+            try:
+                package_meta = cls._create_package_meta_from_config(package_config)
+            except ValueError as e:
+                raise ValueError(f"Package '{package_name}': {e}") from e
 
             # Initialize build workflow
             build_workflow = Workflow(
