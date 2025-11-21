@@ -1,7 +1,7 @@
 version: 1
 packages:
   docker:
-    # available types: docker, debian
+    # available types: docker, debian, homebrew
     package_type: docker
     # repo where the workflow is started
     repo: redis/docker-library-redis
@@ -33,8 +33,19 @@ packages:
     publish_timeout_minutes: 10
     publish_inputs: {}
   rpm:
-    package_type: debian
+    package_type: rpm
     repo: redis/redis-rpm
+    build_workflow: release_build_and_test.yml
+    build_inputs: {}
+    publish_internal_release: yes
+    publish_workflow: release_publish.yml
+    publish_timeout_minutes: 10
+    publish_inputs: {}
+  homebrew:
+    package_type: homebrew
+    repo: redis/homebrew-redis
+    # homebrew has one fixed release branch: main
+    ref: main
     build_workflow: release_build_and_test.yml
     build_inputs: {}
     publish_internal_release: yes

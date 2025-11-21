@@ -13,7 +13,6 @@ from rich.pretty import pretty_repr
 
 from redis_release.bht.state import ReleaseState, logger
 from redis_release.config import Config
-from redis_release.state_display import print_state_table
 
 from .bht.state import ReleaseState
 from .models import ReleaseArgs
@@ -49,9 +48,6 @@ class S3Backed:
         self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
         self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
         self.aws_session_token = os.getenv("AWS_SESSION_TOKEN")
-
-        # local state cache for dry run mode
-        self._local_state_cache = {}
 
     @property
     def s3_client(self) -> Optional[boto3.client]:
@@ -245,7 +241,31 @@ class StateManager:
 
             if self.args.force_release_type:
                 logger.info(f"Force release type: {self.args.force_release_type}")
-                state.meta.release_type = self.args.force_release_type
+                # Handle "all" keyword to apply to all packages
+                if "all" in self.args.force_release_type:
+                    release_type = self.args.force_release_type["all"]
+                    for package_name in state.packages:
+                        state.packages[package_name].meta.release_type = release_type
+                        logger.info(
+                            f"Set release type for package '{package_name}': {release_type}"
+                        )
+                else:
+                    # Set release type for specific packages
+                    for (
+                        package_name,
+                        release_type,
+                    ) in self.args.force_release_type.items():
+                        if package_name in state.packages:
+                            state.packages[package_name].meta.release_type = (
+                                release_type
+                            )
+                            logger.info(
+                                f"Set release type for package '{package_name}': {release_type}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Package '{package_name}' not found in state, skipping release type override"
+                            )
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""
@@ -264,12 +284,13 @@ class StateManager:
 
     def _reset_ephemeral_fields(self, state: ReleaseState) -> None:
         """Reset ephemeral fields to defaults (except log_once_flags which are always reset)."""
+
         # Reset release meta ephemeral
         state.meta.ephemeral = state.meta.ephemeral.__class__()
 
         # Reset package ephemeral fields
         for package in state.packages.values():
-            package.meta.ephemeral = package.meta.ephemeral.__class__()
+            package.meta.ephemeral = package.meta.ephemeral.__class__()  # type: ignore
             package.build.ephemeral = package.build.ephemeral.__class__()
             package.publish.ephemeral = package.publish.ephemeral.__class__()
 

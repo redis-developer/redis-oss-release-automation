@@ -21,6 +21,7 @@ from py_trees.decorators import Repeat, Retry, SuccessIsRunning, Timeout
 
 from ..github_client_async import GitHubClientAsync
 from .behaviours import (
+    ClassifyHomebrewVersion,
     ExtractArtifactResult,
     GetWorkflowArtifactsList,
     IdentifyTargetRef,
@@ -32,7 +33,7 @@ from .behaviours import (
 from .behaviours import TriggerWorkflow as TriggerWorkflow
 from .behaviours import UpdateWorkflowStatusUntilCompletion
 from .decorators import ConditionGuard, FlagGuard, StatusFlagGuard
-from .state import Package, PackageMeta, ReleaseMeta, Workflow
+from .state import HomebrewMeta, Package, PackageMeta, ReleaseMeta, Workflow
 
 
 class ParallelBarrier(Composite):
@@ -391,5 +392,29 @@ class RestartWorkflowGuarded(ConditionGuard):
             or workflow.ephemeral.wait_for_completion_timed_out is True,
             child=reset_workflow_state_running,
             guard_status=Status.FAILURE,
+            log_prefix=log_prefix,
+        )
+
+
+class ClassifyHomebrewVersionGuarded(StatusFlagGuard):
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            None if name == "" else name,
+            ClassifyHomebrewVersion(
+                "Classify Homebrew Version",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+            ),
+            package_meta.ephemeral,
+            "classify_remote_versions",
             log_prefix=log_prefix,
         )

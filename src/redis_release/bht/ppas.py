@@ -3,7 +3,7 @@ Here we define PPAs (Postcondition-Precondition-Action) composites to be used in
 
 See backchain.py for more details on backchaining.
 
-Chains are formed and latched in `tree.py`
+Chains are formed and latched in `tree_factory.py`
 
 """
 
@@ -23,8 +23,6 @@ from .behaviours import (
     IsWorkflowIdentified,
     IsWorkflowSuccessful,
     IsWorkflowTriggered,
-    create_prepare_build_workflow_inputs,
-    create_prepare_publish_workflow_inputs,
 )
 from .composites import (
     DownloadArtifactsListGuarded,
@@ -139,12 +137,15 @@ def create_identify_target_ref_ppa(
 
 
 def create_detect_release_type_ppa(
+    package_meta: PackageMeta,
     release_meta: ReleaseMeta,
     log_prefix: str,
 ) -> Union[Selector, Sequence]:
     return create_PPA(
         "Detect Release Type",
-        DetectReleaseType("Detect Release Type", release_meta, log_prefix=log_prefix),
+        DetectReleaseType(
+            "Detect Release Type", package_meta, release_meta, log_prefix=log_prefix
+        ),
     )
 
 
@@ -207,42 +208,6 @@ def create_attach_release_handle_ppa(
             "Attach Release Handle",
             build_workflow,
             publish_workflow,
-            log_prefix=log_prefix,
-        ),
-    )
-
-
-def create_build_workflow_inputs_ppa(
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Set Build Workflow Inputs",
-        create_prepare_build_workflow_inputs(
-            "Set Build Workflow Inputs",
-            workflow,
-            package_meta,
-            release_meta,
-            log_prefix=log_prefix,
-        ),
-    )
-
-
-def create_publish_workflow_inputs_ppa(
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Set Publish Workflow Inputs",
-        create_prepare_publish_workflow_inputs(
-            "Set Publish Workflow Inputs",
-            workflow,
-            package_meta,
-            release_meta,
             log_prefix=log_prefix,
         ),
     )

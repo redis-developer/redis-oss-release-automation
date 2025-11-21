@@ -6,7 +6,7 @@ from typing import Dict, Optional, Union
 import yaml
 from pydantic import BaseModel, Field
 
-from .models import PackageType
+from .models import HomebrewChannel, PackageType, SnapRiskLevel
 
 
 class PackageConfig(BaseModel):

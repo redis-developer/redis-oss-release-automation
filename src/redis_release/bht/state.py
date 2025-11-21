@@ -2,25 +2,27 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 from py_trees import common
 from py_trees.common import Status
 from pydantic import BaseModel, Field
 
 from redis_release.models import (
+    HomebrewChannel,
     PackageType,
     ReleaseType,
+    SnapRiskLevel,
     WorkflowConclusion,
     WorkflowStatus,
     WorkflowType,
 )
 
-from ..config import Config
+from ..config import Config, PackageConfig
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_STATE_VERSION = 2
+SUPPORTED_STATE_VERSION = 3
 
 
 class WorkflowEphemeral(BaseModel):
@@ -112,20 +114,81 @@ class PackageMetaEphemeral(BaseModel):
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
 
 
-class PackageMeta(BaseModel):
-    """Metadata for a package."""
+class HomebrewMetaEphemeral(PackageMetaEphemeral):
+    """Ephemeral metadata for Homebrew package.
 
+    Extends base ephemeral metadata with Homebrew-specific fields.
+    """
+
+    classify_remote_versions: Optional[common.Status] = None
+
+    is_version_acceptable: Optional[bool] = None
+
+
+class SnapMetaEphemeral(PackageMetaEphemeral):
+    """Ephemeral metadata for Snap package.
+
+    Extends base ephemeral metadata with Snap-specific fields.
+    """
+
+    classify_remote_versions: Optional[common.Status] = None
+
+    is_version_acceptable: Optional[bool] = None
+
+    pass
+
+
+class PackageMeta(BaseModel):
+    """Metadata for a package (base/generic type)."""
+
+    serialization_hint: Literal["generic"] = "generic"
     package_type: Optional[PackageType] = None
+    release_type: Optional[ReleaseType] = None
     repo: str = ""
     ref: Optional[str] = None
     publish_internal_release: bool = False
     ephemeral: PackageMetaEphemeral = Field(default_factory=PackageMetaEphemeral)
 
 
-class Package(BaseModel):
-    """State for a package in the release."""
+class HomebrewMeta(PackageMeta):
+    """Metadata for Homebrew package."""
 
-    meta: PackageMeta = Field(default_factory=PackageMeta)
+    serialization_hint: Literal["homebrew"] = "homebrew"  # type: ignore[assignment]
+    homebrew_channel: Optional[HomebrewChannel] = None
+    # remote_version field is for status display only (e.g. to pair with
+    # classify_remote_versions flag) actual decision is based on
+    # ephemeral.is_version_acceptable which is reset on each run to always
+    # reflect recent remote version
+    remote_version: Optional[str] = None
+    ephemeral: HomebrewMetaEphemeral = Field(default_factory=HomebrewMetaEphemeral)  # type: ignore[assignment]
+
+
+class SnapMeta(PackageMeta):
+    """Metadata for Snap package."""
+
+    serialization_hint: Literal["snap"] = "snap"  # type: ignore[assignment]
+    snap_risk_level: Optional[SnapRiskLevel] = None
+    # remote_version field is for status display only (e.g. to pair with
+    # classify_remote_versions flag) actual decision is based on
+    # ephemeral.is_version_acceptable which is reset on each run to always
+    # reflect recent remote version
+    remote_version: Optional[str] = None
+    ephemeral: SnapMetaEphemeral = Field(default_factory=SnapMetaEphemeral)  # type: ignore[assignment]
+
+
+class Package(BaseModel):
+    """State for a package in the release.
+
+    The meta field uses a discriminated union based on the serialization_hint field.
+    This ensures correct deserialization:
+    - serialization_hint="generic" -> PackageMeta
+    - serialization_hint="homebrew" -> HomebrewMeta
+    - serialization_hint="snap" -> SnapMeta
+    """
+
+    meta: Union[HomebrewMeta, SnapMeta, PackageMeta] = Field(
+        default_factory=PackageMeta, discriminator="serialization_hint"
+    )
     build: Workflow = Field(default_factory=Workflow)
     publish: Workflow = Field(default_factory=Workflow)
 
@@ -143,7 +206,6 @@ class ReleaseMeta(BaseModel):
     """Metadata for the release."""
 
     tag: Optional[str] = None
-    release_type: Optional[ReleaseType] = None
     last_started_at: Optional[datetime] = None
     ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
 
@@ -151,20 +213,56 @@ class ReleaseMeta(BaseModel):
 class ReleaseState(BaseModel):
     """Release state adapted for behavior tree usage."""
 
-    version: int = 2
+    version: int = SUPPORTED_STATE_VERSION
     meta: ReleaseMeta = Field(default_factory=ReleaseMeta)
     packages: Dict[str, Package] = Field(default_factory=dict)
+
+    @staticmethod
+    def _create_package_meta_from_config(
+        package_config: "PackageConfig",
+    ) -> Union[HomebrewMeta, SnapMeta, PackageMeta]:
+        """Create appropriate PackageMeta subclass based on package_type.
+
+        Args:
+            package_config: Package configuration
+
+        Returns:
+            PackageMeta subclass instance (HomebrewMeta, SnapMeta, or PackageMeta)
+
+        Raises:
+            ValueError: If package_type is None
+        """
+        if package_config.package_type == PackageType.HOMEBREW:
+            return HomebrewMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.SNAP:
+            return SnapMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type is not None:
+            return PackageMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        else:
+            raise ValueError(
+                f"package_type must be a PackageType, got {type(package_config.package_type).__name__}"
+            )
 
     @classmethod
     def from_config(cls, config: Config) -> "ReleaseState":
         """Build ReleaseState from config with default values."""
         packages = {}
         for package_name, package_config in config.packages.items():
-            if not isinstance(package_config.package_type, PackageType):
-                raise ValueError(
-                    f"Package '{package_name}': package_type must be a PackageType, "
-                    f"got {type(package_config.package_type).__name__}"
-                )
             # Validate and get build workflow file
             if not isinstance(package_config.build_workflow, str):
                 raise ValueError(
@@ -187,13 +285,11 @@ class ReleaseState(BaseModel):
                     f"Package '{package_name}': publish_workflow cannot be empty"
                 )
 
-            # Initialize package metadata
-            package_meta = PackageMeta(
-                repo=package_config.repo,
-                ref=package_config.ref,
-                package_type=package_config.package_type,
-                publish_internal_release=package_config.publish_internal_release,
-            )
+            # Initialize package metadata - create appropriate subclass based on package_type
+            try:
+                package_meta = cls._create_package_meta_from_config(package_config)
+            except ValueError as e:
+                raise ValueError(f"Package '{package_name}': {e}") from e
 
             # Initialize build workflow
             build_workflow = Workflow(

@@ -10,13 +10,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install packages
+
+      - name: Install uv
         run: |
-          python -m venv venv
-          . venv/bin/activate
-          pip install -e .[dev]
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
 
       - name: Run tests
         run: |
-          . venv/bin/activate
-          pytest
+          uv run --all-extras pytest

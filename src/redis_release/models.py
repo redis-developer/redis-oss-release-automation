@@ -1,8 +1,9 @@
 """Data models for Redis release automation."""
 
+import functools
 import re
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,37 @@ class PackageType(str, Enum):
 
     DOCKER = "docker"
     DEBIAN = "debian"
+    RPM = "rpm"
+    HOMEBREW = "homebrew"
+    SNAP = "snap"
+
+
+class PackageSerializationType(str, Enum):
+    """Package serialization type for discriminated union.
+
+    This enum is used as a discriminator field for Pydantic's discriminated union
+    to correctly deserialize different PackageMeta subclasses.
+    """
+
+    DEFAULT = "default"  # For generic PackageMeta
+    HOMEBREW = "homebrew"  # For HomebrewMeta
+    SNAP = "snap"  # For SnapMeta
+
+
+class HomebrewChannel(str, Enum):
+    """Homebrew channel enumeration."""
+
+    STABLE = "stable"
+    RC = "rc"
+
+
+class SnapRiskLevel(str, Enum):
+    """Snap channel enumeration."""
+
+    STABLE = "stable"
+    CANDIDATE = "candidate"
+    BETA = "beta"
+    EDGE = "edge"
 
 
 class ReleaseType(str, Enum):
@@ -55,6 +87,7 @@ class WorkflowRun(BaseModel):
     conclusion: Optional[WorkflowConclusion] = None
 
 
+@functools.total_ordering
 class RedisVersion(BaseModel):
     """Represents a parsed Redis version.
 
@@ -108,21 +141,45 @@ class RedisVersion(BaseModel):
         return self.suffix.lower().endswith("-eol")
 
     @property
+    def is_rc(self) -> bool:
+        """Check if this version is a release candidate."""
+        return self.suffix.lower().startswith("-rc")
+
+    @property
+    def is_ga(self) -> bool:
+        """Check if this version is a general availability (GA) release."""
+        return not self.is_milestone
+
+    @property
+    def is_internal(self) -> bool:
+        """Check if this version is an internal release."""
+        return bool(re.search(r"-int\d*$", self.suffix.lower()))
+
+    @property
     def mainline_version(self) -> str:
         """Get the mainline version string (major.minor)."""
         return f"{self.major}.{self.minor}"
 
     @property
-    def sort_key(self) -> str:
-        suffix_weight = 0
-        if self.suffix.startswith("rc"):
-            suffix_weight = 100
-        elif self.suffix.startswith("m"):
-            suffix_weight = 50
+    def suffix_weight(self) -> str:
+        # warning: using lexicographic order, letters doesn't have any meaning except for ordering
+        suffix_weight = ""
+        if self.is_ga:
+            suffix_weight = "QQ"
+        if self.is_rc:
+            suffix_weight = "LL"
+        elif self.suffix.startswith("-m"):
+            suffix_weight = "II"
 
-        return (
-            f"{self.major}.{self.minor}.{self.patch or 0}.{suffix_weight}.{self.suffix}"
-        )
+        # internal versions are always lower than their GA/rc/m counterparts
+        if self.is_internal:
+            suffix_weight = suffix_weight[:1] + "E"
+
+        return suffix_weight
+
+    @property
+    def sort_key(self) -> str:
+        return f"{self.major}.{self.minor}.{self.patch or 0}.{self.suffix_weight}{self.suffix}"
 
     def __str__(self) -> str:
         """String representation of the version."""
@@ -136,21 +193,40 @@ class RedisVersion(BaseModel):
         if not isinstance(other, RedisVersion):
             return NotImplemented
 
-        # Compare major.minor.patch first
-        self_tuple = (self.major, self.minor, self.patch or 0)
-        other_tuple = (other.major, other.minor, other.patch or 0)
+        return self.sort_key < other.sort_key
 
-        if self_tuple != other_tuple:
-            return self_tuple < other_tuple
+    def __le__(self, other: "RedisVersion") -> bool:
+        """Less than or equal comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return self < other or self == other
 
-        # If numeric parts are equal, compare suffixes
-        # Empty suffix (GA) comes after suffixes (milestones)
-        if not self.suffix and other.suffix:
-            return False
-        if self.suffix and not other.suffix:
-            return True
+    def __gt__(self, other: "RedisVersion") -> bool:
+        """Greater than comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return not self <= other
 
-        return self.suffix < other.suffix
+    def __ge__(self, other: "RedisVersion") -> bool:
+        """Greater than or equal comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return not self < other
+
+    def __eq__(self, other: object) -> bool:
+        """Equality comparison."""
+        if not isinstance(other, RedisVersion):
+            return NotImplemented
+        return (
+            self.major == other.major
+            and self.minor == other.minor
+            and (self.patch or 0) == (other.patch or 0)
+            and self.suffix == other.suffix
+        )
+
+    def __hash__(self) -> int:
+        """Hash for use in sets and dicts."""
+        return hash((self.major, self.minor, self.patch or 0, self.suffix))
 
 
 class ReleaseArgs(BaseModel):
@@ -159,7 +235,7 @@ class ReleaseArgs(BaseModel):
     release_tag: str
     force_rebuild: List[str] = Field(default_factory=list)
     only_packages: List[str] = Field(default_factory=list)
-    force_release_type: Optional[ReleaseType] = None
+    force_release_type: Dict[str, ReleaseType] = Field(default_factory=dict)
     override_state_name: Optional[str] = None
     slack_token: Optional[str] = None
     slack_channel_id: Optional[str] = None

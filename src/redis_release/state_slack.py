@@ -11,7 +11,15 @@ from slack_sdk.errors import SlackApiError
 
 from redis_release.state_display import DisplayModel, StepStatus
 
-from .bht.state import Package, ReleaseState, Workflow
+from .bht.state import (
+    HomebrewMeta,
+    HomebrewMetaEphemeral,
+    Package,
+    ReleaseState,
+    SnapMeta,
+    SnapMetaEphemeral,
+    Workflow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,19 +91,19 @@ class SlackStatePrinter:
             reply_broadcast: If True and thread_ts is set, also show in main channel
         """
         self.client = WebClient(token=slack_token)
-        self.channel_id = slack_channel_id
+        self.channel_id: str = slack_channel_id
         self.thread_ts = thread_ts
         self.reply_broadcast = reply_broadcast
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
 
-    def format_package_name(self, package_name: str, state: ReleaseState) -> str:
+    def format_package_name(self, package_name: str, package: Package) -> str:
         """Format package name with capital letter and release type.
 
         Args:
             package_name: The raw package name
-            state: The ReleaseState to get release type from
+            package: The Package to get release type from
 
         Returns:
             Formatted package name with capital letter and release type in parentheses
@@ -104,8 +112,8 @@ class SlackStatePrinter:
         formatted = package_name.capitalize()
 
         # Add release type if available
-        if state.meta.release_type:
-            release_type_str = state.meta.release_type.value
+        if package.meta.release_type:
+            release_type_str = package.meta.release_type.value
             formatted = f"{formatted} ({release_type_str})"
 
         return formatted
@@ -149,7 +157,9 @@ class SlackStatePrinter:
                 response = self.client.chat_postMessage(**kwargs)
                 self.message_ts = response["ts"]
                 # Update channel_id from response (authoritative)
-                self.channel_id = response["channel"]
+                channel = response.get("channel")
+                if isinstance(channel, str):
+                    self.channel_id = channel
                 logger.info(
                     f"Posted Slack message ts={self.message_ts}"
                     + (f" in thread {self.thread_ts}" if self.thread_ts else "")
@@ -231,7 +241,7 @@ class SlackStatePrinter:
         # Process each package
         for package_name, package in sorted(state.packages.items()):
             # Format package name with capital letter and release type
-            formatted_name = self.format_package_name(package_name, state)
+            formatted_name = self.format_package_name(package_name, package)
 
             # Get workflow statuses
             build_status_emoji = self._get_status_emoji(package, package.build)
@@ -294,6 +304,8 @@ class SlackStatePrinter:
     def _get_status_emoji(self, package: Package, workflow: Workflow) -> str:
         """Get emoji status for a workflow.
 
+        For build workflow of Homebrew/Snap packages, checks validation status first.
+
         Args:
             package: The package containing the workflow
             workflow: The workflow to check
@@ -301,9 +313,31 @@ class SlackStatePrinter:
         Returns:
             Emoji status string
         """
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
-        status = workflow_status[0]
+        # For build workflow of Homebrew/Snap packages, check validation status first
+        if workflow == package.build and (
+            type(package.meta.ephemeral) == HomebrewMetaEphemeral
+            or type(package.meta.ephemeral) == SnapMetaEphemeral
+        ):
+            # Check validation status first
+            validation_status, _ = DisplayModel.get_release_validation_status(
+                package.meta  # type: ignore
+            )
+            if validation_status != StepStatus.SUCCEEDED:
+                return self._get_step_status_emoji(validation_status)
 
+        # Check workflow status
+        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        return self._get_step_status_emoji(workflow_status[0])
+
+    def _get_step_status_emoji(self, status: StepStatus) -> str:
+        """Convert step status to emoji string.
+
+        Args:
+            status: The step status
+
+        Returns:
+            Emoji status string
+        """
         if status == StepStatus.SUCCEEDED:
             return "✅ Success"
         elif status == StepStatus.RUNNING:
@@ -320,6 +354,8 @@ class SlackStatePrinter:
     ) -> str:
         """Collect workflow step details for Slack display.
 
+        For build workflow of Homebrew/Snap packages, includes validation details.
+
         Args:
             package: The package containing the workflow
             workflow: The workflow to check
@@ -327,13 +363,53 @@ class SlackStatePrinter:
         Returns:
             Formatted string of workflow steps
         """
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
-        if workflow_status[0] == StepStatus.NOT_STARTED:
-            return ""
-
         details: List[str] = []
 
-        for step_status, step_name, step_message in workflow_status[1]:
+        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        # For build workflow of Homebrew/Snap packages, include validation details
+        if workflow == package.build and (
+            type(package.meta.ephemeral) == HomebrewMetaEphemeral
+            or type(package.meta.ephemeral) == SnapMetaEphemeral
+        ):
+            validation_status, validation_steps = (
+                DisplayModel.get_release_validation_status(package.meta)  # type: ignore
+            )
+            # Show any validation steps only when build has started or validation has failed
+            if (
+                validation_status != StepStatus.NOT_STARTED
+                and workflow_status[0] != StepStatus.NOT_STARTED
+            ) or (validation_status == StepStatus.FAILED):
+                details.extend(
+                    self._format_steps_for_slack(validation_steps, "Release Validation")
+                )
+
+        # Add workflow details
+        if workflow_status[0] != StepStatus.NOT_STARTED:
+            workflow_name = (
+                "Build Workflow" if workflow == package.build else "Publish Workflow"
+            )
+            details.extend(
+                self._format_steps_for_slack(workflow_status[1], workflow_name)
+            )
+
+        return "\n".join(details)
+
+    def _format_steps_for_slack(
+        self, steps: List[Tuple[StepStatus, str, Optional[str]]], prefix: str
+    ) -> List[str]:
+        """Format step details for Slack display.
+
+        Args:
+            steps: List of (step_status, step_name, step_message) tuples
+            prefix: Section prefix/title
+
+        Returns:
+            List of formatted step strings
+        """
+        details: List[str] = []
+        details.append(f"*{prefix}*")
+
+        for step_status, step_name, step_message in steps:
             if step_status == StepStatus.SUCCEEDED:
                 details.append(f"• ✅ {step_name}")
             elif step_status == StepStatus.RUNNING:
@@ -345,4 +421,4 @@ class SlackStatePrinter:
                 details.append(f"• ❌ {step_name}{msg}")
                 break
 
-        return "\n".join(details)
+        return details

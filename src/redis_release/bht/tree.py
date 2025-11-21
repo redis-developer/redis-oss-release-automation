@@ -19,9 +19,9 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 from rich.text import Text
 
-from ..config import Config
+from ..config import Config, PackageConfig
 from ..github_client_async import GitHubClientAsync
-from ..models import ReleaseArgs
+from ..models import PackageType, ReleaseArgs
 from ..state_display import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
@@ -34,19 +34,23 @@ from .composites import (
     RestartWorkflowGuarded,
 )
 from .ppas import (
-    create_attach_release_handle_ppa,
-    create_build_workflow_inputs_ppa,
-    create_detect_release_type_ppa,
     create_download_artifacts_ppa,
     create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
     create_identify_target_ref_ppa,
-    create_publish_workflow_inputs_ppa,
     create_trigger_workflow_ppa,
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
 )
-from .state import Package, PackageMeta, ReleaseMeta, ReleaseState, Workflow
+from .state import (
+    SUPPORTED_STATE_VERSION,
+    Package,
+    PackageMeta,
+    ReleaseMeta,
+    ReleaseState,
+    Workflow,
+)
+from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +199,9 @@ def create_root_node(
             logger.info(f"Skipping package {package_name} as it's not in only_packages")
             continue
         root.add_child(
-            create_package_release_tree_branch(
+            get_factory(
+                package.meta.package_type
+            ).create_package_release_goal_tree_branch(
                 package,
                 state.meta,
                 default_state.packages[package_name],
@@ -204,244 +210,6 @@ def create_root_node(
             )
         )
     return root
-
-
-def create_package_release_tree_branch(
-    package: Package,
-    release_meta: ReleaseMeta,
-    default_package: Package,
-    github_client: GitHubClientAsync,
-    package_name: str,
-) -> Union[Selector, Sequence]:
-    build = create_build_workflow_tree_branch(
-        package,
-        release_meta,
-        default_package,
-        github_client,
-        package_name,
-    )
-    build.name = f"Build {package_name}"
-    publish = create_publish_workflow_tree_branch(
-        package.build,
-        package.publish,
-        package.meta,
-        release_meta,
-        default_package.publish,
-        github_client,
-        package_name,
-    )
-    reset_package_state = ResetPackageStateGuarded(
-        "",
-        package,
-        default_package,
-        log_prefix=package_name,
-    )
-    publish.name = f"Publish {package_name}"
-    package_release = Sequence(
-        f"Package Release {package_name}",
-        memory=False,
-        children=[reset_package_state, build, publish],
-    )
-    return package_release
-
-
-def create_build_workflow_tree_branch(
-    package: Package,
-    release_meta: ReleaseMeta,
-    default_package: Package,
-    github_client: GitHubClientAsync,
-    package_name: str,
-) -> Union[Selector, Sequence]:
-
-    build_workflow_args = create_build_workflow_inputs_ppa(
-        package.build, package.meta, release_meta, log_prefix=f"{package_name}.build"
-    )
-    build_workflow = create_workflow_with_result_tree_branch(
-        "release_handle",
-        package.build,
-        package.meta,
-        release_meta,
-        github_client,
-        f"{package_name}.build",
-        trigger_preconditions=[build_workflow_args],
-    )
-    assert isinstance(build_workflow, Selector)
-
-    reset_package_state = RestartPackageGuarded(
-        "BuildRestartCondition",
-        package,
-        package.build,
-        default_package,
-        log_prefix=f"{package_name}.build",
-    )
-    build_workflow.add_child(reset_package_state)
-
-    return build_workflow
-
-
-def create_publish_workflow_tree_branch(
-    build_workflow: Workflow,
-    publish_workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    default_publish_workflow: Workflow,
-    github_client: GitHubClientAsync,
-    package_name: str,
-) -> Union[Selector, Sequence]:
-    attach_release_handle = create_attach_release_handle_ppa(
-        build_workflow, publish_workflow, log_prefix=f"{package_name}.publish"
-    )
-    publish_workflow_args = create_publish_workflow_inputs_ppa(
-        publish_workflow,
-        package_meta,
-        release_meta,
-        log_prefix=f"{package_name}.publish",
-    )
-    workflow_result = create_workflow_with_result_tree_branch(
-        "release_info",
-        publish_workflow,
-        package_meta,
-        release_meta,
-        github_client,
-        f"{package_name}.publish",
-        trigger_preconditions=[publish_workflow_args, attach_release_handle],
-    )
-    not_need_to_publish = Inverter(
-        "Not",
-        NeedToPublishRelease(
-            "Need To Publish?",
-            package_meta,
-            release_meta,
-            log_prefix=f"{package_name}.publish",
-        ),
-    )
-    reset_publish_workflow_state = RestartWorkflowGuarded(
-        "PublishRestartCondition",
-        publish_workflow,
-        package_meta,
-        default_publish_workflow,
-        log_prefix=f"{package_name}.publish",
-    )
-    return Selector(
-        "Publish",
-        memory=False,
-        children=[not_need_to_publish, workflow_result, reset_publish_workflow_state],
-    )
-
-
-def create_workflow_with_result_tree_branch(
-    artifact_name: str,
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    github_client: GitHubClientAsync,
-    package_name: str,
-    trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
-) -> Union[Selector, Sequence]:
-    """
-    Creates a workflow process that succedes when the workflow
-    is successful and a result artifact is extracted and json decoded.
-
-    Args:
-        trigger_preconditions: List of preconditions to add to the workflow trigger
-    """
-    workflow_result = create_extract_result_tree_branch(
-        artifact_name,
-        workflow,
-        package_meta,
-        github_client,
-        package_name,
-    )
-    workflow_complete = create_workflow_complete_tree_branch(
-        workflow,
-        package_meta,
-        release_meta,
-        github_client,
-        package_name,
-        trigger_preconditions,
-    )
-
-    latch_chains(workflow_result, workflow_complete)
-
-    return workflow_result
-
-
-def create_workflow_complete_tree_branch(
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    github_client: GitHubClientAsync,
-    log_prefix: str,
-    trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
-) -> Union[Selector, Sequence]:
-    """
-
-    Args:
-        trigger_preconditions: List of preconditions to add to the workflow trigger
-    """
-    workflow_complete = create_workflow_completion_ppa(
-        workflow,
-        package_meta,
-        github_client,
-        log_prefix,
-    )
-    find_workflow_by_uud = create_find_workflow_by_uuid_ppa(
-        workflow,
-        package_meta,
-        github_client,
-        log_prefix,
-    )
-    trigger_workflow = create_trigger_workflow_ppa(
-        workflow,
-        package_meta,
-        release_meta,
-        github_client,
-        log_prefix,
-    )
-    if trigger_preconditions:
-        latch_chains(trigger_workflow, *trigger_preconditions)
-    identify_target_ref = create_identify_target_ref_ppa(
-        package_meta,
-        release_meta,
-        github_client,
-        log_prefix,
-    )
-    detect_release_type = create_detect_release_type_ppa(
-        release_meta,
-        log_prefix,
-    )
-    latch_chains(
-        workflow_complete,
-        find_workflow_by_uud,
-        trigger_workflow,
-        identify_target_ref,
-        detect_release_type,
-    )
-    return workflow_complete
-
-
-def create_extract_result_tree_branch(
-    artifact_name: str,
-    workflow: Workflow,
-    package_meta: PackageMeta,
-    github_client: GitHubClientAsync,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    extract_artifact_result = create_extract_artifact_result_ppa(
-        artifact_name,
-        workflow,
-        package_meta,
-        github_client,
-        log_prefix,
-    )
-    download_artifacts = create_download_artifacts_ppa(
-        workflow,
-        package_meta,
-        github_client,
-        log_prefix,
-    )
-    latch_chains(extract_artifact_result, download_artifacts)
-    return extract_artifact_result
 
 
 class TreeInspector:
@@ -460,17 +228,23 @@ class TreeInspector:
         "workflow_with_result_branch",
         "publish_workflow_branch",
         "build_workflow_branch",
+        "package_release_branch",
+        "package_release_goal_branch",
         "demo_sequence",
         "demo_selector",
     ]
 
-    def __init__(self, release_tag: str):
+    def __init__(self, release_tag: str, package_type: Optional[str] = None):
         """Initialize TreeInspector.
 
         Args:
             release_tag: Release tag for creating mock ReleaseMeta
         """
         self.release_tag = release_tag
+        if package_type:
+            self.package_type = PackageType(package_type)
+        else:
+            self.package_type = PackageType.DOCKER
 
     def get_names(self) -> List[str]:
         """Get list of available branch/PPA names.
@@ -496,16 +270,24 @@ class TreeInspector:
             available = ", ".join(self.get_names())
             raise ValueError(f"Unknown name '{name}'. Available options: {available}")
 
-        # Create mock objects for PPA/branch creation
-        workflow = Workflow(workflow_file="test.yml", inputs={})
-        package_meta = PackageMeta(repo="redis/redis", ref="main")
-        release_meta = ReleaseMeta(tag=self.release_tag)
-        github_client = GitHubClientAsync(token="dummy")
-        package = Package(
-            meta=package_meta,
-            build=workflow,
-            publish=Workflow(workflow_file="publish.yml", inputs={}),
+        config = Config(
+            version=SUPPORTED_STATE_VERSION,
+            packages={
+                "inspected": PackageConfig(
+                    repo="test/repo",
+                    package_type=self.package_type,
+                    build_workflow="build.yml",
+                    publish_workflow="publish.yml",
+                )
+            },
         )
+        state = ReleaseState.from_config(config)
+        # Create mock objects for PPA/branch creation
+        workflow = state.packages["inspected"].build
+        package_meta = state.packages["inspected"].meta
+        release_meta = state.meta
+        github_client = GitHubClientAsync(token="dummy")
+        package = state.packages["inspected"]
         log_prefix = "test"
 
         # Create and return the requested branch/PPA
@@ -536,15 +318,17 @@ class TreeInspector:
                 "test-artifact", workflow, package_meta, github_client, log_prefix
             )
         elif name == "workflow_complete_branch":
-            return create_workflow_complete_tree_branch(
+            return get_factory(self.package_type).create_workflow_complete_tree_branch(
                 workflow, package_meta, release_meta, github_client, ""
             )
         elif name == "workflow_with_result_branch":
-            return create_workflow_with_result_tree_branch(
+            return get_factory(
+                self.package_type
+            ).create_workflow_with_result_tree_branch(
                 "artifact", workflow, package_meta, release_meta, github_client, ""
             )
         elif name == "publish_workflow_branch":
-            return create_publish_workflow_tree_branch(
+            return get_factory(self.package_type).create_publish_workflow_tree_branch(
                 workflow,
                 workflow,
                 package_meta,
@@ -554,7 +338,17 @@ class TreeInspector:
                 "",
             )
         elif name == "build_workflow_branch":
-            return create_build_workflow_tree_branch(
+            return get_factory(self.package_type).create_build_workflow_tree_branch(
+                package, release_meta, package, github_client, ""
+            )
+        elif name == "package_release_branch":
+            return get_factory(self.package_type).create_package_release_tree_branch(
+                package, release_meta, package, github_client, ""
+            )
+        elif name == "package_release_goal_branch":
+            return get_factory(
+                self.package_type
+            ).create_package_release_goal_tree_branch(
                 package, release_meta, package, github_client, ""
             )
         elif name == "demo_sequence":

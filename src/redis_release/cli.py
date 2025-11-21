@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import typer
 from py_trees.display import render_dot_tree, unicode_tree
@@ -30,9 +30,56 @@ app = typer.Typer(
 logger = logging.getLogger(__name__)
 
 
+def parse_force_release_type(
+    force_release_type_list: Optional[List[str]],
+) -> Dict[str, ReleaseType]:
+    """Parse force_release_type arguments from 'package_name:release_type' format.
+
+    Args:
+        force_release_type_list: List of strings in format 'package_name:release_type'
+
+    Returns:
+        Dictionary mapping package names to ReleaseType
+
+    Raises:
+        typer.BadParameter: If format is invalid or release type is unknown
+    """
+    if not force_release_type_list:
+        return {}
+
+    result = {}
+    for item in force_release_type_list:
+        if ":" not in item:
+            raise typer.BadParameter(
+                f"Invalid format '{item}'. Expected 'package_name:release_type' (e.g., 'docker:internal')"
+            )
+
+        package_name, release_type_str = item.split(":", 1)
+        package_name = package_name.strip()
+        release_type_str = release_type_str.strip().lower()
+
+        try:
+            release_type = ReleaseType(release_type_str)
+        except ValueError:
+            valid_types = ", ".join([rt.value for rt in ReleaseType])
+            raise typer.BadParameter(
+                f"Invalid release type '{release_type_str}'. Valid types: {valid_types}"
+            )
+
+        result[package_name] = release_type
+
+    return result
+
+
 @app.command()
 def release_print(
     release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    package_type: Optional[str] = typer.Option(
+        None,
+        "--package-type",
+        "-p",
+        help="Package type to use for creating the tree (default: docker)",
+    ),
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
@@ -62,14 +109,14 @@ def release_print(
 
     if name:
         # Create TreeInspector and render the requested branch
-        inspector = TreeInspector(release_tag=release_tag)
+        inspector = TreeInspector(release_tag=release_tag, package_type=package_type)
 
         try:
             branch = inspector.create_by_name(name)
             render_dot_tree(branch)
             print(unicode_tree(branch))
         except ValueError as e:
-            logger.error(f"[red]Error: {e}[/red]")
+            logger.error(f"[red]Error: {e}[/red]", exc_info=True)
             raise typer.Exit(1)
     else:
         # Print full release tree
@@ -100,12 +147,12 @@ def release(
         help="Only process specific packages (can be specified multiple times)",
     ),
     tree_cutoff: int = typer.Option(
-        2000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
+        5000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
-    force_release_type: Optional[ReleaseType] = typer.Option(
+    force_release_type: Optional[List[str]] = typer.Option(
         None,
         "--force-release-type",
-        help="Force release type (public or internal)",
+        help="Force release type per package in format 'package_name:release_type' (e.g., 'docker:internal' or 'all:public'). Can be specified multiple times.",
     ),
     override_state_name: Optional[str] = typer.Option(
         None,
@@ -133,7 +180,7 @@ def release(
         release_tag=release_tag,
         force_rebuild=force_rebuild or [],
         only_packages=only_packages or [],
-        force_release_type=force_release_type,
+        force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
         slack_token=slack_token,
         slack_channel_id=slack_channel_id,
@@ -149,6 +196,11 @@ def status(
     release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
     config_file: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    override_state_name: Optional[str] = typer.Option(
+        None,
+        "--override-state-name",
+        help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
     ),
     slack: bool = typer.Option(False, "--slack", help="Post status to Slack"),
     slack_channel_id: Optional[str] = typer.Option(
@@ -171,6 +223,7 @@ def status(
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=[],
+        override_state_name=override_state_name,
     )
 
     with StateManager(
