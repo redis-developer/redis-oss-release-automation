@@ -529,6 +529,23 @@ class HomebrewFactory(GenericPackageFactory):
             release_meta,
             log_prefix=log_prefix,
         )
+    def create_publish_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+
+        return HomewbrewWorkflowInputs(
+            name,
+            workflow,
+            cast(HomebrewMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
 
 
 # Factory registry
