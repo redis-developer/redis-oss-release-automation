@@ -806,18 +806,22 @@ class DetectHombrewReleaseAndChannel(ReleaseAction):
             pass
         else:
             assert self.release_version is not None
-            if self.release_version.is_internal:
-                self.package_meta.release_type = ReleaseType.INTERNAL
-                self.package_meta.homebrew_channel = HomebrewChannel.RC
-            else:
-                if self.release_version.is_ga:
-                    self.package_meta.release_type = ReleaseType.PUBLIC
-                    self.package_meta.homebrew_channel = HomebrewChannel.STABLE
-                elif self.release_version.is_rc:
-                    self.package_meta.release_type = ReleaseType.PUBLIC
-                    self.package_meta.homebrew_channel = HomebrewChannel.RC
-                else:
+            if self.package_meta.release_type is None:
+                if self.release_version.is_internal:
                     self.package_meta.release_type = ReleaseType.INTERNAL
+                else:
+                    if self.release_version.is_ga:
+                        self.package_meta.release_type = ReleaseType.PUBLIC
+                    elif self.release_version.is_rc:
+                        self.package_meta.release_type = ReleaseType.PUBLIC
+                    else:
+                        self.package_meta.release_type = ReleaseType.INTERNAL
+
+            if self.package_meta.homebrew_channel is None:
+                if self.release_version.is_ga:
+                    self.package_meta.homebrew_channel = HomebrewChannel.STABLE
+                else:
+                    # RC, internal, or any other version goes to RC channel
                     self.package_meta.homebrew_channel = HomebrewChannel.RC
         self.feedback_message = f"release_type: {self.package_meta.release_type.value}, homebrew_channel: {self.package_meta.homebrew_channel.value}"
 
