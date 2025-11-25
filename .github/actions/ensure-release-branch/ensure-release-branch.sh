@@ -23,6 +23,7 @@ SCRIPT_DIR="$(dirname -- "$( readlink -f -- "$0"; )")"
 ALLOW_MODIFY=""
 TAG=""
 RELEASE_BRANCH=""
+RELEASE_VERSION_BRANCH_PREFIX=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -32,6 +33,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --release-branch)
             RELEASE_BRANCH="$2"
+            shift
+            shift
+            ;;
+        --release-version-branch-prefix)
+            RELEASE_VERSION_BRANCH_PREFIX="$2"
             shift
             shift
             ;;
@@ -58,7 +64,7 @@ if [ -z "$TAG" ]; then
 fi
 
 # Define RELEASE_VERSION_BRANCH which is the same as TAG
-RELEASE_VERSION_BRANCH="$TAG"
+RELEASE_VERSION_BRANCH="$RELEASE_VERSION_BRANCH_PREFIX$TAG"
 
 echo "release_version_branch=$RELEASE_VERSION_BRANCH" >> "$GITHUB_OUTPUT"
 

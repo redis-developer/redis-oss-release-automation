@@ -5,6 +5,9 @@ inputs:
   release_branch:
     description: 'Existing release branch'
     required: false
+  release_version_branch_prefix:
+    description: 'Prefix for release version branch (e.g., "release/")'
+    required: false
   allow_modify:
     description: 'Allow modifying the repository'
     default: false
@@ -28,5 +31,9 @@ runs:
       env:
         GITHUB_TOKEN: ${{ inputs.gh_token }}
       shell: bash
-      run: |
-        ${{ github.action_path }}/ensure-release-branch.sh ${{ inputs.allow_modify == 'true' && '--allow-modify' || '' }} ${{ inputs.release_branch != '' && format('--release-branch {0}', inputs.release_branch) || '' }} ${{ inputs.release_tag }}
+      run: >-
+        ${{ github.action_path }}/ensure-release-branch.sh
+        ${{ inputs.allow_modify == 'true' && '--allow-modify' || '' }}
+        ${{ inputs.release_branch != '' && format('--release-branch {0}', inputs.release_branch) || '' }}
+        ${{ inputs.release_version_branch_prefix != '' && format('--release-version-branch-prefix {0}', inputs.release_version_branch_prefix) || '' }}
+        ${{ inputs.release_tag }}
