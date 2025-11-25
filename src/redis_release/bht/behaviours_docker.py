@@ -1,6 +1,6 @@
 from py_trees.common import Status
 
-from redis_release.bht.behaviours import ReleaseAction
+from redis_release.bht.behaviours import LoggingAction, ReleaseAction
 from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
 
 
@@ -23,4 +23,26 @@ class DockerWorkflowInputs(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
+        return Status.SUCCESS
+
+
+# Conditions
+
+
+class NeedToReleaseDocker(LoggingAction):
+    """Check if Docker package needs to be released."""
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        # Docker packages are always released
         return Status.SUCCESS

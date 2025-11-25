@@ -10,24 +10,6 @@ from redis_release.github_client_async import GitHubClientAsync
 from redis_release.models import HomebrewChannel, RedisVersion, ReleaseType
 
 
-class NeedToReleaseHomebrew(LoggingAction):
-    def __init__(
-        self,
-        name: str,
-        package_meta: HomebrewMeta,
-        release_meta: ReleaseMeta,
-        log_prefix: str = "",
-    ) -> None:
-        self.package_meta = package_meta
-        self.release_meta = release_meta
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def update(self) -> Status:
-        if self.package_meta.ephemeral.is_version_acceptable is True:
-            return Status.SUCCESS
-        return Status.FAILURE
-
-
 class HomewbrewWorkflowInputs(ReleaseAction):
     def __init__(
         self,
@@ -271,3 +253,24 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
         except Exception as e:
             return self.log_exception_and_return_failure(e)
+
+
+# Conditions
+
+
+class NeedToReleaseHomebrew(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.ephemeral.is_version_acceptable is True:
+            return Status.SUCCESS
+        return Status.FAILURE

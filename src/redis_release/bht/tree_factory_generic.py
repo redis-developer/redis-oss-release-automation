@@ -3,6 +3,7 @@ from typing import List, Optional, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.behaviours import Failure as AlwaysFailure
+from py_trees.behaviours import Success as AlwaysSuccess
 from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter
 
@@ -45,7 +46,7 @@ class GenericPackageFactory(ABC):
         return Selector(
             f"Package Release {package_name} Goal",
             memory=False,
-            children=[AlwaysFailure("Yes"), package_release],
+            children=[AlwaysFailure("Always"), package_release],
         )
 
     def create_build_workflow_inputs(
@@ -326,6 +327,20 @@ class GenericPackageFactory(ABC):
         )
         latch_chains(extract_artifact_result, download_artifacts)
         return extract_artifact_result
+
+    def create_need_to_release_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        """Create a behaviour that checks if the package needs to be released.
+
+        Default implementation always returns SUCCESS (always release).
+        Override in subclasses for package-specific logic.
+        """
+        return AlwaysSuccess(name)
 
 
 class PackageWithValidation:

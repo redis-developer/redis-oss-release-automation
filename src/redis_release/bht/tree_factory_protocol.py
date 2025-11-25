@@ -95,3 +95,11 @@ class GenericPackageFactoryProtocol(Protocol):
         github_client: GitHubClientAsync,
         log_prefix: str,
     ) -> Union[Selector, Sequence]: ...
+
+    def create_need_to_release_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour: ...

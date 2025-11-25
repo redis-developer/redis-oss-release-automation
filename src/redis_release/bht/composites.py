@@ -61,8 +61,10 @@ class ParallelBarrier(Composite):
     def __init__(
         self,
         name: str,
+        memory: bool = True,
         children: Optional[TypingSequence[Behaviour]] = None,
     ):
+        self.memory = memory
         super().__init__(name, children)
 
     def tick(self) -> Iterator[Behaviour]:
@@ -84,7 +86,7 @@ class ParallelBarrier(Composite):
         # Tick all children, skipping those that have already converged
         for child in self.children:
             # Skip children that have already converged (synchronized mode)
-            if child.status in [Status.SUCCESS, Status.FAILURE]:
+            if self.memory and child.status in [Status.SUCCESS, Status.FAILURE]:
                 continue
             # Tick the child
             for node in child.tick():

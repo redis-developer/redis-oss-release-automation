@@ -1,6 +1,9 @@
 from py_trees.behaviour import Behaviour
 
-from redis_release.bht.behaviours_docker import DockerWorkflowInputs
+from redis_release.bht.behaviours_docker import (
+    DockerWorkflowInputs,
+    NeedToReleaseDocker,
+)
 from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
 from redis_release.bht.tree_factory_generic import GenericPackageFactory
 
@@ -30,4 +33,15 @@ class DockerFactory(GenericPackageFactory):
     ) -> Behaviour:
         return DockerWorkflowInputs(
             name, workflow, package_meta, release_meta, log_prefix=log_prefix
+        )
+
+    def create_need_to_release_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        return NeedToReleaseDocker(
+            name, package_meta, release_meta, log_prefix=log_prefix
         )

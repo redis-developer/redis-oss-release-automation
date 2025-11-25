@@ -56,8 +56,10 @@ packages:
     package_type: snap
     repo: redislabsdev/redis-snap
     # homebrew has one fixed release branch: main
-    ref: master
+    #ref: master
+    ref: release_automation
     build_workflow: release_build_and_test.yml
+    build_timeout_minutes: 60
     build_inputs: {}
     publish_internal_release: yes
     publish_workflow: release_publish.yml
