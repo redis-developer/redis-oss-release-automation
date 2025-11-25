@@ -4,7 +4,7 @@ Package-specific tree factories and factory functions.
 
 import logging
 from abc import ABC
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional, Protocol, Union, cast
 
 from py_trees.behaviour import Behaviour
 from py_trees.behaviours import Failure as AlwaysFailure
@@ -14,16 +14,21 @@ from py_trees.decorators import Inverter
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType
 from .backchain import create_PPA, latch_chains
-from .behaviours import (
+from .behaviours import GenericWorkflowInputs, NeedToPublishRelease
+from .behaviours_docker import DockerWorkflowInputs
+from .behaviours_homebrew import (
     DetectHombrewReleaseAndChannel,
-    DockerWorkflowInputs,
-    GenericWorkflowInputs,
     HomewbrewWorkflowInputs,
-    NeedToPublishRelease,
     NeedToReleaseHomebrew,
+)
+from .behaviours_snap import (
+    DetectSnapReleaseAndRiskLevel,
+    NeedToReleaseSnap,
+    SnapWorkflowInputs,
 )
 from .composites import (
     ClassifyHomebrewVersionGuarded,
+    ClassifySnapVersionGuarded,
     ResetPackageStateGuarded,
     RestartPackageGuarded,
     RestartWorkflowGuarded,
@@ -44,10 +49,101 @@ from .state import (
     PackageMeta,
     ReleaseMeta,
     ReleaseState,
+    SnapMeta,
     Workflow,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class GenericPackageFactoryProtocol(Protocol):
+    """Protocol defining the interface for package-specific tree factories."""
+
+    def create_package_release_goal_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_build_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour: ...
+
+    def create_publish_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour: ...
+
+    def create_workflow_complete_tree_branch(
+        self,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str,
+        trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_package_release_execute_workflows_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_build_workflow_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_publish_workflow_tree_branch(
+        self,
+        build_workflow: Workflow,
+        publish_workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        default_publish_workflow: Workflow,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_workflow_with_result_tree_branch(
+        self,
+        artifact_name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        package_name: str,
+        trigger_preconditions: Optional[List[Union[Sequence, Selector]]] = None,
+    ) -> Union[Selector, Sequence]: ...
+
+    def create_extract_result_tree_branch(
+        self,
+        artifact_name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str,
+    ) -> Union[Selector, Sequence]: ...
 
 
 class GenericPackageFactory(ABC):
@@ -61,7 +157,7 @@ class GenericPackageFactory(ABC):
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
-        package_release = self.create_package_release_tree_branch(
+        package_release = self.create_package_release_execute_workflows_tree_branch(
             package, release_meta, default_package, github_client, package_name
         )
         return Selector(
@@ -149,7 +245,7 @@ class GenericPackageFactory(ABC):
         )
         return workflow_complete
 
-    def create_package_release_tree_branch(
+    def create_package_release_execute_workflows_tree_branch(
         self,
         package: Package,
         release_meta: ReleaseMeta,
@@ -386,59 +482,13 @@ class RPMFactory(GenericPackageFactory):
     pass
 
 
-class HomebrewFactory(GenericPackageFactory):
-    def create_package_release_goal_tree_branch(
-        self,
-        package: Package,
-        release_meta: ReleaseMeta,
-        default_package: Package,
-        github_client: GitHubClientAsync,
-        package_name: str,
-    ) -> Union[Selector, Sequence]:
-        package_release = self.create_package_release_tree_branch(
-            package, release_meta, default_package, github_client, package_name
-        )
-        need_to_release = NeedToReleaseHomebrew(
-            "Need To Release?",
-            cast(HomebrewMeta, package.meta),
-            release_meta,
-            log_prefix=package_name,
-        )
-        release_goal = Selector(
-            f"Release Workflows {package_name} Goal",
-            memory=False,
-            children=[Inverter("Not", need_to_release), package_release],
-        )
-        reset_package_state = ResetPackageStateGuarded(
-            "",
-            package,
-            default_package,
-            log_prefix=package_name,
-        )
-        return Sequence(
-            f"Release {package_name}",
-            memory=False,
-            children=[
-                reset_package_state,
-                DetectHombrewReleaseAndChannel(
-                    "Detect Homebrew Channel",
-                    cast(HomebrewMeta, package.meta),
-                    release_meta,
-                    log_prefix=package_name,
-                ),
-                ClassifyHomebrewVersionGuarded(
-                    "",
-                    cast(HomebrewMeta, package.meta),
-                    release_meta,
-                    github_client,
-                    log_prefix=package_name,
-                ),
-                release_goal,
-            ],
-        )
+class PackageWithValidation:
+    """
+    Mixin class for packages that have validation step before release, e.g. Homebrew and Snap
+    """
 
-    def create_package_release_tree_branch(
-        self,
+    def create_package_release_execute_workflows_tree_branch(
+        self: GenericPackageFactoryProtocol,
         package: Package,
         release_meta: ReleaseMeta,
         default_package: Package,
@@ -471,7 +521,7 @@ class HomebrewFactory(GenericPackageFactory):
         return package_release
 
     def create_workflow_complete_tree_branch(
-        self,
+        self: GenericPackageFactoryProtocol,
         workflow: Workflow,
         package_meta: PackageMeta,
         release_meta: ReleaseMeta,
@@ -513,6 +563,58 @@ class HomebrewFactory(GenericPackageFactory):
         )
         return workflow_complete
 
+
+class HomebrewFactory(GenericPackageFactory, PackageWithValidation):
+    def create_package_release_goal_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]:
+        package_release = self.create_package_release_execute_workflows_tree_branch(
+            package, release_meta, default_package, github_client, package_name
+        )
+        need_to_release = NeedToReleaseHomebrew(
+            "Need To Release?",
+            cast(HomebrewMeta, package.meta),
+            release_meta,
+            log_prefix=package_name,
+        )
+        release_goal = Selector(
+            f"Release Workflows {package_name} Goal",
+            memory=False,
+            children=[Inverter("Not", need_to_release), package_release],
+        )
+        reset_package_state = ResetPackageStateGuarded(
+            "",
+            package,
+            default_package,
+            log_prefix=package_name,
+        )
+        return Sequence(
+            f"Release {package_name}",
+            memory=False,
+            children=[
+                reset_package_state,
+                DetectHombrewReleaseAndChannel(
+                    "Detect Homebrew Channel",
+                    cast(HomebrewMeta, package.meta),
+                    release_meta,
+                    log_prefix=package_name,
+                ),
+                ClassifyHomebrewVersionGuarded(
+                    "",
+                    cast(HomebrewMeta, package.meta),
+                    release_meta,
+                    github_client,
+                    log_prefix=package_name,
+                ),
+                release_goal,
+            ],
+        )
+
     def create_build_workflow_inputs(
         self,
         name: str,
@@ -529,6 +631,7 @@ class HomebrewFactory(GenericPackageFactory):
             release_meta,
             log_prefix=log_prefix,
         )
+
     def create_publish_workflow_inputs(
         self,
         name: str,
@@ -547,6 +650,91 @@ class HomebrewFactory(GenericPackageFactory):
         )
 
 
+class SnapFactory(GenericPackageFactory, PackageWithValidation):
+    def create_package_release_goal_tree_branch(
+        self,
+        package: Package,
+        release_meta: ReleaseMeta,
+        default_package: Package,
+        github_client: GitHubClientAsync,
+        package_name: str,
+    ) -> Union[Selector, Sequence]:
+        package_release = self.create_package_release_execute_workflows_tree_branch(
+            package, release_meta, default_package, github_client, package_name
+        )
+        need_to_release = NeedToReleaseSnap(
+            "Need To Release?",
+            cast(SnapMeta, package.meta),
+            release_meta,
+            log_prefix=package_name,
+        )
+        release_goal = Selector(
+            f"Release Workflows {package_name} Goal",
+            memory=False,
+            children=[Inverter("Not", need_to_release), package_release],
+        )
+        reset_package_state = ResetPackageStateGuarded(
+            "",
+            package,
+            default_package,
+            log_prefix=package_name,
+        )
+        return Sequence(
+            f"Release {package_name}",
+            memory=False,
+            children=[
+                reset_package_state,
+                DetectSnapReleaseAndRiskLevel(
+                    "Detect Homebrew Channel",
+                    cast(SnapMeta, package.meta),
+                    release_meta,
+                    log_prefix=package_name,
+                ),
+                ClassifySnapVersionGuarded(
+                    "",
+                    cast(SnapMeta, package.meta),
+                    release_meta,
+                    github_client,
+                    log_prefix=package_name,
+                ),
+                release_goal,
+            ],
+        )
+
+    def create_build_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+
+        return SnapWorkflowInputs(
+            name,
+            workflow,
+            cast(SnapMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
+    def create_publish_workflow_inputs(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+
+        return SnapWorkflowInputs(
+            name,
+            workflow,
+            cast(SnapMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
 
 # Factory registry
 _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
@@ -554,6 +742,7 @@ _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
     PackageType.DEBIAN: DebianFactory(),
     PackageType.RPM: RPMFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
+    PackageType.SNAP: SnapFactory(),
 }
 
 _DEFAULT_FACTORY = GenericPackageFactory()

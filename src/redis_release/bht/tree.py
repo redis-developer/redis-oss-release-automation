@@ -342,7 +342,9 @@ class TreeInspector:
                 package, release_meta, package, github_client, ""
             )
         elif name == "package_release_branch":
-            return get_factory(self.package_type).create_package_release_tree_branch(
+            return get_factory(
+                self.package_type
+            ).create_package_release_execute_workflows_tree_branch(
                 package, release_meta, package, github_client, ""
             )
         elif name == "package_release_goal_branch":
