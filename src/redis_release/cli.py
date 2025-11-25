@@ -271,6 +271,11 @@ def slack_bot(
         "--authorized-user",
         help="User ID authorized to run releases (can be specified multiple times). If not specified, all users are authorized",
     ),
+    slack_format: str = typer.Option(
+        "default",
+        "--slack-format",
+        help="Slack message format: 'default' shows all steps, 'one-step' shows only the last step",
+    ),
 ) -> None:
     """Run Slack bot that listens for status requests.
 
@@ -285,20 +290,33 @@ def slack_bot(
 
     Requires Socket Mode to be enabled in your Slack app configuration.
     """
+    from redis_release.models import SlackFormat
     from redis_release.slack_bot import run_bot
 
     setup_logging()
     config_path = config_file or "config.yaml"
 
+    # Parse slack_format
+    try:
+        slack_format_enum = SlackFormat(slack_format)
+    except ValueError:
+        logger.error(
+            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
+        )
+        raise typer.BadParameter(
+            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
+        )
+
     logger.info("Starting Slack bot...")
     asyncio.run(
         run_bot(
-            config_path,
-            slack_bot_token,
-            slack_app_token,
-            reply_in_thread,
-            broadcast_to_channel,
-            authorized_users,
+            config_path=config_path,
+            slack_bot_token=slack_bot_token,
+            slack_app_token=slack_app_token,
+            reply_in_thread=reply_in_thread,
+            broadcast_to_channel=broadcast_to_channel,
+            authorized_users=authorized_users,
+            slack_format=slack_format_enum,
         )
     )
 

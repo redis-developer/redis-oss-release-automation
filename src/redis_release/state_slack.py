@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from redis_release.models import SlackFormat
 from redis_release.state_display import DisplayModel, StepStatus
 
 from .bht.state import (
@@ -44,6 +45,7 @@ def init_slack_printer(
     slack_channel_id: Optional[str],
     thread_ts: Optional[str] = None,
     reply_broadcast: bool = False,
+    slack_format: SlackFormat = SlackFormat.DEFAULT,
 ) -> "SlackStatePrinter":
     """Initialize SlackStatePrinter with validation.
 
@@ -52,6 +54,7 @@ def init_slack_printer(
         slack_channel_id: Slack channel ID to post to
         thread_ts: Optional thread timestamp to post messages in a thread
         reply_broadcast: If True and thread_ts is set, also show in main channel
+        slack_format: Slack message format (default or one-step)
 
     Returns:
         SlackStatePrinter instance
@@ -69,7 +72,9 @@ def init_slack_printer(
             "Slack token not provided. Use slack_token argument or set SLACK_BOT_TOKEN environment variable"
         )
 
-    return SlackStatePrinter(token, slack_channel_id, thread_ts, reply_broadcast)
+    return SlackStatePrinter(
+        token, slack_channel_id, thread_ts, reply_broadcast, slack_format
+    )
 
 
 class SlackStatePrinter:
@@ -81,6 +86,7 @@ class SlackStatePrinter:
         slack_channel_id: str,
         thread_ts: Optional[str] = None,
         reply_broadcast: bool = False,
+        slack_format: SlackFormat = SlackFormat.DEFAULT,
     ):
         """Initialize the Slack printer.
 
@@ -89,11 +95,13 @@ class SlackStatePrinter:
             slack_channel_id: Slack channel ID to post messages to
             thread_ts: Optional thread timestamp to post messages in a thread
             reply_broadcast: If True and thread_ts is set, also show in main channel
+            slack_format: Slack message format (default or one-step)
         """
         self.client = WebClient(token=slack_token)
         self.channel_id: str = slack_channel_id
         self.thread_ts = thread_ts
         self.reply_broadcast = reply_broadcast
+        self.slack_format = slack_format
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
@@ -409,16 +417,31 @@ class SlackStatePrinter:
         details: List[str] = []
         details.append(f"*{prefix}*")
 
-        for step_status, step_name, step_message in steps:
-            if step_status == StepStatus.SUCCEEDED:
-                details.append(f"• ✅ {step_name}")
-            elif step_status == StepStatus.RUNNING:
-                details.append(f"• ⏳ {step_name}")
-            elif step_status == StepStatus.NOT_STARTED:
-                details.append(f"• ⚪ {step_name}")
-            else:  # FAILED or INCORRECT
-                msg = f" ({step_message})" if step_message else ""
-                details.append(f"• ❌ {step_name}{msg}")
-                break
+        # If one-step format, only show the last step
+        if self.slack_format == SlackFormat.ONE_STEP:
+            if steps:
+                step_status, step_name, step_message = steps[-1]
+                if step_status == StepStatus.SUCCEEDED:
+                    details.append(f"• ✅ {step_name}")
+                elif step_status == StepStatus.RUNNING:
+                    details.append(f"• ⏳ {step_name}")
+                elif step_status == StepStatus.NOT_STARTED:
+                    details.append(f"• ⚪ {step_name}")
+                else:  # FAILED or INCORRECT
+                    msg = f" ({step_message})" if step_message else ""
+                    details.append(f"• ❌ {step_name}{msg}")
+        else:
+            # Default format: show all steps
+            for step_status, step_name, step_message in steps:
+                if step_status == StepStatus.SUCCEEDED:
+                    details.append(f"• ✅ {step_name}")
+                elif step_status == StepStatus.RUNNING:
+                    details.append(f"• ⏳ {step_name}")
+                elif step_status == StepStatus.NOT_STARTED:
+                    details.append(f"• ⚪ {step_name}")
+                else:  # FAILED or INCORRECT
+                    msg = f" ({step_message})" if step_message else ""
+                    details.append(f"• ❌ {step_name}{msg}")
+                    break
 
         return details

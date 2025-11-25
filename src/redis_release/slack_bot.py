@@ -13,7 +13,7 @@ from slack_bolt.context.say.async_say import AsyncSay
 
 from redis_release.bht.tree import async_tick_tock, initialize_tree_and_state
 from redis_release.config import Config, load_config
-from redis_release.models import ReleaseArgs
+from redis_release.models import ReleaseArgs, SlackFormat
 from redis_release.state_manager import S3StateStorage, StateManager
 from redis_release.state_slack import init_slack_printer
 
@@ -34,6 +34,7 @@ class ReleaseStatusBot:
         reply_in_thread: bool = True,
         broadcast_to_channel: bool = False,
         authorized_users: Optional[List[str]] = None,
+        slack_format: SlackFormat = SlackFormat.DEFAULT,
     ):
         """Initialize the bot.
 
@@ -44,11 +45,13 @@ class ReleaseStatusBot:
             reply_in_thread: If True, reply in thread. If False, reply in main channel
             broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
             authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
+            slack_format: Slack message format (default or one-step)
         """
         self.config = config
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
+        self.slack_format = slack_format
 
         # Get tokens from args or environment
         bot_token = slack_bot_token or os.environ.get("SLACK_BOT_TOKEN")
@@ -261,6 +264,7 @@ class ReleaseStatusBot:
                     slack_channel_id=channel,
                     slack_thread_ts=thread_ts if self.reply_in_thread else None,
                     slack_reply_broadcast=reply_broadcast,
+                    slack_format=self.slack_format,
                 )
 
                 # Run the release
@@ -355,6 +359,7 @@ class ReleaseStatusBot:
                     slack_channel_id=channel,
                     thread_ts=thread_ts if self.reply_in_thread else None,
                     reply_broadcast=self.broadcast_to_channel,
+                    slack_format=self.slack_format,
                 )
                 printer.update_message(state)
 
@@ -391,6 +396,7 @@ async def run_bot(
     reply_in_thread: bool = True,
     broadcast_to_channel: bool = False,
     authorized_users: Optional[List[str]] = None,
+    slack_format: SlackFormat = SlackFormat.DEFAULT,
 ) -> None:
     """Run the Slack bot.
 
@@ -401,6 +407,7 @@ async def run_bot(
         reply_in_thread: If True, reply in thread. If False, reply in main channel
         broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
         authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
+        slack_format: Slack message format (default or one-step)
     """
     # Load config
     config = load_config(config_path)
@@ -413,6 +420,7 @@ async def run_bot(
         reply_in_thread=reply_in_thread,
         broadcast_to_channel=broadcast_to_channel,
         authorized_users=authorized_users,
+        slack_format=slack_format,
     )
 
     await bot.start()

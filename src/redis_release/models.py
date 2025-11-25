@@ -60,6 +60,13 @@ class ReleaseType(str, Enum):
     INTERNAL = "internal"
 
 
+class SlackFormat(str, Enum):
+    """Slack message format enumeration."""
+
+    DEFAULT = "default"
+    ONE_STEP = "one-step"
+
+
 class WorkflowStatus(str, Enum):
     """Workflow status enumeration."""
 
@@ -241,3 +248,4 @@ class ReleaseArgs(BaseModel):
     slack_channel_id: Optional[str] = None
     slack_thread_ts: Optional[str] = None
     slack_reply_broadcast: bool = False
+    slack_format: SlackFormat = SlackFormat.DEFAULT
