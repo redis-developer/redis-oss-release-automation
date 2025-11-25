@@ -1,6 +1,6 @@
 """
-This module contains tree initialization, larger branches creation
-and utility functions to run or inspect the tree.
+This module contains tree initialization and utility functions to run or inspect
+the tree.
 """
 
 import asyncio
