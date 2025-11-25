@@ -192,6 +192,7 @@ def create_root_node(
 
     root = ParallelBarrier(
         "Redis Release",
+        memory=False,
         children=[],
     )
     for package_name, package in state.packages.items():
