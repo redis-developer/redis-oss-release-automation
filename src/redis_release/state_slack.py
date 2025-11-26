@@ -417,31 +417,19 @@ class SlackStatePrinter:
         details: List[str] = []
         details.append(f"*{prefix}*")
 
-        # If one-step format, only show the last step
+        for step_status, step_name, step_message in steps:
+            if step_status == StepStatus.SUCCEEDED:
+                details.append(f"• ✅ {step_name}")
+            elif step_status == StepStatus.RUNNING:
+                details.append(f"• ⏳ {step_name}")
+            elif step_status == StepStatus.NOT_STARTED:
+                details.append(f"• ⚪ {step_name}")
+            else:  # FAILED or INCORRECT
+                msg = f" ({step_message})" if step_message else ""
+                details.append(f"• ❌ {step_name}{msg}")
+                break
+
         if self.slack_format == SlackFormat.ONE_STEP:
-            if steps:
-                step_status, step_name, step_message = steps[-1]
-                if step_status == StepStatus.SUCCEEDED:
-                    details.append(f"• ✅ {step_name}")
-                elif step_status == StepStatus.RUNNING:
-                    details.append(f"• ⏳ {step_name}")
-                elif step_status == StepStatus.NOT_STARTED:
-                    details.append(f"• ⚪ {step_name}")
-                else:  # FAILED or INCORRECT
-                    msg = f" ({step_message})" if step_message else ""
-                    details.append(f"• ❌ {step_name}{msg}")
-        else:
-            # Default format: show all steps
-            for step_status, step_name, step_message in steps:
-                if step_status == StepStatus.SUCCEEDED:
-                    details.append(f"• ✅ {step_name}")
-                elif step_status == StepStatus.RUNNING:
-                    details.append(f"• ⏳ {step_name}")
-                elif step_status == StepStatus.NOT_STARTED:
-                    details.append(f"• ⚪ {step_name}")
-                else:  # FAILED or INCORRECT
-                    msg = f" ({step_message})" if step_message else ""
-                    details.append(f"• ❌ {step_name}{msg}")
-                    break
+            details = details[-1:]
 
         return details
