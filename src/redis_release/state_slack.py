@@ -400,6 +400,9 @@ class SlackStatePrinter:
                 self._format_steps_for_slack(workflow_status[1], workflow_name)
             )
 
+        if self.slack_format == SlackFormat.ONE_STEP:
+            details = details[-1:]
+
         return "\n".join(details)
 
     def _format_steps_for_slack(
@@ -415,7 +418,7 @@ class SlackStatePrinter:
             List of formatted step strings
         """
         details: List[str] = []
-        details.append(f"*{prefix}*")
+        # details.append(f"*{prefix}*")
 
         for step_status, step_name, step_message in steps:
             if step_status == StepStatus.SUCCEEDED:
@@ -428,8 +431,5 @@ class SlackStatePrinter:
                 msg = f" ({step_message})" if step_message else ""
                 details.append(f"• ❌ {step_name}{msg}")
                 break
-
-        if self.slack_format == SlackFormat.ONE_STEP:
-            details = details[-1:]
 
         return details
