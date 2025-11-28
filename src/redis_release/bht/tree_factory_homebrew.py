@@ -6,6 +6,7 @@ from py_trees.decorators import Inverter
 
 from redis_release.bht.behaviours_homebrew import (
     DetectHombrewReleaseAndChannel,
+    DetectReleaseTypeHomebrew,
     HomewbrewWorkflowInputs,
     NeedToReleaseHomebrew,
 )
@@ -107,6 +108,21 @@ class HomebrewFactory(GenericPackageFactory, PackageWithValidation):
         return HomewbrewWorkflowInputs(
             name,
             workflow,
+            cast(HomebrewMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
+    def create_detect_release_type_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        """Homebrew packages check that release_type is already set."""
+        return DetectReleaseTypeHomebrew(
+            name,
             cast(HomebrewMeta, package_meta),
             release_meta,
             log_prefix=log_prefix,

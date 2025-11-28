@@ -103,3 +103,11 @@ class GenericPackageFactoryProtocol(Protocol):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour: ...
+
+    def create_detect_release_type_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour: ...

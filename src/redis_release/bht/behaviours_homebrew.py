@@ -53,7 +53,8 @@ class DetectHombrewReleaseAndChannel(ReleaseAction):
             return
         if self.release_version is not None:
             return
-
+        if self.release_meta.tag == "unstable":
+            return
         self.feedback_message = ""
         try:
             self.release_version = RedisVersion.parse(self.release_meta.tag)
@@ -72,6 +73,15 @@ class DetectHombrewReleaseAndChannel(ReleaseAction):
         ):
             return Status.SUCCESS
         else:
+            if self.release_meta.tag == "unstable":
+                self.feedback_message = "Skip unstable release for Homebrew"
+                if self.log_once(
+                    "homebrew_channel_detected",
+                    self.package_meta.ephemeral.log_once_flags,
+                ):
+                    self.logger.info(self.feedback_message)
+                return Status.SUCCESS
+
             assert self.release_version is not None
             if self.package_meta.release_type is None:
                 if self.release_version.is_internal:
@@ -129,6 +139,12 @@ class ClassifyHomebrewVersion(ReleaseAction):
     def initialise(self) -> None:
         """Initialize by validating inputs and starting download task."""
         if self.package_meta.ephemeral.is_version_acceptable is not None:
+            return
+
+        if self.release_meta.tag == "unstable":
+            self.package_meta.ephemeral.is_version_acceptable = False
+            # we need to set remote version to not None as it is a sign of successful classify step
+            self.package_meta.remote_version = "unstable"
             return
 
         self.feedback_message = ""
@@ -256,6 +272,34 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
 
 # Conditions
+
+
+class DetectReleaseTypeHomebrew(LoggingAction):
+    """Check that release_type is set for Homebrew packages.
+
+    Homebrew packages should have release_type set by DetectHombrewReleaseAndChannel.
+    This behavior just validates that it's set and fails if not.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: HomebrewMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.release_type is not None:
+            self.feedback_message = f"Release type: {self.package_meta.release_type}"
+            return Status.SUCCESS
+        else:
+            self.feedback_message = "Release type is not set"
+            self.logger.error("Release type is not set for Homebrew package")
+            return Status.FAILURE
 
 
 class NeedToReleaseHomebrew(LoggingAction):

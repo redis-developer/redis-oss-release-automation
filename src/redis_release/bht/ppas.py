@@ -1,6 +1,8 @@
 """
 Here we define PPAs (Postcondition-Precondition-Action) composites to be used in backchaining.
 
+Morse specific PPAs are defined directly in the tree factory files.
+
 See backchain.py for more details on backchaining.
 
 Chains are formed and latched in `tree_factory.py`
@@ -15,7 +17,6 @@ from ..github_client_async import GitHubClientAsync
 from .backchain import create_PPA
 from .behaviours import (
     AttachReleaseHandleToPublishWorkflow,
-    DetectReleaseType,
     HasWorkflowArtifacts,
     HasWorkflowResult,
     IsTargetRefIdentified,
@@ -132,19 +133,6 @@ def create_identify_target_ref_ppa(
         ),
         IsTargetRefIdentified(
             "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
-        ),
-    )
-
-
-def create_detect_release_type_ppa(
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Detect Release Type",
-        DetectReleaseType(
-            "Detect Release Type", package_meta, release_meta, log_prefix=log_prefix
         ),
     )
 

@@ -174,6 +174,7 @@ class ClassifySnapVersion(ReleaseAction):
 
         if self.release_meta.tag == "unstable":
             self.package_meta.ephemeral.is_version_acceptable = True
+            # we need to set remote version to not None as it is a sign of successful classify step
             self.package_meta.remote_version = "unstable"
             return
 
@@ -276,6 +277,34 @@ class ClassifySnapVersion(ReleaseAction):
 
         except Exception as e:
             return self.log_exception_and_return_failure(e)
+
+
+class DetectReleaseTypeSnap(LoggingAction):
+    """Check that release_type is set for Snap packages.
+
+    Snap packages should have release_type set by DetectSnapReleaseAndRiskLevel.
+    This behavior just validates that it's set and fails if not.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: SnapMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.package_meta.release_type is not None:
+            self.feedback_message = f"Release type: {self.package_meta.release_type}"
+            return Status.SUCCESS
+        else:
+            self.feedback_message = "Release type is not set"
+            self.logger.error("Release type is not set for Snap package")
+            return Status.FAILURE
 
 
 class NeedToReleaseSnap(LoggingAction):

@@ -16,7 +16,6 @@ from redis_release.bht.composites import (
 )
 from redis_release.bht.ppas import (
     create_attach_release_handle_ppa,
-    create_detect_release_type_ppa,
     create_download_artifacts_ppa,
     create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
@@ -46,7 +45,18 @@ class GenericPackageFactory(ABC):
         return Selector(
             f"Package Release {package_name} Goal",
             memory=False,
-            children=[AlwaysFailure("Always"), package_release],
+            children=[
+                Inverter(
+                    "Not",
+                    self.create_need_to_release_behaviour(
+                        f"Need To Release {package_name}?",
+                        package.meta,
+                        release_meta,
+                        log_prefix=package_name,
+                    ),
+                ),
+                package_release,
+            ],
         )
 
     def create_build_workflow_inputs(
@@ -114,17 +124,23 @@ class GenericPackageFactory(ABC):
             github_client,
             log_prefix,
         )
-        detect_release_type = create_detect_release_type_ppa(
-            package_meta,
-            release_meta,
-            log_prefix,
+
+        detect_release_type = create_PPA(
+            "Detect Release Type",
+            self.create_detect_release_type_behaviour(
+                f"Detect Release Type",
+                package_meta,
+                release_meta,
+                log_prefix=log_prefix,
+            ),
         )
+
         latch_chains(
             workflow_complete,
             find_workflow_by_uud,
             trigger_workflow,
-            identify_target_ref,
             detect_release_type,
+            identify_target_ref,
         )
         return workflow_complete
 
@@ -341,6 +357,15 @@ class GenericPackageFactory(ABC):
         Override in subclasses for package-specific logic.
         """
         return AlwaysSuccess(name)
+
+    def create_detect_release_type_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        raise NotImplementedError
 
 
 class PackageWithValidation:

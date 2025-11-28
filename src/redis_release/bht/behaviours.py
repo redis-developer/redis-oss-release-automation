@@ -864,54 +864,6 @@ class NeedToPublishRelease(LoggingAction):
         return Status.SUCCESS
 
 
-class DetectReleaseType(LoggingAction):
-    def __init__(
-        self,
-        name: str,
-        package_meta: PackageMeta,
-        release_meta: ReleaseMeta,
-        log_prefix: str = "",
-    ) -> None:
-        self.release_meta = release_meta
-        self.package_meta = package_meta
-        self.release_version: Optional[RedisVersion] = None
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def initialise(self) -> None:
-        if self.package_meta.release_type is not None:
-            return
-        if self.release_meta.tag is None:
-            self.logger.error("Release tag is not set")
-            return
-        self.release_version = RedisVersion.parse(self.release_meta.tag)
-
-    def update(self) -> Status:
-        result: Status = Status.FAILURE
-
-        if self.package_meta.release_type is not None:
-            result = Status.SUCCESS
-            self.feedback_message = f"Release type: {self.package_meta.release_type}"
-        elif self.release_version is not None:
-            if self.release_version.is_internal:
-                self.package_meta.release_type = ReleaseType.INTERNAL
-            else:
-                self.package_meta.release_type = ReleaseType.PUBLIC
-            result = Status.SUCCESS
-            self.feedback_message = f"Release type: {self.package_meta.release_type}"
-        else:
-            self.feedback_message = "Failed to detect release type"
-            result = Status.FAILURE
-
-        if self.log_once(
-            "release_type_detected", self.release_meta.ephemeral.log_once_flags
-        ):
-            if result == Status.SUCCESS:
-                self.logger.info(f"[green]{self.feedback_message}[/green]")
-            else:
-                self.logger.error(f"[red]{self.feedback_message}[/red]")
-        return result
-
-
 class IsForceRebuild(LoggingAction):
     def __init__(
         self, name: str, package_meta: PackageMeta, log_prefix: str = ""

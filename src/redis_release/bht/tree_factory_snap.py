@@ -5,6 +5,7 @@ from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter
 
 from redis_release.bht.behaviours_snap import (
+    DetectReleaseTypeSnap,
     DetectSnapReleaseAndRiskLevel,
     NeedToReleaseSnap,
     SnapWorkflowInputs,
@@ -107,6 +108,21 @@ class SnapFactory(GenericPackageFactory, PackageWithValidation):
         return SnapWorkflowInputs(
             name,
             workflow,
+            cast(SnapMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
+        )
+
+    def create_detect_release_type_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        """Snap packages check that release_type is already set."""
+        return DetectReleaseTypeSnap(
+            name,
             cast(SnapMeta, package_meta),
             release_meta,
             log_prefix=log_prefix,
