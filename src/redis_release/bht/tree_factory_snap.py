@@ -62,7 +62,7 @@ class SnapFactory(GenericPackageFactory, PackageWithValidation):
             children=[
                 reset_package_state,
                 DetectSnapReleaseAndRiskLevel(
-                    "Detect Homebrew Channel",
+                    "Detect Snap Release and Risk Level",
                     cast(SnapMeta, package.meta),
                     release_meta,
                     log_prefix=package_name,

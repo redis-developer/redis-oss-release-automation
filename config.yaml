@@ -54,7 +54,7 @@ packages:
     publish_inputs: {}
   snap:
     package_type: snap
-    repo: redislabsdev/redis-snap
+    repo: redis/redis-snap
     # homebrew has one fixed release branch: main
     #ref: master
     ref: release_automation

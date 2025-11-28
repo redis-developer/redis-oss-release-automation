@@ -63,6 +63,8 @@ class DetectSnapReleaseAndRiskLevel(ReleaseAction):
             return
 
         self.feedback_message = ""
+        if self.release_meta.tag == "unstable":
+            return
         try:
             self.release_version = RedisVersion.parse(self.release_meta.tag)
         except ValueError as e:
@@ -80,20 +82,24 @@ class DetectSnapReleaseAndRiskLevel(ReleaseAction):
         ):
             return Status.SUCCESS
         else:
-            assert self.release_version is not None
-            if self.package_meta.release_type is None:
-                if self.release_version.is_internal:
-                    self.package_meta.release_type = ReleaseType.INTERNAL
-                    self.package_meta.snap_risk_level = SnapRiskLevel.CANDIDATE
-                else:
-                    self.package_meta.release_type = ReleaseType.PUBLIC
+            if self.release_meta.tag == "unstable":
+                self.package_meta.release_type = ReleaseType.PUBLIC
+                self.package_meta.snap_risk_level = SnapRiskLevel.EDGE
+            else:
+                assert self.release_version is not None
+                if self.package_meta.release_type is None:
+                    if self.release_version.is_internal:
+                        self.package_meta.release_type = ReleaseType.INTERNAL
+                        self.package_meta.snap_risk_level = SnapRiskLevel.CANDIDATE
+                    else:
+                        self.package_meta.release_type = ReleaseType.PUBLIC
 
-            if self.package_meta.snap_risk_level is None:
-                if self.release_version.is_ga:
-                    self.package_meta.snap_risk_level = SnapRiskLevel.STABLE
-                else:
-                    # other versions go to CANDIDATE
-                    self.package_meta.snap_risk_level = SnapRiskLevel.CANDIDATE
+                if self.package_meta.snap_risk_level is None:
+                    if self.release_version.is_ga:
+                        self.package_meta.snap_risk_level = SnapRiskLevel.STABLE
+                    else:
+                        # other versions go to CANDIDATE
+                        self.package_meta.snap_risk_level = SnapRiskLevel.CANDIDATE
 
         self.feedback_message = f"release_type: {self.package_meta.release_type.value}, snap_risk_level: {self.package_meta.snap_risk_level.value}"
 
@@ -160,6 +166,15 @@ class ClassifySnapVersion(ReleaseAction):
 
         if self.package_meta.release_type is None:
             self.logger.error("Package release type is not set")
+            return
+
+        if self.package_meta.snap_risk_level is None:
+            self.logger.error("Snap risk level is not set")
+            return
+
+        if self.release_meta.tag == "unstable":
+            self.package_meta.ephemeral.is_version_acceptable = True
+            self.package_meta.remote_version = "unstable"
             return
 
         try:
