@@ -307,6 +307,9 @@ class DetectReleaseTypeSnap(LoggingAction):
             return Status.FAILURE
 
 
+# Conditions
+
+
 class NeedToReleaseSnap(LoggingAction):
     def __init__(
         self,

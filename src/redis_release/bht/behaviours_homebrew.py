@@ -271,9 +271,6 @@ class ClassifyHomebrewVersion(ReleaseAction):
             return self.log_exception_and_return_failure(e)
 
 
-# Conditions
-
-
 class DetectReleaseTypeHomebrew(LoggingAction):
     """Check that release_type is set for Homebrew packages.
 
@@ -300,6 +297,9 @@ class DetectReleaseTypeHomebrew(LoggingAction):
             self.feedback_message = "Release type is not set"
             self.logger.error("Release type is not set for Homebrew package")
             return Status.FAILURE
+
+
+# Conditions
 
 
 class NeedToReleaseHomebrew(LoggingAction):

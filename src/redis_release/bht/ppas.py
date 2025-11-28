@@ -1,7 +1,7 @@
 """
 Here we define PPAs (Postcondition-Precondition-Action) composites to be used in backchaining.
 
-Morse specific PPAs are defined directly in the tree factory files.
+More specific PPAs are defined directly in the tree factory files.
 
 See backchain.py for more details on backchaining.
 

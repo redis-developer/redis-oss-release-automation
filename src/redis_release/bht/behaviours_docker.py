@@ -29,9 +29,6 @@ class DockerWorkflowInputs(ReleaseAction):
         return Status.SUCCESS
 
 
-# Conditions
-
-
 class DetectReleaseTypeDocker(LoggingAction):
     """Detect release type for Docker packages based on version."""
 
@@ -84,6 +81,9 @@ class DetectReleaseTypeDocker(LoggingAction):
             else:
                 self.logger.error(f"[red]{self.feedback_message}[/red]")
         return result
+
+
+# Conditions
 
 
 class NeedToReleaseDocker(LoggingAction):

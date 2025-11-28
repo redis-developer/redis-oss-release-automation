@@ -6,8 +6,6 @@ from redis_release.bht.behaviours import LoggingAction
 from redis_release.bht.state import PackageMeta, ReleaseMeta
 from redis_release.models import RedisVersion, ReleaseType
 
-# Conditions
-
 
 class DetectReleaseTypeRPM(LoggingAction):
     """Detect release type for RPM packages based on version."""
@@ -64,6 +62,9 @@ class DetectReleaseTypeRPM(LoggingAction):
             else:
                 self.logger.error(f"[red]{self.feedback_message}[/red]")
         return result
+
+
+# Conditions
 
 
 class NeedToReleaseRPM(LoggingAction):
