@@ -140,7 +140,7 @@ class NeedToReleaseDocker(LoggingAction):
                 result = Status.SUCCESS
 
         if self.log_once("need_to_release", self.package_meta.ephemeral.log_once_flags):
-            color_open = "" if result == Status.SUCCESS else "yellow"
+            color_open = "" if result == Status.SUCCESS else "[yellow]"
             color_close = "" if result == Status.SUCCESS else "[/]"
             self.logger.info(f"{color_open}{self.feedback_message}{color_close}")
         return result

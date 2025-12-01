@@ -109,9 +109,22 @@ class NeedToReleaseRPM(LoggingAction):
             result = Status.FAILURE
 
         if self.release_version is not None:
-            self.feedback_message = "Need to release RPM"
-            result = Status.SUCCESS
+            if self.release_version.major < 8:
+                self.feedback_message = (
+                    f"Skip release for RPM {str(self.release_version)} < 8.0"
+                )
+                result = Status.FAILURE
+            else:
+                self.feedback_message = (
+                    f"Need to release RPM version {str(self.release_version)}"
+                )
+                result = Status.SUCCESS
+        else:
+            self.feedback_message = "Failed to parse release version"
+            result = Status.FAILURE
 
         if self.log_once("need_to_release", self.package_meta.ephemeral.log_once_flags):
-            self.logger.info(self.feedback_message)
+            color_open = "" if result == Status.SUCCESS else "[yellow]"
+            color_close = "" if result == Status.SUCCESS else "[/]"
+            self.logger.info(f"{color_open}{self.feedback_message}{color_close}")
         return result
