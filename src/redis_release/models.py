@@ -202,34 +202,11 @@ class RedisVersion(BaseModel):
 
         return self.sort_key < other.sort_key
 
-    def __le__(self, other: "RedisVersion") -> bool:
-        """Less than or equal comparison."""
-        if not isinstance(other, RedisVersion):
-            return NotImplemented
-        return self < other or self == other
-
-    def __gt__(self, other: "RedisVersion") -> bool:
-        """Greater than comparison."""
-        if not isinstance(other, RedisVersion):
-            return NotImplemented
-        return not self <= other
-
-    def __ge__(self, other: "RedisVersion") -> bool:
-        """Greater than or equal comparison."""
-        if not isinstance(other, RedisVersion):
-            return NotImplemented
-        return not self < other
-
     def __eq__(self, other: object) -> bool:
-        """Equality comparison."""
         if not isinstance(other, RedisVersion):
             return NotImplemented
-        return (
-            self.major == other.major
-            and self.minor == other.minor
-            and (self.patch or 0) == (other.patch or 0)
-            and self.suffix == other.suffix
-        )
+
+        return self.sort_key == other.sort_key
 
     def __hash__(self) -> int:
         """Hash for use in sets and dicts."""
