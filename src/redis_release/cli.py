@@ -22,7 +22,7 @@ from .conversation_models import ConversationArgs
 from .github_app_auth import GitHubAppAuth, load_private_key_from_file
 from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
-from .models import ReleaseArgs, ReleaseType
+from .models import ReleaseArgs, ReleaseType, SlackArgs
 from .state_display import print_state_table
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
@@ -138,11 +138,12 @@ def release_print(
 
 @app.command()
 def conversation_print() -> None:
-    root, state = create_conversation_root_node(
-        InboxMessage(message="test", context=[]), llm=None
+    setup_logging()
+    tree, state = initialize_conversation_tree(
+        ConversationArgs(message="test", openai_api_key="dummy")
     )
-    render_dot_tree(root)
-    print(unicode_tree(root))
+    render_dot_tree(tree.root)
+    print(unicode_tree(tree.root))
 
 
 @app.command()
@@ -150,7 +151,7 @@ def conversation(
     message: str = typer.Option(
         ..., "--message", "-m", help="Natural language release command"
     ),
-    config_file: Optional[str] = typer.Option(
+    config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file (default: config.yaml)"
     ),
     openai_api_key: Optional[str] = typer.Option(
@@ -166,7 +167,9 @@ def conversation(
     if not openai_api_key:
         openai_api_key = os.getenv("OPENAI_API_KEY")
 
-    args = ConversationArgs(message=message, openai_api_key=openai_api_key)
+    args = ConversationArgs(
+        message=message, openai_api_key=openai_api_key, config_path=config
+    )
     tree = initialize_conversation_tree(args)
     tree.tick()
     print(unicode_tree(tree.root))
@@ -224,8 +227,10 @@ def release(
         only_packages=only_packages or [],
         force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
-        slack_token=slack_token,
-        slack_channel_id=slack_channel_id,
+        slack_args=SlackArgs(
+            bot_token=slack_token,
+            channel_id=slack_channel_id,
+        ),
     )
 
     # Use context manager version with automatic lock management
@@ -315,16 +320,17 @@ def slack_bot(
         "--openai-api-key",
         help="OpenAI API key for LLM-based command detection. If not provided, uses OPENAI_API_KEY env var",
     ),
+    config: str = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config file (default: config.yaml)",
+    ),
 ) -> None:
     """Run Slack bot that processes mentions via conversation tree.
 
     The bot listens for mentions and processes them through a conversation tree
     to detect and execute commands.
-
-    By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
-    to post directly in the channel. Use --broadcast to show thread replies in the main channel.
-
-    Only users specified with --authorized-user can run commands. If not specified, all users are authorized.
 
     Requires Socket Mode to be enabled in your Slack app configuration.
     """
@@ -341,6 +347,7 @@ def slack_bot(
             broadcast_to_channel=broadcast_to_channel,
             authorized_users=authorized_users,
             openai_api_key=openai_api_key,
+            config_path=config,
         )
     )
 

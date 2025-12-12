@@ -135,14 +135,16 @@ def initialize_tree_and_state(
 
         # Initialize Slack printer if Slack args are provided
         slack_printer: Optional[SlackStatePrinter] = None
-        if args.slack_token or args.slack_channel_id:
+        if args.slack_args and (
+            args.slack_args.bot_token or args.slack_args.channel_id
+        ):
             try:
                 slack_printer = init_slack_printer(
-                    args.slack_token,
-                    args.slack_channel_id,
-                    args.slack_thread_ts,
-                    args.slack_reply_broadcast,
-                    args.slack_format,
+                    args.slack_args.bot_token,
+                    args.slack_args.channel_id,
+                    args.slack_args.thread_ts,
+                    args.slack_args.reply_broadcast,
+                    args.slack_args.format,
                 )
                 # Capture the non-None printer in the closure
                 printer = slack_printer

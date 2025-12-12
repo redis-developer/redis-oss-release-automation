@@ -1,23 +1,39 @@
-"""Async Slack bot that listens for mentions and processes commands via conversation tree."""
-
 import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
-from redis_release.bht.conversation_state import InboxMessage
-from redis_release.bht.conversation_tree import create_conversation_root_node
+from redis_release.models import SlackArgs
+
+from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
+from .conversation_models import ConversationArgs
 
 logger = logging.getLogger(__name__)
 
 
 class ReleaseBot:
-    """Async Slack bot that processes mentions via conversation tree."""
+    """Async Slack bot that processes mentions via conversation tree.
+
+    Bot conversation flow is unidirectional and stateless.
+
+    ReleaseBot listens to mentions and pass them to conversation tree along with slack channel/thread params.
+
+    While executing conversation tree may
+        * Start a command which could eventually send message to the same
+          channel/thread (independently of the bot socket process)
+        * Put a reply message into the conversation state
+
+    If reply message exists bot would send it back.
+
+    The message could be a question came from the LLM. Then upon reply from user
+    we start a new conversation tree but LLM receives the context - that is how
+    feedback loop is achieved. In fact the state is in context (all thread
+    messages)
+    """
 
     def __init__(
         self,
@@ -26,8 +42,9 @@ class ReleaseBot:
         reply_in_thread: bool = True,
         broadcast_to_channel: bool = False,
         authorized_users: Optional[List[str]] = None,
-        llm: Optional[OpenAI] = None,
-    ):
+        openai_api_key: Optional[str] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
         """Initialize the bot.
 
         Args:
@@ -41,11 +58,13 @@ class ReleaseBot:
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
-        self.llm = llm
+
+        self.config_path = config_path
 
         # Get tokens from args or environment
         bot_token = slack_bot_token or os.environ.get("SLACK_BOT_TOKEN")
         app_token = slack_app_token or os.environ.get("SLACK_APP_TOKEN")
+        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
 
         if not bot_token:
             raise ValueError(
@@ -109,12 +128,21 @@ class ReleaseBot:
                 # Get thread context if in a thread
                 context = await self._get_thread_messages(channel, thread_ts)
 
-                # Create inbox message
-                inbox_message = InboxMessage(message=text, context=context)
-
                 # Create and tick conversation tree
-                root, state = create_conversation_root_node(inbox_message, llm=self.llm)
-                root.tick_once()
+                args = ConversationArgs(
+                    message=text,
+                    context=context,
+                    openai_api_key=self.openai_api_key,
+                    config_path=self.config_path,
+                    slack_args=SlackArgs(
+                        bot_token=self.bot_token,
+                        channel_id=channel,
+                        thread_ts=thread_ts,
+                        reply_broadcast=self.broadcast_to_channel,
+                    ),
+                )
+                tree, state = initialize_conversation_tree(args)
+                run_conversation_tree(tree)
 
                 # Get reply from state
                 reply = state.reply
@@ -203,6 +231,7 @@ async def run_bot(
     broadcast_to_channel: bool = False,
     authorized_users: Optional[List[str]] = None,
     openai_api_key: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> None:
     """Run the Slack bot.
 
@@ -214,11 +243,6 @@ async def run_bot(
         authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
         openai_api_key: OpenAI API key for LLM-based command detection. If None, uses OPENAI_API_KEY env var
     """
-    # Initialize LLM if API key is provided
-    llm: Optional[OpenAI] = None
-    api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        llm = OpenAI(api_key=api_key)
 
     # Create and start bot
     bot = ReleaseBot(
@@ -227,7 +251,8 @@ async def run_bot(
         reply_in_thread=reply_in_thread,
         broadcast_to_channel=broadcast_to_channel,
         authorized_users=authorized_users,
-        llm=llm,
+        openai_api_key=openai_api_key,
+        config_path=config_path,
     )
 
     await bot.start()

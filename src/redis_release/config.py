@@ -51,7 +51,7 @@ class Config(BaseModel):
         return cls(**data)
 
 
-def load_config(path: Union[str, Path] = "config.yaml") -> Config:
+def load_config(path: Optional[Union[str, Path]] = None) -> Config:
     """Load configuration from YAML file.
 
     Args:
@@ -60,4 +60,6 @@ def load_config(path: Union[str, Path] = "config.yaml") -> Config:
     Returns:
         Loaded configuration object
     """
+    if path is None:
+        path = "config.yaml"
     return Config.from_yaml(path)
