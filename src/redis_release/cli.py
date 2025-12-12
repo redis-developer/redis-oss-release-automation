@@ -1,25 +1,31 @@
 """Redis OSS Release Automation CLI."""
 
 import asyncio
+import json
 import logging
+import os
 from typing import Dict, List, Optional
 
 import typer
+from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.models import ReleaseType
-from redis_release.state_display import print_state_table
-from redis_release.state_manager import (
-    InMemoryStateStorage,
-    S3StateStorage,
-    StateManager,
+from .ai_parser import parse_message_with_ai
+from .bht.conversation_state import InboxMessage
+from .bht.conversation_tree import (
+    create_conversation_root_node,
+    initialize_conversation_tree,
 )
-from redis_release.state_slack import init_slack_printer
-
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
+from .conversation_models import ConversationArgs
+from .github_app_auth import GitHubAppAuth, load_private_key_from_file
+from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
-from .models import ReleaseArgs
+from .models import ReleaseArgs, ReleaseType
+from .state_display import print_state_table
+from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
+from .state_slack import init_slack_printer
 
 app = typer.Typer(
     name="redis-release",
@@ -128,6 +134,42 @@ def release_print(
         ):
             render_dot_tree(tree.root)
             print(unicode_tree(tree.root))
+
+
+@app.command()
+def conversation_print() -> None:
+    root, state = create_conversation_root_node(
+        InboxMessage(message="test", context=[]), llm=None
+    )
+    render_dot_tree(root)
+    print(unicode_tree(root))
+
+
+@app.command()
+def conversation(
+    message: str = typer.Option(
+        ..., "--message", "-m", help="Natural language release command"
+    ),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    openai_api_key: Optional[str] = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key (if not provided, uses OPENAI_API_KEY env var)",
+    ),
+    tree_cutoff: int = typer.Option(
+        5000, "--tree-cutoff", help="Max number of ticks to run the tree for"
+    ),
+) -> None:
+    setup_logging()
+    if not openai_api_key:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+
+    args = ConversationArgs(message=message, openai_api_key=openai_api_key)
+    tree = initialize_conversation_tree(args)
+    tree.tick()
+    print(unicode_tree(tree.root))
 
 
 @app.command()
@@ -243,9 +285,6 @@ def status(
 
 @app.command()
 def slack_bot(
-    config_file: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file (default: config.yaml)"
-    ),
     slack_bot_token: Optional[str] = typer.Option(
         None,
         "--slack-bot-token",
@@ -269,56 +308,222 @@ def slack_bot(
     authorized_users: Optional[List[str]] = typer.Option(
         None,
         "--authorized-user",
-        help="User ID authorized to run releases (can be specified multiple times). If not specified, all users are authorized",
+        help="User ID authorized to run commands (can be specified multiple times). If not specified, all users are authorized",
     ),
-    slack_format: str = typer.Option(
-        "default",
-        "--slack-format",
-        help="Slack message format: 'default' shows all steps, 'one-step' shows only the last step",
+    openai_api_key: Optional[str] = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key for LLM-based command detection. If not provided, uses OPENAI_API_KEY env var",
     ),
 ) -> None:
-    """Run Slack bot that listens for status requests.
+    """Run Slack bot that processes mentions via conversation tree.
 
-    The bot listens for mentions containing 'status' and a version tag (e.g., '8.4-m01'),
-    and responds by posting the release status to the channel.
+    The bot listens for mentions and processes them through a conversation tree
+    to detect and execute commands.
 
     By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
     to post directly in the channel. Use --broadcast to show thread replies in the main channel.
 
-    Only users specified with --authorized-user can run releases. Status command is available to all users.
-    You can also include the word 'broadcast' in the release message to broadcast updates to the main channel.
+    Only users specified with --authorized-user can run commands. If not specified, all users are authorized.
 
     Requires Socket Mode to be enabled in your Slack app configuration.
     """
-    from redis_release.models import SlackFormat
     from redis_release.slack_bot import run_bot
 
     setup_logging()
-    config_path = config_file or "config.yaml"
-
-    # Parse slack_format
-    try:
-        slack_format_enum = SlackFormat(slack_format)
-    except ValueError:
-        logger.error(
-            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
-        )
-        raise typer.BadParameter(
-            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
-        )
 
     logger.info("Starting Slack bot...")
     asyncio.run(
         run_bot(
-            config_path=config_path,
             slack_bot_token=slack_bot_token,
             slack_app_token=slack_app_token,
             reply_in_thread=reply_in_thread,
             broadcast_to_channel=broadcast_to_channel,
             authorized_users=authorized_users,
-            slack_format=slack_format_enum,
+            openai_api_key=openai_api_key,
         )
     )
+
+
+@app.command()
+def ai(
+    message: str = typer.Option(
+        ..., "--message", "-m", help="Natural language release command"
+    ),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    openai_api_key: Optional[str] = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key (if not provided, uses OPENAI_API_KEY env var)",
+    ),
+    model: str = typer.Option(
+        "gpt-4o-mini",
+        "--model",
+        help="OpenAI model to use (default: gpt-4o-mini)",
+    ),
+    execute: bool = typer.Option(
+        False,
+        "--execute",
+        help="Execute the release after parsing (default: just show the parsed args)",
+    ),
+    tree_cutoff: int = typer.Option(
+        5000, "--tree-cutoff", help="Max number of ticks to run the tree for"
+    ),
+) -> None:
+    """[EXPERIMENTAL] Parse natural language message into ReleaseArgs using AI.
+
+    This command uses OpenAI to parse a natural language description of a release
+    into a structured ReleaseArgs object. By default, it only displays the parsed
+    arguments. Use --execute to actually run the release.
+
+    Examples:
+        redis-release ai --message "Release 8.4-m01-int1"
+        redis-release ai --message "Release 8.4-m01-int1 for docker only"
+        redis-release ai --message "Force rebuild all packages for 8.4-m01-int1"
+        redis-release ai --message "Release 8.4-m01-int1 with docker as internal" --execute
+    """
+    setup_logging()
+
+    try:
+        # Parse the message using AI
+        args = parse_message_with_ai(message, api_key=openai_api_key, model=model)
+
+        # Display the parsed arguments
+        logger.info("[green]Successfully parsed release arguments:[/green]")
+        print(json.dumps(args.model_dump(), indent=2, default=str))
+
+        if not execute:
+            logger.info(
+                "\n[yellow]Note:[/yellow] This is a dry run. Use --execute to actually run the release."
+            )
+            return
+
+        # Execute the release if requested
+        logger.info("\n[cyan]Executing release...[/cyan]")
+        config_path = config_file or "config.yaml"
+        config = load_config(config_path)
+
+        with initialize_tree_and_state(config, args) as (tree, _):
+            asyncio.run(async_tick_tock(tree, cutoff=tree_cutoff))
+
+    except ValueError as e:
+        logger.error(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"[red]Unexpected error:[/red] {e}", exc_info=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def test_github_app(
+    github_app_id: str = typer.Option(..., "--github-app-id", help="GitHub App ID"),
+    github_private_key_file: str = typer.Option(
+        ..., "--github-private-key-file", help="Path to GitHub App private key file"
+    ),
+    repo: str = typer.Option(
+        "redis/docker-library-redis",
+        "--repo",
+        help="Repository to test (default: redis/docker-library-redis)",
+    ),
+    workflow_file: str = typer.Option(
+        "release_build_and_test.yml",
+        "--workflow-file",
+        help="Workflow file to dispatch (default: release_build_and_test.yml)",
+    ),
+    workflow_ref: str = typer.Option(
+        "main", "--workflow-ref", help="Git ref to run workflow on (default: main)"
+    ),
+    workflow_inputs: Optional[str] = typer.Option(
+        None,
+        "--workflow-inputs",
+        help='Workflow inputs as JSON string (e.g., \'{"key": "value"}\')',
+    ),
+) -> None:
+    """[TEST] Test GitHub App authentication and workflow dispatch.
+
+    This command tests GitHub App authentication by:
+    1. Loading the private key from file
+    2. Generating a JWT token
+    3. Getting an installation token for the specified repository
+    4. Dispatching a workflow using the installation token
+
+    Example:
+        redis-release test-github-app \\
+            --github-app-id 123456 \\
+            --github-private-key-file /path/to/private-key.pem \\
+            --repo redis/docker-library-redis \\
+            --workflow-file release_build_and_test.yml \\
+            --workflow-ref main \\
+            --workflow-inputs '{"release_tag": "8.4-m01-int1"}'
+    """
+    setup_logging()
+
+    try:
+        # Load private key
+        logger.info(f"Loading private key from {github_private_key_file}")
+        private_key = load_private_key_from_file(github_private_key_file)
+        logger.info("[green]Private key loaded successfully[/green]")
+
+        # Create GitHub App auth helper
+        app_auth = GitHubAppAuth(app_id=github_app_id, private_key=private_key)
+
+        # Get installation token
+        logger.info(f"Getting installation token for repo: {repo}")
+
+        async def get_token_and_dispatch() -> None:
+            token = await app_auth.get_token_for_repo(repo)
+            if not token:
+                logger.error("[red]Failed to get installation token[/red]")
+                raise typer.Exit(1)
+
+            logger.info("[green]Successfully obtained installation token[/green]")
+            logger.info(f"Token (first 20 chars): {token[:20]}...")
+
+            # Parse workflow inputs
+            inputs = {}
+            if workflow_inputs:
+                try:
+                    inputs = json.loads(workflow_inputs)
+                    logger.info(f"Workflow inputs: {inputs}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"[red]Invalid JSON in workflow inputs:[/red] {e}")
+                    raise typer.Exit(1)
+
+            # Create GitHub client with the installation token
+            github_client = GitHubClientAsync(token=token)
+
+            # Dispatch workflow
+            logger.info(
+                f"Dispatching workflow {workflow_file} on {repo} at ref {workflow_ref}"
+            )
+            try:
+                await github_client.trigger_workflow(
+                    repo=repo,
+                    workflow_file=workflow_file,
+                    inputs=inputs,
+                    ref=workflow_ref,
+                )
+                logger.info("[green]Workflow dispatched successfully![/green]")
+                logger.info(
+                    f"Check workflow runs at: https://github.com/{repo}/actions"
+                )
+            except Exception as e:
+                logger.error(f"[red]Failed to dispatch workflow:[/red] {e}")
+                raise typer.Exit(1)
+
+        # Run async function
+        asyncio.run(get_token_and_dispatch())
+
+    except FileNotFoundError:
+        logger.error(
+            f"[red]Private key file not found:[/red] {github_private_key_file}"
+        )
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"[red]Unexpected error:[/red] {e}", exc_info=True)
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

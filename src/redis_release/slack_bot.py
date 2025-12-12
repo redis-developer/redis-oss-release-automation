@@ -1,57 +1,47 @@
-"""Async Slack bot that listens for status requests and posts release status."""
+"""Async Slack bot that listens for mentions and processes commands via conversation tree."""
 
 import asyncio
 import logging
 import os
-import re
-import threading
 from typing import Any, Dict, List, Optional
 
+from openai import OpenAI
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
-from redis_release.bht.tree import async_tick_tock, initialize_tree_and_state
-from redis_release.config import Config, load_config
-from redis_release.models import ReleaseArgs, SlackFormat
-from redis_release.state_manager import S3StateStorage, StateManager
-from redis_release.state_slack import init_slack_printer
+from redis_release.bht.conversation_state import InboxMessage
+from redis_release.bht.conversation_tree import create_conversation_root_node
 
 logger = logging.getLogger(__name__)
 
-# Regex pattern to match version tags like 8.4-m01, 7.2.5, 8.0-rc1, etc.
-VERSION_TAG_PATTERN = re.compile(r"\b(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?)\b")
 
-
-class ReleaseStatusBot:
-    """Async Slack bot that responds to status requests for releases."""
+class ReleaseBot:
+    """Async Slack bot that processes mentions via conversation tree."""
 
     def __init__(
         self,
-        config: Config,
         slack_bot_token: Optional[str] = None,
         slack_app_token: Optional[str] = None,
         reply_in_thread: bool = True,
         broadcast_to_channel: bool = False,
         authorized_users: Optional[List[str]] = None,
-        slack_format: SlackFormat = SlackFormat.DEFAULT,
+        llm: Optional[OpenAI] = None,
     ):
         """Initialize the bot.
 
         Args:
-            config: Release configuration
             slack_bot_token: Slack bot token (xoxb-...). If None, uses SLACK_BOT_TOKEN env var
             slack_app_token: Slack app token (xapp-...). If None, uses SLACK_APP_TOKEN env var
             reply_in_thread: If True, reply in thread. If False, reply in main channel
             broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
-            authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
-            slack_format: Slack message format (default or one-step)
+            authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
+            llm: OpenAI client for LLM-based command detection
         """
-        self.config = config
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
-        self.slack_format = slack_format
+        self.llm = llm
 
         # Get tokens from args or environment
         bot_token = slack_bot_token or os.environ.get("SLACK_BOT_TOKEN")
@@ -83,9 +73,9 @@ class ReleaseStatusBot:
         async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
             event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
         ) -> None:
-            """Handle app mentions and check for status/release requests."""
+            """Handle app mentions by processing through conversation tree."""
             try:
-                text = event.get("text", "").lower()
+                text = event.get("text", "")
                 channel = event.get("channel")
                 user = event.get("user")
                 ts = event.get("ts")
@@ -104,283 +94,100 @@ class ReleaseStatusBot:
                     f"Received mention from user {user} in channel {channel}: {text}"
                 )
 
-                # Check if message contains "release" command
-                if "release" in text:
-                    await self._handle_release_command(
-                        event.get("text", ""), channel, user, thread_ts, logger
+                # Check authorization
+                if self.authorized_users and user not in self.authorized_users:
+                    logger.warning(
+                        f"Unauthorized attempt by user {user}. Authorized users: {self.authorized_users}"
+                    )
+                    await self._send_reply(
+                        channel,
+                        thread_ts,
+                        f"<@{user}> Sorry, you are not authorized. Please contact an administrator.",
                     )
                     return
 
-                # Check if message contains "status"
-                if "status" not in text:
-                    logger.debug(
-                        "Message doesn't contain 'status' or 'release', ignoring"
+                # Get thread context if in a thread
+                context = await self._get_thread_messages(channel, thread_ts)
+
+                # Create inbox message
+                inbox_message = InboxMessage(message=text, context=context)
+
+                # Create and tick conversation tree
+                root, state = create_conversation_root_node(inbox_message, llm=self.llm)
+                root.tick_once()
+
+                # Get reply from state
+                reply = state.reply
+
+                # Send reply
+                if reply:
+                    await self._send_reply(channel, thread_ts, reply)
+                else:
+                    await self._send_reply(
+                        channel,
+                        thread_ts,
+                        f"<@{user}> I couldn't understand your request. Please try again.",
                     )
-                    return
-
-                # Extract version tag from message
-                tag = self._extract_version_tag(event.get("text", ""))
-
-                if not tag:
-                    # Reply in thread if configured
-                    if self.reply_in_thread:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=f"<@{user}> I couldn't find a version tag in your message. "
-                            "Please mention me with 'status' and a version tag like `8.4-m01` or `7.2.5`.",
-                        )
-                    else:
-                        await say(
-                            f"<@{user}> I couldn't find a version tag in your message. "
-                            "Please mention me with 'status' and a version tag like `8.4-m01` or `7.2.5`."
-                        )
-                    return
-
-                logger.info(f"Processing status request for tag: {tag}")
-
-                # Post status for the tag
-                await self._post_status(tag, channel, user, thread_ts)
 
             except Exception as e:
                 logger.error(f"Error handling app mention: {e}", exc_info=True)
-                # Reply in thread if configured
                 channel = event.get("channel")
-                if self.reply_in_thread and channel:
-                    await self.app.client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=event.get("thread_ts", event.get("ts", "")),
-                        text=f"Sorry, I encountered an error: {str(e)}",
+                if channel:
+                    await self._send_reply(
+                        channel,
+                        event.get("thread_ts", event.get("ts", "")),
+                        f"Sorry, I encountered an error: {str(e)}",
                     )
-                else:
-                    await say(f"Sorry, I encountered an error: {str(e)}")
 
-    def _extract_version_tag(self, text: str) -> Optional[str]:
-        """Extract version tag from message text.
+    async def _get_thread_messages(self, channel: str, thread_ts: str) -> List[str]:
+        """Get all messages from a thread.
 
         Args:
-            text: Message text
+            channel: Slack channel ID
+            thread_ts: Thread timestamp
 
         Returns:
-            Version tag if found, None otherwise
+            List of message texts from the thread
         """
-        match = VERSION_TAG_PATTERN.search(text)
-        if match:
-            return match.group(1)
-        return None
+        try:
+            # Get thread messages using conversations.replies
+            result = await self.app.client.conversations_replies(
+                channel=channel, ts=thread_ts
+            )
 
-    async def _handle_release_command(
-        self,
-        text: str,
-        channel: str,
-        user: str,
-        thread_ts: str,
-        logger: logging.Logger,
-    ) -> None:
-        """Handle release command to start a new release.
+            messages = result.get("messages", [])
+            # Extract text from messages, excluding the bot's own messages
+            context = [
+                msg.get("text", "")
+                for msg in messages
+                if msg.get("text") and not msg.get("bot_id")
+            ]
+            return context
+
+        except Exception as e:
+            logger.error(f"Error getting thread messages: {e}", exc_info=True)
+            return []
+
+    async def _send_reply(self, channel: str, thread_ts: str, text: str) -> None:
+        """Send a reply message.
 
         Args:
-            text: Message text
             channel: Slack channel ID
-            user: User ID who requested the release
             thread_ts: Thread timestamp to reply in
-            logger: Logger instance
+            text: Message text to send
         """
-        # Check authorization
-        if self.authorized_users and user not in self.authorized_users:
-            logger.warning(
-                f"Unauthorized release attempt by user {user}. Authorized users: {self.authorized_users}"
-            )
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> Sorry, you are not authorized to run releases. "
-                    "Please contact an administrator.",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> Sorry, you are not authorized to run releases. "
-                    "Please contact an administrator.",
-                )
-            return
-
-        # Extract version tag from message
-        tag = self._extract_version_tag(text)
-
-        if not tag:
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> I couldn't find a version tag in your message. "
-                    "Please mention me with 'release' and a version tag like `8.4-m01` or `7.2.5`.",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> I couldn't find a version tag in your message. "
-                    "Please mention me with 'release' and a version tag like `8.4-m01` or `7.2.5`.",
-                )
-            return
-
-        logger.info(f"Processing release command for tag: {tag}")
-
-        # Check if message contains "broadcast" keyword
-        broadcast_requested = "broadcast" in text.lower()
-        reply_broadcast = self.broadcast_to_channel or broadcast_requested
-
-        if broadcast_requested:
-            logger.info("Broadcast mode enabled via 'broadcast' keyword in message")
-
-        # Acknowledge the command
         if self.reply_in_thread:
             await self.app.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
-                text=f"<@{user}> Starting release for tag `{tag}`... I'll post updates in this thread."
-                + (" (broadcasting to channel)" if reply_broadcast else ""),
+                text=text,
+                reply_broadcast=self.broadcast_to_channel,
             )
         else:
             await self.app.client.chat_postMessage(
                 channel=channel,
-                text=f"<@{user}> Starting release for tag `{tag}`...",
+                text=text,
             )
-
-        # Start release in a separate thread
-        def run_release_in_thread() -> None:
-            """Run release in a separate thread with its own event loop."""
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            try:
-                # Create release args
-                args = ReleaseArgs(
-                    release_tag=tag,
-                    force_rebuild=[],
-                    slack_token=self.bot_token,
-                    slack_channel_id=channel,
-                    slack_thread_ts=thread_ts if self.reply_in_thread else None,
-                    slack_reply_broadcast=reply_broadcast,
-                    slack_format=self.slack_format,
-                )
-
-                # Run the release
-                with initialize_tree_and_state(self.config, args) as (tree, _):
-                    loop.run_until_complete(async_tick_tock(tree, cutoff=2000))
-
-                logger.info(f"Release {tag} completed")
-
-            except Exception as e:
-                logger.error(f"Error running release {tag}: {e}", exc_info=True)
-                # Post error message to Slack
-                try:
-                    if self.reply_in_thread:
-                        loop.run_until_complete(
-                            self.app.client.chat_postMessage(
-                                channel=channel,
-                                thread_ts=thread_ts,
-                                text=f"<@{user}> Release `{tag}` failed with error: {str(e)}",
-                            )
-                        )
-                    else:
-                        loop.run_until_complete(
-                            self.app.client.chat_postMessage(
-                                channel=channel,
-                                text=f"<@{user}> Release `{tag}` failed with error: {str(e)}",
-                            )
-                        )
-                except Exception as slack_error:
-                    logger.error(
-                        f"Failed to post error to Slack: {slack_error}", exc_info=True
-                    )
-            finally:
-                loop.close()
-
-        # Start the thread
-        release_thread = threading.Thread(
-            target=run_release_in_thread, name=f"release-{tag}", daemon=True
-        )
-        release_thread.start()
-        logger.info(f"Started release thread for tag {tag}")
-
-    async def _post_status(
-        self, tag: str, channel: str, user: str, thread_ts: str
-    ) -> None:
-        """Load and post release status for a tag.
-
-        Args:
-            tag: Release tag
-            channel: Slack channel ID
-            user: User ID who requested the status
-            thread_ts: Thread timestamp to reply in
-        """
-        try:
-            # Create release args
-            args = ReleaseArgs(
-                release_tag=tag,
-                force_rebuild=[],
-            )
-
-            # Load state from S3
-            storage = S3StateStorage()
-
-            # Use StateManager in read-only mode
-            with StateManager(
-                storage=storage,
-                config=self.config,
-                args=args,
-                read_only=True,
-            ) as state_syncer:
-                state = state_syncer.state
-
-                # Check if state exists (has any data beyond defaults)
-                if not state.meta.last_started_at:
-                    if self.reply_in_thread:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=f"<@{user}> No release state found for tag `{tag}`. "
-                            "This release may not have been started yet.",
-                        )
-                    else:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            text=f"<@{user}> No release state found for tag `{tag}`. "
-                            "This release may not have been started yet.",
-                        )
-                    return
-
-                # Post status using SlackStatePrinter
-                printer = init_slack_printer(
-                    slack_token=self.bot_token,
-                    slack_channel_id=channel,
-                    thread_ts=thread_ts if self.reply_in_thread else None,
-                    reply_broadcast=self.broadcast_to_channel,
-                    slack_format=self.slack_format,
-                )
-                printer.update_message(state)
-
-                logger.info(
-                    f"Posted status for tag {tag} to channel {channel}"
-                    + (f" in thread {thread_ts}" if self.reply_in_thread else "")
-                )
-
-        except Exception as e:
-            logger.error(f"Error posting status for tag {tag}: {e}", exc_info=True)
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> Failed to load status for tag `{tag}`: {str(e)}",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> Failed to load status for tag `{tag}`: {str(e)}",
-                )
 
     async def start(self) -> None:
         """Start the bot using Socket Mode."""
@@ -390,37 +197,37 @@ class ReleaseStatusBot:
 
 
 async def run_bot(
-    config_path: str = "config.yaml",
     slack_bot_token: Optional[str] = None,
     slack_app_token: Optional[str] = None,
     reply_in_thread: bool = True,
     broadcast_to_channel: bool = False,
     authorized_users: Optional[List[str]] = None,
-    slack_format: SlackFormat = SlackFormat.DEFAULT,
+    openai_api_key: Optional[str] = None,
 ) -> None:
     """Run the Slack bot.
 
     Args:
-        config_path: Path to config file
         slack_bot_token: Slack bot token (xoxb-...). If None, uses SLACK_BOT_TOKEN env var
         slack_app_token: Slack app token (xapp-...). If None, uses SLACK_APP_TOKEN env var
         reply_in_thread: If True, reply in thread. If False, reply in main channel
         broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
-        authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
-        slack_format: Slack message format (default or one-step)
+        authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
+        openai_api_key: OpenAI API key for LLM-based command detection. If None, uses OPENAI_API_KEY env var
     """
-    # Load config
-    config = load_config(config_path)
+    # Initialize LLM if API key is provided
+    llm: Optional[OpenAI] = None
+    api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
+    if api_key:
+        llm = OpenAI(api_key=api_key)
 
     # Create and start bot
-    bot = ReleaseStatusBot(
-        config=config,
+    bot = ReleaseBot(
         slack_bot_token=slack_bot_token,
         slack_app_token=slack_app_token,
         reply_in_thread=reply_in_thread,
         broadcast_to_channel=broadcast_to_channel,
         authorized_users=authorized_users,
-        slack_format=slack_format,
+        llm=llm,
     )
 
     await bot.start()
