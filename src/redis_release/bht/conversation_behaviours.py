@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from slack_sdk import WebClient
 
 from ..config import Config
-from ..conversation_models import Command
+from ..conversation_models import Command, ConversationCockpit
 from ..models import ReleaseArgs, ReleaseType
 from .behaviours import ReleaseAction
 from .conversation_state import ConversationState
@@ -54,7 +54,11 @@ class CommandDetectionResult(BaseModel):
 
 class SimpleCommandClassifier(ReleaseAction):
     def __init__(
-        self, name: str, state: ConversationState, log_prefix: str = ""
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
     ) -> None:
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)
@@ -85,12 +89,12 @@ class LLMCommandClassifier(ReleaseAction):
     def __init__(
         self,
         name: str,
-        llm: OpenAI,
         state: ConversationState,
+        cockpit: ConversationCockpit,
         log_prefix: str = "",
         confidence_threshold: float = 0.7,
     ) -> None:
-        self.llm = llm
+        self.llm = cockpit.llm
         self.state = state
         self.confidence_threshold = confidence_threshold
         super().__init__(name=name, log_prefix=log_prefix)
@@ -136,6 +140,7 @@ Output using the provided JSON schema fields:
             )
 
         try:
+            assert self.llm is not None
             # Call LLM with structured outputs
             response = self.llm.responses.parse(
                 model="gpt-4o-2024-08-06",
@@ -253,6 +258,7 @@ class RunCommand(ReleaseAction):
         self,
         name: str,
         state: ConversationState,
+        cockpit: ConversationCockpit,
         config: Config,
         log_prefix: str = "",
     ) -> None:
@@ -273,6 +279,18 @@ class RunCommand(ReleaseAction):
 
         # Get release args
         release_args = self.state.release_args
+
+        # Check authorization
+        if (
+            self.state.authorized_users
+            and self.state.message
+            and self.state.message.user not in self.state.authorized_users
+        ):
+            logger.warning(
+                f"Unauthorized attempt by user {self.state.message.user}. Authorized users: {self.state.authorized_users}"
+            )
+            self.state.reply = "Sorry, you are not authorized to run releases. Please contact an administrator."
+            return Status.FAILURE
 
         self.logger.info(
             f"Starting release for tag {release_args.release_tag} in background thread"
@@ -340,7 +358,11 @@ class RunCommand(ReleaseAction):
 
 class IsLLMAvailable(ReleaseAction):
     def __init__(
-        self, name: str, state: ConversationState, log_prefix: str = ""
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
     ) -> None:
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)
@@ -353,7 +375,11 @@ class IsLLMAvailable(ReleaseAction):
 
 class HasReleaseArgs(ReleaseAction):
     def __init__(
-        self, name: str, state: ConversationState, log_prefix: str = ""
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
     ) -> None:
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)
@@ -366,7 +392,11 @@ class HasReleaseArgs(ReleaseAction):
 
 class IsCommandStarted(ReleaseAction):
     def __init__(
-        self, name: str, state: ConversationState, log_prefix: str = ""
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
     ) -> None:
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)

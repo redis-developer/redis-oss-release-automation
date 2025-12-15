@@ -18,7 +18,7 @@ from .bht.conversation_tree import (
 )
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
-from .conversation_models import ConversationArgs
+from .conversation_models import ConversationArgs, InboxMessage
 from .github_app_auth import GitHubAppAuth, load_private_key_from_file
 from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
@@ -140,7 +140,9 @@ def release_print(
 def conversation_print() -> None:
     setup_logging()
     tree, state = initialize_conversation_tree(
-        ConversationArgs(message="test", openai_api_key="dummy")
+        ConversationArgs(
+            inbox=InboxMessage(message="test", context=[]), openai_api_key="dummy"
+        )
     )
     render_dot_tree(tree.root)
     print(unicode_tree(tree.root))
@@ -168,9 +170,11 @@ def conversation(
         openai_api_key = os.getenv("OPENAI_API_KEY")
 
     args = ConversationArgs(
-        message=message, openai_api_key=openai_api_key, config_path=config
+        inbox=InboxMessage(message=message, context=[]),
+        openai_api_key=openai_api_key,
+        config_path=config,
     )
-    tree = initialize_conversation_tree(args)
+    tree, _ = initialize_conversation_tree(args)
     tree.tick()
     print(unicode_tree(tree.root))
 

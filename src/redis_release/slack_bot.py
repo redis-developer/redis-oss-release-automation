@@ -1,12 +1,15 @@
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional
+import threading
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import janus
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
+from redis_release.bht.conversation_state import InboxMessage
 from redis_release.models import SlackArgs
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
@@ -18,21 +21,30 @@ logger = logging.getLogger(__name__)
 class ReleaseBot:
     """Async Slack bot that processes mentions via conversation tree.
 
-    Bot conversation flow is unidirectional and stateless.
+    Bot conversation flow is unidirectional and stateless (there is no any direct conversation state kept in the bot).
 
-    ReleaseBot listens to mentions and pass them to conversation tree along with slack channel/thread params.
+    ReleaseBot listens to mentions and passes them to conversation tree along with slack channel/thread params and reply queue.
+
+    For each inbox message listener task is created that listens to the reply queue and
+    sends messages back to the user and exits when conversation tree thread is done.
+
+    That way we keep conversation tree decoupled from Slack which in theory allow us to use it in CLI or web.
 
     While executing conversation tree may
         * Start a command which could eventually send message to the same
-          channel/thread (independently of the bot socket process)
-        * Put a reply message into the conversation state
+          channel/thread (independently of the bot)
+        * Put a reply message(s) into the conversation state, which would be sent back via the queue
 
-    If reply message exists bot would send it back.
+    The reply message could be a question came from the LLM. Then upon reply
+    from user we start a new conversation tree but LLM receives the context -
+    that is how feedback loop is achieved. In fact the state lives in context
+    (all slack thread messages)
 
-    The message could be a question came from the LLM. Then upon reply from user
-    we start a new conversation tree but LLM receives the context - that is how
-    feedback loop is achieved. In fact the state is in context (all thread
-    messages)
+    Slack bot --Inbbox message--> New Conversation tree for each msg (thread) --> Release command (thread)
+                                            |                                          |
+                                            |                                          |
+                                            v                                          v
+    slack msg <-- listener <-- queue <--  reply                                   Slack messages (independent of the bot, same thread)
     """
 
     def __init__(
@@ -85,6 +97,41 @@ class ReleaseBot:
         # Register event handlers
         self._register_handlers()
 
+    def start_conversation(
+        self,
+        args: ConversationArgs,
+    ) -> None:
+        """Start a conversation tree and listener in a separate thread.
+
+        Args:
+            args: Conversation arguments
+        """
+        queue: janus.Queue[str] = janus.Queue()
+
+        tree, state = initialize_conversation_tree(args, queue.sync_q)
+
+        # Create thread for running the tree (but don't start yet)
+        tree_thread = threading.Thread(
+            target=run_conversation_tree,
+            args=(tree, state, queue.sync_q),
+            daemon=True,
+        )
+
+        assert args.slack_args
+        assert args.slack_args.channel_id
+        assert args.slack_args.thread_ts
+
+        # Create and start queue listener as background task
+        queue_listener = self.create_queue_listener(
+            queue,
+            args.slack_args.channel_id,
+            args.slack_args.thread_ts,
+            tree_thread,
+        )
+        asyncio.create_task(queue_listener())
+
+        tree_thread.start()
+
     def _register_handlers(self) -> None:
         """Register Slack event handlers."""
 
@@ -109,30 +156,23 @@ class ReleaseBot:
                     )
                     return
 
+                # Type assertions after validation
+                assert isinstance(channel, str)
+                assert isinstance(user, str)
+                assert isinstance(thread_ts, str)
+
                 logger.info(
                     f"Received mention from user {user} in channel {channel}: {text}"
                 )
 
-                # Check authorization
-                if self.authorized_users and user not in self.authorized_users:
-                    logger.warning(
-                        f"Unauthorized attempt by user {user}. Authorized users: {self.authorized_users}"
-                    )
-                    await self._send_reply(
-                        channel,
-                        thread_ts,
-                        f"<@{user}> Sorry, you are not authorized. Please contact an administrator.",
-                    )
-                    return
-
-                # Get thread context if in a thread
+                # Get slack thread messages
                 context = await self._get_thread_messages(channel, thread_ts)
 
-                # Create and tick conversation tree
+                inbox_message = InboxMessage(
+                    message=text, user=user, context=context or []
+                )
                 args = ConversationArgs(
-                    message=text,
-                    context=context,
-                    openai_api_key=self.openai_api_key,
+                    inbox=inbox_message,
                     config_path=self.config_path,
                     slack_args=SlackArgs(
                         bot_token=self.bot_token,
@@ -140,22 +180,11 @@ class ReleaseBot:
                         thread_ts=thread_ts,
                         reply_broadcast=self.broadcast_to_channel,
                     ),
+                    openai_api_key=self.openai_api_key,
+                    authorized_users=self.authorized_users,
                 )
-                tree, state = initialize_conversation_tree(args)
-                run_conversation_tree(tree)
 
-                # Get reply from state
-                reply = state.reply
-
-                # Send reply
-                if reply:
-                    await self._send_reply(channel, thread_ts, reply)
-                else:
-                    await self._send_reply(
-                        channel,
-                        thread_ts,
-                        f"<@{user}> I couldn't understand your request. Please try again.",
-                    )
+                self.start_conversation(args)
 
             except Exception as e:
                 logger.error(f"Error handling app mention: {e}", exc_info=True)
@@ -195,6 +224,66 @@ class ReleaseBot:
         except Exception as e:
             logger.error(f"Error getting thread messages: {e}", exc_info=True)
             return []
+
+    def create_queue_listener(
+        self,
+        queue: janus.Queue[str],
+        channel: str,
+        thread_ts: str,
+        tree_thread: threading.Thread,
+    ) -> Callable[[], Coroutine[Any, Any, None]]:
+        """Create a queue listener function for the given async queue and Slack args.
+
+        Args:
+            async_q: The async part of the Janus queue to listen to
+            channel: Slack channel ID
+            thread_ts: Thread timestamp to reply in
+            tree_thread: The thread running the conversation tree
+
+        Returns:
+            An async function that listens to the queue and sends messages to Slack
+        """
+
+        async_q = queue.async_q
+
+        async def queue_listener() -> None:
+            """Listen to async queue and send messages to Slack thread."""
+            try:
+                while True:
+                    try:
+                        # Wait for message from queue with timeout
+                        message = await asyncio.wait_for(async_q.get(), timeout=1)
+                        logger.debug(f"Received message from queue")
+
+                        # Send message to Slack thread
+                        try:
+                            await self._send_reply(channel, thread_ts, message)
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending message to Slack: {e}",
+                                exc_info=True,
+                            )
+                    except asyncio.TimeoutError:
+                        # Check if tree thread is done
+                        if not tree_thread.is_alive():
+                            logger.debug(
+                                "Tree thread completed, exiting queue listener"
+                            )
+                            queue.close()
+                            break
+                    except janus.AsyncQueueShutDown:
+                        logger.debug("Queue listener shutting down")
+                        break
+                    except asyncio.CancelledError:
+                        logger.debug("Queue listener cancelled")
+                        break
+            finally:
+                if not queue.closed:
+                    queue.close()
+                await queue.wait_closed()
+                logger.debug("Queue listener exiting")
+
+        return queue_listener
 
     async def _send_reply(self, channel: str, thread_ts: str, text: str) -> None:
         """Send a reply message.

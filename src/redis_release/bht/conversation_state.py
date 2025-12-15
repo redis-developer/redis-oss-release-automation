@@ -2,13 +2,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-from ..conversation_models import Command
+from ..conversation_models import Command, InboxMessage
 from ..models import ReleaseArgs, SlackArgs, SlackFormat
-
-
-class InboxMessage(BaseModel):
-    message: str
-    context: List[str]
 
 
 class ConversationState(BaseModel):
@@ -20,3 +15,4 @@ class ConversationState(BaseModel):
     reply: Optional[str] = None
 
     slack_args: Optional[SlackArgs] = None
+    authorized_users: Optional[List[str]] = None
