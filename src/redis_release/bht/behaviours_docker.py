@@ -1,4 +1,3 @@
-from pydoc import Doc
 from typing import Optional
 
 from py_trees.common import Status
