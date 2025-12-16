@@ -321,5 +321,120 @@ def slack_bot(
     )
 
 
+@app.command()
+def test_github_app(
+    github_app_id: str = typer.Option(..., "--github-app-id", help="GitHub App ID"),
+    github_private_key_file: str = typer.Option(
+        ..., "--github-private-key-file", help="Path to GitHub App private key file"
+    ),
+    repo: str = typer.Option(
+        "redis/docker-library-redis",
+        "--repo",
+        help="Repository to test (default: redis/docker-library-redis)",
+    ),
+    workflow_file: str = typer.Option(
+        "release_build_and_test.yml",
+        "--workflow-file",
+        help="Workflow file to dispatch (default: release_build_and_test.yml)",
+    ),
+    workflow_ref: str = typer.Option(
+        "main", "--workflow-ref", help="Git ref to run workflow on (default: main)"
+    ),
+    workflow_inputs: Optional[str] = typer.Option(
+        None,
+        "--workflow-inputs",
+        help='Workflow inputs as JSON string (e.g., \'{"key": "value"}\')',
+    ),
+) -> None:
+    """[TEST] Test GitHub App authentication and workflow dispatch.
+
+    This command tests GitHub App authentication by:
+    1. Loading the private key from file
+    2. Generating a JWT token
+    3. Getting an installation token for the specified repository
+    4. Dispatching a workflow using the installation token
+
+    Example:
+        redis-release test-github-app \\
+            --github-app-id 123456 \\
+            --github-private-key-file /path/to/private-key.pem \\
+            --repo redis/docker-library-redis \\
+            --workflow-file release_build_and_test.yml \\
+            --workflow-ref main \\
+            --workflow-inputs '{"release_tag": "8.4-m01-int1"}'
+    """
+    setup_logging()
+
+    try:
+        import json
+
+        from .github_app_auth import GitHubAppAuth, load_private_key_from_file
+        from .github_client_async import GitHubClientAsync
+
+        # Load private key
+        logger.info(f"Loading private key from {github_private_key_file}")
+        private_key = load_private_key_from_file(github_private_key_file)
+        logger.info("[green]Private key loaded successfully[/green]")
+
+        # Create GitHub App auth helper
+        app_auth = GitHubAppAuth(app_id=github_app_id, private_key=private_key)
+
+        # Get installation token
+        logger.info(f"Getting installation token for repo: {repo}")
+
+        async def get_token_and_dispatch() -> None:
+            token = await app_auth.get_token_for_repo(repo)
+            if not token:
+                logger.error("[red]Failed to get installation token[/red]")
+                raise typer.Exit(1)
+
+            logger.info("[green]Successfully obtained installation token[/green]")
+            logger.info(f"Token (first 20 chars): {token[:20]}...")
+
+            # Parse workflow inputs
+            inputs = {}
+            if workflow_inputs:
+                try:
+                    inputs = json.loads(workflow_inputs)
+                    logger.info(f"Workflow inputs: {inputs}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"[red]Invalid JSON in workflow inputs:[/red] {e}")
+                    raise typer.Exit(1)
+
+            # Create GitHub client with the installation token
+            github_client = GitHubClientAsync(token=token)
+
+            # Dispatch workflow
+            logger.info(
+                f"Dispatching workflow {workflow_file} on {repo} at ref {workflow_ref}"
+            )
+            try:
+                await github_client.trigger_workflow(
+                    repo=repo,
+                    workflow_file=workflow_file,
+                    inputs=inputs,
+                    ref=workflow_ref,
+                )
+                logger.info("[green]Workflow dispatched successfully![/green]")
+                logger.info(
+                    f"Check workflow runs at: https://github.com/{repo}/actions"
+                )
+            except Exception as e:
+                logger.error(f"[red]Failed to dispatch workflow:[/red] {e}")
+                raise typer.Exit(1)
+
+        # Run async function
+        asyncio.run(get_token_and_dispatch())
+
+    except FileNotFoundError:
+        logger.error(
+            f"[red]Private key file not found:[/red] {github_private_key_file}"
+        )
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.error(f"[red]Unexpected error:[/red] {e}", exc_info=True)
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
