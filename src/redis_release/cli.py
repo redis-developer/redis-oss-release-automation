@@ -1,7 +1,6 @@
 """Redis OSS Release Automation CLI."""
 
 import asyncio
-import json
 import logging
 import os
 from typing import Dict, List, Optional
@@ -15,7 +14,6 @@ from .bht.conversation_tree import initialize_conversation_tree
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
-from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseArgs, ReleaseType, SlackArgs
 from .state_display import print_state_table
@@ -133,44 +131,14 @@ def release_print(
 
 @app.command()
 def conversation_print() -> None:
+    """Print and render (using graphviz) the conversation behaviour tree."""
     setup_logging()
-    tree, state = initialize_conversation_tree(
+    tree, _ = initialize_conversation_tree(
         ConversationArgs(
             inbox=InboxMessage(message="test", context=[]), openai_api_key="dummy"
         )
     )
     render_dot_tree(tree.root)
-    print(unicode_tree(tree.root))
-
-
-@app.command()
-def conversation(
-    message: str = typer.Option(
-        ..., "--message", "-m", help="Natural language release command"
-    ),
-    config: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file (default: config.yaml)"
-    ),
-    openai_api_key: Optional[str] = typer.Option(
-        None,
-        "--openai-api-key",
-        help="OpenAI API key (if not provided, uses OPENAI_API_KEY env var)",
-    ),
-    tree_cutoff: int = typer.Option(
-        5000, "--tree-cutoff", help="Max number of ticks to run the tree for"
-    ),
-) -> None:
-    setup_logging()
-    if not openai_api_key:
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-
-    args = ConversationArgs(
-        inbox=InboxMessage(message=message, context=[]),
-        openai_api_key=openai_api_key,
-        config_path=config,
-    )
-    tree, _ = initialize_conversation_tree(args)
-    tree.tick()
     print(unicode_tree(tree.root))
 
 
