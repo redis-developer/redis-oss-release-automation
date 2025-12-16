@@ -18,7 +18,8 @@ from .bht.conversation_tree import (
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
-from .github_app_auth import GitHubAppAuth, load_private_key_from_file
+
+# from .github_app_auth import GitHubAppAuth, load_private_key_from_file
 from .github_client_async import GitHubClientAsync
 from .logging_config import setup_logging
 from .models import ReleaseArgs, ReleaseType, SlackArgs
