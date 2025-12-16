@@ -233,7 +233,6 @@ def status(
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
-    # Create release args
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=[],
@@ -249,7 +248,6 @@ def status(
         # Always print to console
         print_state_table(state_syncer.state)
 
-        # Post to Slack if requested
         if slack:
             printer = init_slack_printer(slack_token, slack_channel_id)
             printer.update_message(state_syncer.state)
