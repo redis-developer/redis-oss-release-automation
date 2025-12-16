@@ -4,18 +4,23 @@ from typing import List, Optional, Tuple
 from janus import SyncQueue
 from openai import OpenAI
 from py_trees.behaviour import Behaviour
+from py_trees.composites import Selector, Sequence
+from py_trees.decorators import Inverter
 from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 
 from ..config import Config, load_config
 from ..conversation_models import ConversationArgs, ConversationCockpit, InboxMessage
 from ..models import SlackArgs
-from .backchain import create_PPA, latch_chain_to_chain
 from .conversation_behaviours import (
     HasReleaseArgs,
     IsCommandStarted,
+    IsLLMAvailable,
     LLMCommandClassifier,
-    RunCommand,
+    NeedConfirmation,
+    RunReleaseCommand,
+    RunStatusCommand,
+    ShowConfirmationMessage,
     SimpleCommandClassifier,
 )
 from .conversation_state import ConversationState
@@ -39,28 +44,69 @@ def create_conversation_root_node(
     )
     state.message = input
 
-    # Use LLM classifier if available, otherwise use simple classifier
-    if cockpit.llm is not None:
-        command_detector = create_PPA(
-            "LLM Command Detector",
-            LLMCommandClassifier("LLM Command Detector", state, cockpit),
+    command_detector = Selector(
+        "Classify Command",
+        memory=False,
+        children=[
             HasReleaseArgs("Has Release Args", state, cockpit),
-        )
-    else:
-        command_detector = create_PPA(
-            "Simple Command Detector",
-            SimpleCommandClassifier("Simple Command Classifier", state, cockpit),
-            HasReleaseArgs("Has Release Args", state, cockpit),
-        )
-
-    run_command = create_PPA(
-        "Run",
-        RunCommand("Run Command", state, cockpit, config),
-        IsCommandStarted("Is Command Started", state, cockpit),
+            Sequence(
+                "Simple Classification",
+                memory=False,
+                children=[
+                    Inverter("Not", IsLLMAvailable("Is LLM Available", state, cockpit)),
+                    SimpleCommandClassifier(
+                        "Simple Command Classifier", state, cockpit
+                    ),
+                ],
+            ),
+            LLMCommandClassifier("LLM Classification", state, cockpit),
+        ],
     )
 
-    latch_chain_to_chain(run_command, command_detector)
-    root = run_command
+    show_confirmation = Sequence(
+        "Show Confirmation",
+        memory=False,
+        children=[
+            NeedConfirmation("Need Confirmation", state, cockpit),
+            ShowConfirmationMessage("Show Confirmation Message", state, cockpit),
+        ],
+    )
+
+    run_release = Selector(
+        "Run Release",
+        memory=False,
+        children=[
+            show_confirmation,
+            RunReleaseCommand("Run Release Command", state, cockpit, config),
+        ],
+    )
+
+    conversation_root = Selector(
+        "Conversation",
+        memory=False,
+        children=[
+            IsCommandStarted("Is Command Started", state, cockpit),
+            Sequence(
+                "Conversation Sequence",
+                memory=False,
+                children=[
+                    command_detector,
+                    Selector(
+                        name="Command Router",
+                        memory=False,
+                        children=[
+                            RunStatusCommand(
+                                "Run Status Command", state, cockpit, config
+                            ),
+                            run_release,
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    root = conversation_root
 
     return root, state
 
@@ -107,8 +153,9 @@ def run_conversation_tree(
     try:
         tree.tick()
         try:
-            if state.reply:
-                reply_queue.put(state.reply)
+            # Send all replies from the list
+            for reply in state.replies:
+                reply_queue.put(reply)
         except Exception as e:
             logger.error(f"Error putting reply to queue: {e}", exc_info=True)
     except Exception as e:

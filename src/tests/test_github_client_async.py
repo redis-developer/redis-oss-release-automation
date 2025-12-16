@@ -1,6 +1,6 @@
 """Tests for GitHub API client functionality."""
 
-import pytest
+import pytest  # type: ignore[import-untyped]
 from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 

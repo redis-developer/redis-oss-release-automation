@@ -235,7 +235,7 @@ class ReleaseBot:
         """Create a queue listener function for the given async queue and Slack args.
 
         Args:
-            async_q: The async part of the Janus queue to listen to
+            queue: Janus queue to listen to
             channel: Slack channel ID
             thread_ts: Thread timestamp to reply in
             tree_thread: The thread running the conversation tree
