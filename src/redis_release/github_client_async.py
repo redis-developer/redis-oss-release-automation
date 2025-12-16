@@ -274,7 +274,7 @@ class GitHubClientAsync:
 
     async def identify_workflow(
         self, repo: str, workflow_file: str, workflow_uuid: str
-    ) -> WorkflowRun | None:
+    ) -> Optional[WorkflowRun]:
 
         logger.debug(
             f"[blue]Searching for workflow run with UUID:[/blue] [cyan]{workflow_uuid}[/cyan]"

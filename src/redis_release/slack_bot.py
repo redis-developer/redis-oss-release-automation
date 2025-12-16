@@ -135,11 +135,16 @@ class ReleaseBot:
     def _register_handlers(self) -> None:
         """Register Slack event handlers."""
 
-        @self.app.event("app_mention")
-        async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
-            event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
+        async def process_message(
+            event: Dict[str, Any], logger: logging.Logger, is_mention: bool = False
         ) -> None:
-            """Handle app mentions by processing through conversation tree."""
+            """Common message processing logic for both mentions and thread replies.
+
+            Args:
+                event: Slack event data
+                logger: Logger instance
+                is_mention: Whether this is an explicit mention (True) or thread reply (False)
+            """
             try:
                 text = event.get("text", "")
                 channel = event.get("channel")
@@ -162,7 +167,7 @@ class ReleaseBot:
                 assert isinstance(thread_ts, str)
 
                 logger.info(
-                    f"Received mention from user {user} in channel {channel}: {text}"
+                    f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}: {text}"
                 )
 
                 # Get slack thread messages
@@ -187,7 +192,7 @@ class ReleaseBot:
                 self.start_conversation(args)
 
             except Exception as e:
-                logger.error(f"Error handling app mention: {e}", exc_info=True)
+                logger.error(f"Error handling message: {e}", exc_info=True)
                 channel = event.get("channel")
                 if channel:
                     await self._send_reply(
@@ -195,6 +200,57 @@ class ReleaseBot:
                         event.get("thread_ts", event.get("ts", "")),
                         f"Sorry, I encountered an error: {str(e)}",
                     )
+
+        @self.app.event("app_mention")
+        async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
+            event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
+        ) -> None:
+            """Handle app mentions by processing through conversation tree."""
+            await process_message(event, logger, is_mention=True)
+
+        @self.app.event("message")
+        async def handle_message(  # pyright: ignore[reportUnusedFunction]
+            event: Dict[str, Any], logger: logging.Logger
+        ) -> None:
+            """Handle messages in threads where bot is participating."""
+            logger.debug(f"Received message event: {event}")
+
+            # Ignore messages that are not in threads
+            if "thread_ts" not in event:
+                logger.debug("Ignoring non-thread message")
+                return
+
+            # Ignore bot's own messages
+            if event.get("bot_id"):
+                logger.debug("Ignoring bot's own message")
+                return
+
+            # Ignore subtypes (like message_changed, message_deleted, etc.)
+            if event.get("subtype"):
+                logger.debug(f"Ignoring message with subtype: {event.get('subtype')}")
+                return
+
+            channel = event.get("channel")
+            thread_ts = event.get("thread_ts")
+
+            if not channel or not thread_ts:
+                logger.debug("Missing channel or thread_ts")
+                return
+
+            logger.debug(f"Checking if bot is participating in thread {thread_ts}")
+
+            # Check if bot has participated in this thread
+            is_participating = await self._is_bot_in_thread(channel, thread_ts)
+
+            logger.debug(f"Bot participating in thread: {is_participating}")
+
+            if is_participating:
+                logger.info(
+                    f"Processing thread message in channel {channel}, thread {thread_ts}"
+                )
+                await process_message(event, logger, is_mention=False)
+            else:
+                logger.debug("Bot not participating in this thread, ignoring message")
 
     async def _get_thread_messages(self, channel: str, thread_ts: str) -> List[str]:
         """Get all messages from a thread.
@@ -224,6 +280,54 @@ class ReleaseBot:
         except Exception as e:
             logger.error(f"Error getting thread messages: {e}", exc_info=True)
             return []
+
+    async def _is_bot_in_thread(self, channel: str, thread_ts: str) -> bool:
+        """Check if the bot has participated in a thread.
+
+        Args:
+            channel: Slack channel ID
+            thread_ts: Thread timestamp
+
+        Returns:
+            True if bot has sent messages in the thread, False otherwise
+        """
+        try:
+            # Get bot's user ID
+            auth_result = await self.app.client.auth_test()
+            bot_user_id = auth_result.get("user_id")
+
+            if not bot_user_id:
+                logger.warning("Could not get bot user ID")
+                return False
+
+            logger.debug(f"Bot user ID: {bot_user_id}")
+
+            # Get thread messages
+            result = await self.app.client.conversations_replies(
+                channel=channel, ts=thread_ts
+            )
+
+            messages = result.get("messages", [])
+            logger.debug(f"Found {len(messages)} messages in thread {thread_ts}")
+
+            # Check if any message is from the bot
+            for msg in messages:
+                msg_user = msg.get("user")
+                msg_bot_id = msg.get("bot_id")
+                logger.debug(f"Message from user={msg_user}, bot_id={msg_bot_id}")
+
+                if msg_user == bot_user_id or msg_bot_id:
+                    logger.debug(f"Found bot message in thread")
+                    return True
+
+            logger.debug(f"No bot messages found in thread")
+            return False
+
+        except Exception as e:
+            logger.error(
+                f"Error checking bot participation in thread: {e}", exc_info=True
+            )
+            return False
 
     def create_queue_listener(
         self,
