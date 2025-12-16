@@ -29,6 +29,7 @@ from .tree import log_tree_state_with_markup
 logger = logging.getLogger(__name__)
 
 
+# Use redis-release conversation-print command to visualize the tree
 def create_conversation_root_node(
     input: InboxMessage,
     config: Config,
@@ -116,7 +117,6 @@ def initialize_conversation_tree(
     reply_queue: Optional[SyncQueue] = None,
 ) -> Tuple[BehaviourTree, ConversationState]:
 
-    # Load config
     config = load_config(args.config_path)
 
     llm: Optional[OpenAI] = None

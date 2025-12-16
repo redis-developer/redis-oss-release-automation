@@ -58,7 +58,6 @@ class SimpleCommandClassifier(ReleaseAction):
             if first_word in command_map:
                 self.state.command = command_map[first_word]
 
-        # Always return SUCCESS
         return Status.SUCCESS
 
 
@@ -141,7 +140,6 @@ Output using the provided JSON schema fields:
 
         try:
             assert self.llm is not None
-            # Call LLM with structured outputs
             response = self.llm.responses.parse(
                 model="gpt-4o-2024-08-06",
                 input=[
@@ -156,7 +154,6 @@ Output using the provided JSON schema fields:
 
             self.logger.debug(f"LLM response: {response}")
 
-            # Extract parsed result from structured output
             result = cast(CommandDetectionResult, response.output_parsed)
             if not result:
                 self.feedback_message = "LLM returned empty response"
@@ -188,7 +185,6 @@ Output using the provided JSON schema fields:
             try:
                 self.state.command = command
 
-                # If help command, set reply
                 if command == Command.HELP:
                     self.state.replies.append(
                         reply or "How can I help you with Redis release automation?"
@@ -211,7 +207,6 @@ Output using the provided JSON schema fields:
                 elif command == Command.RELEASE:
                     if result.release_args:
 
-                        # Create ReleaseArgs with converted types
                         self.state.release_args = ReleaseArgs(
                             release_tag=result.release_args.release_tag,
                             force_rebuild=result.release_args.force_rebuild,
@@ -268,7 +263,6 @@ class RunStatusCommand(ReleaseAction):
     def update(self) -> Status:
         self.logger.debug("RunStatusCommand - loading and posting release status")
 
-        # Check if we have release args
         if not self.state.release_args:
             self.feedback_message = "No release args available"
             return Status.FAILURE
@@ -277,10 +271,8 @@ class RunStatusCommand(ReleaseAction):
             self.feedback_message = "Command is not STATUS"
             return Status.FAILURE
 
-        # Mark command as started
         self.state.command_started = True
 
-        # Get release args
         release_args = self.state.release_args
 
         self.logger.info(f"Loading status for tag {release_args.release_tag}")
@@ -355,7 +347,6 @@ class RunReleaseCommand(ReleaseAction):
     def update(self) -> Status:
         self.logger.debug("RunCommand - starting release execution")
 
-        # Check if we have release args
         if not self.state.release_args:
             self.feedback_message = "No release args available"
             return Status.FAILURE
@@ -364,10 +355,8 @@ class RunReleaseCommand(ReleaseAction):
             self.feedback_message = "Command is not RELEASE"
             return Status.FAILURE
 
-        # Mark command as started
         self.state.command_started = True
 
-        # Get release args
         release_args = self.state.release_args
 
         # Check authorization
@@ -436,7 +425,6 @@ class RunReleaseCommand(ReleaseAction):
         release_thread.start()
         self.logger.info(f"Started release thread for tag {release_args.release_tag}")
 
-        # Set reply to inform user
         self.state.replies.append(
             f"Starting release for tag `{release_args.release_tag}`... "
             "I'll post updates as the release progresses."
