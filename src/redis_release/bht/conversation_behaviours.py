@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 class SimpleCommandClassifier(ReleaseAction):
+    """Manual mode for command classification.
+
+    The idea is to take first(after manual) word and map it to command and the rest to interpret as input yaml
+
+    It should be triggered either if LLM is not available or if user message starts with manual.
+
+    TODO: This is not implemented yet.
+    """
+
     def __init__(
         self,
         name: str,
