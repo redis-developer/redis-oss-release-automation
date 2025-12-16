@@ -1,22 +1,19 @@
+from pydoc import Doc
 from typing import Optional
 
 from py_trees.common import Status
 
-from redis_release.bht.behaviours import LoggingAction, ReleaseAction
-from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
-from redis_release.models import RedisVersion, ReleaseType
+from ..models import RedisVersion, ReleaseType
+from .behaviours import LoggingAction, ReleaseAction
+from .state import DockerMeta, ReleaseMeta, Workflow
 
 
 class DockerWorkflowInputs(ReleaseAction):
-    """
-    Docker uses only release_tag input which is set automatically in TriggerWorkflow
-    """
-
     def __init__(
         self,
         name: str,
         workflow: Workflow,
-        package_meta: PackageMeta,
+        package_meta: DockerMeta,
         release_meta: ReleaseMeta,
         log_prefix: str = "",
     ) -> None:
@@ -26,6 +23,9 @@ class DockerWorkflowInputs(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
+        if self.package_meta.module_versions is not None:
+            for module, version in self.package_meta.module_versions.items():
+                self.workflow.inputs[f"{module.value}_version"] = version
         return Status.SUCCESS
 
 
@@ -35,7 +35,7 @@ class DetectReleaseTypeDocker(LoggingAction):
     def __init__(
         self,
         name: str,
-        package_meta: PackageMeta,
+        package_meta: DockerMeta,
         release_meta: ReleaseMeta,
         log_prefix: str = "",
     ) -> None:
@@ -52,7 +52,14 @@ class DetectReleaseTypeDocker(LoggingAction):
             return
         if self.release_meta.tag == "unstable":
             return
-        self.release_version = RedisVersion.parse(self.release_meta.tag)
+        try:
+            self.release_version = RedisVersion.parse(self.release_meta.tag)
+        except ValueError as e:
+            if self.release_meta.tag != "":
+                self.logger.info(
+                    f"Failed to parse release tag: {e}, assuming custom release with tag {self.release_meta.tag}"
+                )
+            return
 
     def update(self) -> Status:
         result: Status = Status.FAILURE
@@ -70,8 +77,9 @@ class DetectReleaseTypeDocker(LoggingAction):
                 f"Detected release type for docker: {self.package_meta.release_type}"
             )
         else:
-            self.feedback_message = "Failed to detect release type"
-            result = Status.FAILURE
+            self.package_meta.release_type = ReleaseType.INTERNAL
+            self.feedback_message = "Set release type to internal for custom build"
+            result = Status.SUCCESS
 
         if self.log_once(
             "release_type_detected", self.package_meta.ephemeral.log_once_flags
@@ -92,7 +100,7 @@ class NeedToReleaseDocker(LoggingAction):
     def __init__(
         self,
         name: str,
-        package_meta: PackageMeta,
+        package_meta: DockerMeta,
         release_meta: ReleaseMeta,
         log_prefix: str = "",
     ) -> None:
@@ -123,9 +131,6 @@ class NeedToReleaseDocker(LoggingAction):
         if self.release_meta.tag is None:
             self.feedback_message = "Release tag is not set"
             result = Status.FAILURE
-        if self.release_meta.tag == "unstable":
-            self.feedback_message = "Skip unstable release for docker"
-            result = Status.FAILURE
 
         if self.release_version is not None:
             if self.release_version.major < 8:
@@ -138,6 +143,9 @@ class NeedToReleaseDocker(LoggingAction):
                     f"Need to release docker version {str(self.release_version)}"
                 )
                 result = Status.SUCCESS
+        else:
+            self.feedback_message = "Custom build, need to release"
+            result = Status.SUCCESS
 
         if self.log_once("need_to_release", self.package_meta.ephemeral.log_once_flags):
             color_open = "" if result == Status.SUCCESS else "[yellow]"

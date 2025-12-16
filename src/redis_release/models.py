@@ -71,6 +71,15 @@ class WorkflowConclusion(str, Enum):
     FAILURE = "failure"
 
 
+class RedisModule(str, Enum):
+    """Redis module enumeration."""
+
+    JSON = "redisjson"
+    SEARCH = "redisearch"
+    TIMESERIES = "reduistimeseries"
+    BLOOM = "redisbloom"
+
+
 class WorkflowRun(BaseModel):
     """Represents a GitHub workflow run."""
 
@@ -209,6 +218,7 @@ class ReleaseArgs(BaseModel):
     only_packages: List[str] = Field(default_factory=list)
     force_release_type: Dict[str, ReleaseType] = Field(default_factory=dict)
     override_state_name: Optional[str] = None
+    module_versions: Dict[RedisModule, str] = Field(default_factory=dict)
 
     slack_args: Optional["SlackArgs"] = None
 
