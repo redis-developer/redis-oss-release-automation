@@ -33,7 +33,6 @@ dependencies = [
     "slack-sdk>=3.38.0",
     "slack-bolt>=1.27.0",
     "openai>=1.0.0",
-    "PyJWT>=2.8.0",
     "cryptography>=41.0.0",
     "janus>=2.0,<2.2",
 ]
