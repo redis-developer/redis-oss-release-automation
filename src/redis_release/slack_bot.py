@@ -289,7 +289,7 @@ class ReleaseBot:
             thread_ts: Thread timestamp
 
         Returns:
-            True if bot has sent messages in the thread, False otherwise
+            True if bot has sent messages or been mentioned in the thread, False otherwise
         """
         try:
             # Get bot's user ID
@@ -310,17 +310,28 @@ class ReleaseBot:
             messages = result.get("messages", [])
             logger.debug(f"Found {len(messages)} messages in thread {thread_ts}")
 
-            # Check if any message is from the bot
+            # Bot mention pattern: <@USER_ID>
+            bot_mention = f"<@{bot_user_id}>"
+
+            # Check if any message is from the bot or mentions the bot
             for msg in messages:
                 msg_user = msg.get("user")
                 msg_bot_id = msg.get("bot_id")
+                msg_text = msg.get("text", "")
+
                 logger.debug(f"Message from user={msg_user}, bot_id={msg_bot_id}")
 
+                # Check if message is from the bot
                 if msg_user == bot_user_id or msg_bot_id:
                     logger.debug(f"Found bot message in thread")
                     return True
 
-            logger.debug(f"No bot messages found in thread")
+                # Check if message mentions the bot
+                if bot_mention in msg_text:
+                    logger.debug(f"Found bot mention in thread")
+                    return True
+
+            logger.debug(f"No bot messages or mentions found in thread")
             return False
 
         except Exception as e:
