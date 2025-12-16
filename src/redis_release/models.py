@@ -25,18 +25,6 @@ class PackageType(str, Enum):
     SNAP = "snap"
 
 
-class PackageSerializationType(str, Enum):
-    """Package serialization type for discriminated union.
-
-    This enum is used as a discriminator field for Pydantic's discriminated union
-    to correctly deserialize different PackageMeta subclasses.
-    """
-
-    DEFAULT = "default"  # For generic PackageMeta
-    HOMEBREW = "homebrew"  # For HomebrewMeta
-    SNAP = "snap"  # For SnapMeta
-
-
 class HomebrewChannel(str, Enum):
     """Homebrew channel enumeration."""
 
@@ -221,8 +209,13 @@ class ReleaseArgs(BaseModel):
     only_packages: List[str] = Field(default_factory=list)
     force_release_type: Dict[str, ReleaseType] = Field(default_factory=dict)
     override_state_name: Optional[str] = None
-    slack_token: Optional[str] = None
-    slack_channel_id: Optional[str] = None
-    slack_thread_ts: Optional[str] = None
-    slack_reply_broadcast: bool = False
-    slack_format: SlackFormat = SlackFormat.DEFAULT
+
+    slack_args: Optional["SlackArgs"] = None
+
+
+class SlackArgs(BaseModel):
+    bot_token: Optional[str] = None
+    channel_id: Optional[str] = None
+    thread_ts: Optional[str] = None
+    reply_broadcast: bool = False
+    format: SlackFormat = SlackFormat.DEFAULT

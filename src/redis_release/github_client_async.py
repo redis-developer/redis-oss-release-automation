@@ -242,7 +242,8 @@ class GitHubClientAsync:
         logger.debug(f"[blue]Triggering workflow[/blue] {workflow_file} in {repo}")
         logger.debug(f"Inputs: {inputs}")
         logger.debug(f"Ref: {ref}")
-        logger.debug(f"Workflow UUID: [cyan]{inputs['workflow_uuid']}[/cyan]")
+        if "workflow_uuid" in inputs:
+            logger.debug(f"Workflow UUID: [cyan]{inputs['workflow_uuid']}[/cyan]")
 
         url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
         headers = {
@@ -273,7 +274,7 @@ class GitHubClientAsync:
 
     async def identify_workflow(
         self, repo: str, workflow_file: str, workflow_uuid: str
-    ) -> WorkflowRun | None:
+    ) -> Optional[WorkflowRun]:
 
         logger.debug(
             f"[blue]Searching for workflow run with UUID:[/blue] [cyan]{workflow_uuid}[/cyan]"

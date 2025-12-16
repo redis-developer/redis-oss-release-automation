@@ -1,61 +1,82 @@
-"""Async Slack bot that listens for status requests and posts release status."""
-
 import asyncio
 import logging
 import os
-import re
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import janus
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
-from redis_release.bht.tree import async_tick_tock, initialize_tree_and_state
-from redis_release.config import Config, load_config
-from redis_release.models import ReleaseArgs, SlackFormat
-from redis_release.state_manager import S3StateStorage, StateManager
-from redis_release.state_slack import init_slack_printer
+from redis_release.bht.conversation_state import InboxMessage
+from redis_release.models import SlackArgs
+
+from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
+from .conversation_models import ConversationArgs
 
 logger = logging.getLogger(__name__)
 
-# Regex pattern to match version tags like 8.4-m01, 7.2.5, 8.0-rc1, etc.
-VERSION_TAG_PATTERN = re.compile(r"\b(\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?)\b")
 
+class ReleaseBot:
+    """Async Slack bot that processes mentions via conversation tree.
 
-class ReleaseStatusBot:
-    """Async Slack bot that responds to status requests for releases."""
+    Bot conversation flow is unidirectional and stateless (there is no any direct conversation state kept in the bot).
+
+    ReleaseBot listens to mentions and passes them to conversation tree along with slack channel/thread params and reply queue.
+
+    For each inbox message listener task is created that listens to the reply queue and
+    sends messages back to the user and exits when conversation tree thread is done.
+
+    That way we keep conversation tree decoupled from Slack which in theory allow us to use it in CLI or web.
+
+    While executing conversation tree may
+        * Start a command which could eventually send message to the same
+          channel/thread (independently of the bot)
+        * Put a reply message(s) into the conversation state, which would be sent back via the queue
+
+    The reply message could be a question came from the LLM. Then upon reply
+    from user we start a new conversation tree but LLM receives the context -
+    that is how feedback loop is achieved. In fact the state lives in context
+    (all slack thread messages)
+
+    Slack bot --Inbbox message--> New Conversation tree for each msg (thread) --> Release command (thread)
+                                            |                                          |
+                                            |                                          |
+                                            v                                          v
+    slack msg <-- listener <-- queue <--  reply                                   Slack messages (independent of the bot, same thread)
+    """
 
     def __init__(
         self,
-        config: Config,
         slack_bot_token: Optional[str] = None,
         slack_app_token: Optional[str] = None,
         reply_in_thread: bool = True,
         broadcast_to_channel: bool = False,
         authorized_users: Optional[List[str]] = None,
-        slack_format: SlackFormat = SlackFormat.DEFAULT,
-    ):
+        openai_api_key: Optional[str] = None,
+        config_path: Optional[str] = None,
+    ) -> None:
         """Initialize the bot.
 
         Args:
-            config: Release configuration
             slack_bot_token: Slack bot token (xoxb-...). If None, uses SLACK_BOT_TOKEN env var
             slack_app_token: Slack app token (xapp-...). If None, uses SLACK_APP_TOKEN env var
             reply_in_thread: If True, reply in thread. If False, reply in main channel
             broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
-            authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
-            slack_format: Slack message format (default or one-step)
+            authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
+            llm: OpenAI client for LLM-based command detection
         """
-        self.config = config
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
-        self.slack_format = slack_format
+
+        self.config_path = config_path
 
         # Get tokens from args or environment
         bot_token = slack_bot_token or os.environ.get("SLACK_BOT_TOKEN")
         app_token = slack_app_token or os.environ.get("SLACK_APP_TOKEN")
+        self.openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
 
         if not bot_token:
             raise ValueError(
@@ -76,16 +97,56 @@ class ReleaseStatusBot:
         # Register event handlers
         self._register_handlers()
 
+    def start_conversation(
+        self,
+        args: ConversationArgs,
+    ) -> None:
+        """Start a conversation tree and listener in a separate thread.
+
+        Args:
+            args: Conversation arguments
+        """
+        queue: janus.Queue[str] = janus.Queue()
+
+        tree, state = initialize_conversation_tree(args, queue.sync_q)
+
+        # Create thread for running the tree (but don't start yet)
+        tree_thread = threading.Thread(
+            target=run_conversation_tree,
+            args=(tree, state, queue.sync_q),
+            daemon=True,
+        )
+
+        assert args.slack_args
+        assert args.slack_args.channel_id
+        assert args.slack_args.thread_ts
+
+        # Create and start queue listener as background task
+        queue_listener = self.create_queue_listener(
+            queue,
+            args.slack_args.channel_id,
+            args.slack_args.thread_ts,
+            tree_thread,
+        )
+        asyncio.create_task(queue_listener())
+
+        tree_thread.start()
+
     def _register_handlers(self) -> None:
         """Register Slack event handlers."""
 
-        @self.app.event("app_mention")
-        async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
-            event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
+        async def process_message(
+            event: Dict[str, Any], logger: logging.Logger, is_mention: bool = False
         ) -> None:
-            """Handle app mentions and check for status/release requests."""
+            """Common message processing logic for both mentions and thread replies.
+
+            Args:
+                event: Slack event data
+                logger: Logger instance
+                is_mention: Whether this is an explicit mention (True) or thread reply (False)
+            """
             try:
-                text = event.get("text", "").lower()
+                text = event.get("text", "")
                 channel = event.get("channel")
                 user = event.get("user")
                 ts = event.get("ts")
@@ -100,287 +161,265 @@ class ReleaseStatusBot:
                     )
                     return
 
+                # Type assertions after validation
+                assert isinstance(channel, str)
+                assert isinstance(user, str)
+                assert isinstance(thread_ts, str)
+
                 logger.info(
-                    f"Received mention from user {user} in channel {channel}: {text}"
+                    f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}: {text}"
                 )
 
-                # Check if message contains "release" command
-                if "release" in text:
-                    await self._handle_release_command(
-                        event.get("text", ""), channel, user, thread_ts, logger
-                    )
-                    return
+                # Get slack thread messages
+                context = await self._get_thread_messages(channel, thread_ts)
 
-                # Check if message contains "status"
-                if "status" not in text:
-                    logger.debug(
-                        "Message doesn't contain 'status' or 'release', ignoring"
-                    )
-                    return
+                inbox_message = InboxMessage(
+                    message=text, user=user, context=context or []
+                )
+                args = ConversationArgs(
+                    inbox=inbox_message,
+                    config_path=self.config_path,
+                    slack_args=SlackArgs(
+                        bot_token=self.bot_token,
+                        channel_id=channel,
+                        thread_ts=thread_ts,
+                        reply_broadcast=self.broadcast_to_channel,
+                    ),
+                    openai_api_key=self.openai_api_key,
+                    authorized_users=self.authorized_users,
+                )
 
-                # Extract version tag from message
-                tag = self._extract_version_tag(event.get("text", ""))
-
-                if not tag:
-                    # Reply in thread if configured
-                    if self.reply_in_thread:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=f"<@{user}> I couldn't find a version tag in your message. "
-                            "Please mention me with 'status' and a version tag like `8.4-m01` or `7.2.5`.",
-                        )
-                    else:
-                        await say(
-                            f"<@{user}> I couldn't find a version tag in your message. "
-                            "Please mention me with 'status' and a version tag like `8.4-m01` or `7.2.5`."
-                        )
-                    return
-
-                logger.info(f"Processing status request for tag: {tag}")
-
-                # Post status for the tag
-                await self._post_status(tag, channel, user, thread_ts)
+                self.start_conversation(args)
 
             except Exception as e:
-                logger.error(f"Error handling app mention: {e}", exc_info=True)
-                # Reply in thread if configured
+                logger.error(f"Error handling message: {e}", exc_info=True)
                 channel = event.get("channel")
-                if self.reply_in_thread and channel:
-                    await self.app.client.chat_postMessage(
-                        channel=channel,
-                        thread_ts=event.get("thread_ts", event.get("ts", "")),
-                        text=f"Sorry, I encountered an error: {str(e)}",
+                if channel:
+                    await self._send_reply(
+                        channel,
+                        event.get("thread_ts", event.get("ts", "")),
+                        f"Sorry, I encountered an error: {str(e)}",
                     )
-                else:
-                    await say(f"Sorry, I encountered an error: {str(e)}")
 
-    def _extract_version_tag(self, text: str) -> Optional[str]:
-        """Extract version tag from message text.
+        @self.app.event("app_mention")
+        async def handle_app_mention(  # pyright: ignore[reportUnusedFunction]
+            event: Dict[str, Any], say: AsyncSay, logger: logging.Logger
+        ) -> None:
+            """Handle app mentions by processing through conversation tree."""
+            await process_message(event, logger, is_mention=True)
+
+        @self.app.event("message")
+        async def handle_message(  # pyright: ignore[reportUnusedFunction]
+            event: Dict[str, Any], logger: logging.Logger
+        ) -> None:
+            """Handle messages in threads where bot is participating."""
+            logger.debug(f"Received message event: {event}")
+
+            # Ignore messages that are not in threads
+            if "thread_ts" not in event:
+                logger.debug("Ignoring non-thread message")
+                return
+
+            # Ignore bot's own messages
+            if event.get("bot_id"):
+                logger.debug("Ignoring bot's own message")
+                return
+
+            # Ignore subtypes (like message_changed, message_deleted, etc.)
+            if event.get("subtype"):
+                logger.debug(f"Ignoring message with subtype: {event.get('subtype')}")
+                return
+
+            channel = event.get("channel")
+            thread_ts = event.get("thread_ts")
+
+            if not channel or not thread_ts:
+                logger.debug("Missing channel or thread_ts")
+                return
+
+            logger.debug(f"Checking if bot is participating in thread {thread_ts}")
+
+            # Check if bot has participated in this thread
+            is_participating = await self._is_bot_in_thread(channel, thread_ts)
+
+            logger.debug(f"Bot participating in thread: {is_participating}")
+
+            if is_participating:
+                logger.info(
+                    f"Processing thread message in channel {channel}, thread {thread_ts}"
+                )
+                await process_message(event, logger, is_mention=False)
+            else:
+                logger.debug("Bot not participating in this thread, ignoring message")
+
+    async def _get_thread_messages(self, channel: str, thread_ts: str) -> List[str]:
+        """Get all messages from a thread.
 
         Args:
-            text: Message text
+            channel: Slack channel ID
+            thread_ts: Thread timestamp
 
         Returns:
-            Version tag if found, None otherwise
+            List of message texts from the thread
         """
-        match = VERSION_TAG_PATTERN.search(text)
-        if match:
-            return match.group(1)
-        return None
+        try:
+            # Get thread messages using conversations.replies
+            result = await self.app.client.conversations_replies(
+                channel=channel, ts=thread_ts
+            )
 
-    async def _handle_release_command(
-        self,
-        text: str,
-        channel: str,
-        user: str,
-        thread_ts: str,
-        logger: logging.Logger,
-    ) -> None:
-        """Handle release command to start a new release.
+            messages = result.get("messages", [])
+            # Extract text from messages, excluding the bot's own messages
+            context = [
+                msg.get("text", "")
+                for msg in messages
+                if msg.get("text") and not msg.get("bot_id")
+            ]
+            return context
+
+        except Exception as e:
+            logger.error(f"Error getting thread messages: {e}", exc_info=True)
+            return []
+
+    async def _is_bot_in_thread(self, channel: str, thread_ts: str) -> bool:
+        """Check if the bot has participated in a thread.
 
         Args:
-            text: Message text
             channel: Slack channel ID
-            user: User ID who requested the release
-            thread_ts: Thread timestamp to reply in
-            logger: Logger instance
+            thread_ts: Thread timestamp
+
+        Returns:
+            True if bot has sent messages or been mentioned in the thread, False otherwise
         """
-        # Check authorization
-        if self.authorized_users and user not in self.authorized_users:
-            logger.warning(
-                f"Unauthorized release attempt by user {user}. Authorized users: {self.authorized_users}"
+        try:
+            # Get bot's user ID
+            auth_result = await self.app.client.auth_test()
+            bot_user_id = auth_result.get("user_id")
+
+            if not bot_user_id:
+                logger.warning("Could not get bot user ID")
+                return False
+
+            logger.debug(f"Bot user ID: {bot_user_id}")
+
+            # Get thread messages
+            result = await self.app.client.conversations_replies(
+                channel=channel, ts=thread_ts
             )
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> Sorry, you are not authorized to run releases. "
-                    "Please contact an administrator.",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> Sorry, you are not authorized to run releases. "
-                    "Please contact an administrator.",
-                )
-            return
 
-        # Extract version tag from message
-        tag = self._extract_version_tag(text)
+            messages = result.get("messages", [])
+            logger.debug(f"Found {len(messages)} messages in thread {thread_ts}")
 
-        if not tag:
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> I couldn't find a version tag in your message. "
-                    "Please mention me with 'release' and a version tag like `8.4-m01` or `7.2.5`.",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> I couldn't find a version tag in your message. "
-                    "Please mention me with 'release' and a version tag like `8.4-m01` or `7.2.5`.",
-                )
-            return
+            # Bot mention pattern: <@USER_ID>
+            bot_mention = f"<@{bot_user_id}>"
 
-        logger.info(f"Processing release command for tag: {tag}")
+            # Check if any message is from the bot or mentions the bot
+            for msg in messages:
+                msg_user = msg.get("user")
+                msg_bot_id = msg.get("bot_id")
+                msg_text = msg.get("text", "")
 
-        # Check if message contains "broadcast" keyword
-        broadcast_requested = "broadcast" in text.lower()
-        reply_broadcast = self.broadcast_to_channel or broadcast_requested
+                logger.debug(f"Message from user={msg_user}, bot_id={msg_bot_id}")
 
-        if broadcast_requested:
-            logger.info("Broadcast mode enabled via 'broadcast' keyword in message")
+                # Check if message is from the bot
+                if msg_user == bot_user_id or msg_bot_id:
+                    logger.debug(f"Found bot message in thread")
+                    return True
 
-        # Acknowledge the command
+                # Check if message mentions the bot
+                if bot_mention in msg_text:
+                    logger.debug(f"Found bot mention in thread")
+                    return True
+
+            logger.debug(f"No bot messages or mentions found in thread")
+            return False
+
+        except Exception as e:
+            logger.error(
+                f"Error checking bot participation in thread: {e}", exc_info=True
+            )
+            return False
+
+    def create_queue_listener(
+        self,
+        queue: janus.Queue[str],
+        channel: str,
+        thread_ts: str,
+        tree_thread: threading.Thread,
+    ) -> Callable[[], Coroutine[Any, Any, None]]:
+        """Create a queue listener function for the given async queue and Slack args.
+
+        Args:
+            queue: Janus queue to listen to
+            channel: Slack channel ID
+            thread_ts: Thread timestamp to reply in
+            tree_thread: The thread running the conversation tree
+
+        Returns:
+            An async function that listens to the queue and sends messages to Slack
+        """
+
+        async_q = queue.async_q
+
+        async def queue_listener() -> None:
+            """Listen to async queue and send messages to Slack thread."""
+            try:
+                while True:
+                    try:
+                        # Wait for message from queue with timeout
+                        message = await asyncio.wait_for(async_q.get(), timeout=1)
+                        logger.debug(f"Received message from queue")
+
+                        # Send message to Slack thread
+                        try:
+                            await self._send_reply(channel, thread_ts, message)
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending message to Slack: {e}",
+                                exc_info=True,
+                            )
+                    except asyncio.TimeoutError:
+                        # Check if tree thread is done
+                        if not tree_thread.is_alive():
+                            logger.debug(
+                                "Tree thread completed, exiting queue listener"
+                            )
+                            queue.close()
+                            break
+                    except janus.AsyncQueueShutDown:
+                        logger.debug("Queue listener shutting down")
+                        break
+                    except asyncio.CancelledError:
+                        logger.debug("Queue listener cancelled")
+                        break
+            finally:
+                if not queue.closed:
+                    queue.close()
+                await queue.wait_closed()
+                logger.debug("Queue listener exiting")
+
+        return queue_listener
+
+    async def _send_reply(self, channel: str, thread_ts: str, text: str) -> None:
+        """Send a reply message.
+
+        Args:
+            channel: Slack channel ID
+            thread_ts: Thread timestamp to reply in
+            text: Message text to send
+        """
         if self.reply_in_thread:
             await self.app.client.chat_postMessage(
                 channel=channel,
                 thread_ts=thread_ts,
-                text=f"<@{user}> Starting release for tag `{tag}`... I'll post updates in this thread."
-                + (" (broadcasting to channel)" if reply_broadcast else ""),
+                text=text,
+                reply_broadcast=self.broadcast_to_channel,
             )
         else:
             await self.app.client.chat_postMessage(
                 channel=channel,
-                text=f"<@{user}> Starting release for tag `{tag}`...",
+                text=text,
             )
-
-        # Start release in a separate thread
-        def run_release_in_thread() -> None:
-            """Run release in a separate thread with its own event loop."""
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            try:
-                # Create release args
-                args = ReleaseArgs(
-                    release_tag=tag,
-                    force_rebuild=[],
-                    slack_token=self.bot_token,
-                    slack_channel_id=channel,
-                    slack_thread_ts=thread_ts if self.reply_in_thread else None,
-                    slack_reply_broadcast=reply_broadcast,
-                    slack_format=self.slack_format,
-                )
-
-                # Run the release
-                with initialize_tree_and_state(self.config, args) as (tree, _):
-                    loop.run_until_complete(async_tick_tock(tree, cutoff=2000))
-
-                logger.info(f"Release {tag} completed")
-
-            except Exception as e:
-                logger.error(f"Error running release {tag}: {e}", exc_info=True)
-                # Post error message to Slack
-                try:
-                    if self.reply_in_thread:
-                        loop.run_until_complete(
-                            self.app.client.chat_postMessage(
-                                channel=channel,
-                                thread_ts=thread_ts,
-                                text=f"<@{user}> Release `{tag}` failed with error: {str(e)}",
-                            )
-                        )
-                    else:
-                        loop.run_until_complete(
-                            self.app.client.chat_postMessage(
-                                channel=channel,
-                                text=f"<@{user}> Release `{tag}` failed with error: {str(e)}",
-                            )
-                        )
-                except Exception as slack_error:
-                    logger.error(
-                        f"Failed to post error to Slack: {slack_error}", exc_info=True
-                    )
-            finally:
-                loop.close()
-
-        # Start the thread
-        release_thread = threading.Thread(
-            target=run_release_in_thread, name=f"release-{tag}", daemon=True
-        )
-        release_thread.start()
-        logger.info(f"Started release thread for tag {tag}")
-
-    async def _post_status(
-        self, tag: str, channel: str, user: str, thread_ts: str
-    ) -> None:
-        """Load and post release status for a tag.
-
-        Args:
-            tag: Release tag
-            channel: Slack channel ID
-            user: User ID who requested the status
-            thread_ts: Thread timestamp to reply in
-        """
-        try:
-            # Create release args
-            args = ReleaseArgs(
-                release_tag=tag,
-                force_rebuild=[],
-            )
-
-            # Load state from S3
-            storage = S3StateStorage()
-
-            # Use StateManager in read-only mode
-            with StateManager(
-                storage=storage,
-                config=self.config,
-                args=args,
-                read_only=True,
-            ) as state_syncer:
-                state = state_syncer.state
-
-                # Check if state exists (has any data beyond defaults)
-                if not state.meta.last_started_at:
-                    if self.reply_in_thread:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            thread_ts=thread_ts,
-                            text=f"<@{user}> No release state found for tag `{tag}`. "
-                            "This release may not have been started yet.",
-                        )
-                    else:
-                        await self.app.client.chat_postMessage(
-                            channel=channel,
-                            text=f"<@{user}> No release state found for tag `{tag}`. "
-                            "This release may not have been started yet.",
-                        )
-                    return
-
-                # Post status using SlackStatePrinter
-                printer = init_slack_printer(
-                    slack_token=self.bot_token,
-                    slack_channel_id=channel,
-                    thread_ts=thread_ts if self.reply_in_thread else None,
-                    reply_broadcast=self.broadcast_to_channel,
-                    slack_format=self.slack_format,
-                )
-                printer.update_message(state)
-
-                logger.info(
-                    f"Posted status for tag {tag} to channel {channel}"
-                    + (f" in thread {thread_ts}" if self.reply_in_thread else "")
-                )
-
-        except Exception as e:
-            logger.error(f"Error posting status for tag {tag}: {e}", exc_info=True)
-            if self.reply_in_thread:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    thread_ts=thread_ts,
-                    text=f"<@{user}> Failed to load status for tag `{tag}`: {str(e)}",
-                )
-            else:
-                await self.app.client.chat_postMessage(
-                    channel=channel,
-                    text=f"<@{user}> Failed to load status for tag `{tag}`: {str(e)}",
-                )
 
     async def start(self) -> None:
         """Start the bot using Socket Mode."""
@@ -390,37 +429,34 @@ class ReleaseStatusBot:
 
 
 async def run_bot(
-    config_path: str = "config.yaml",
     slack_bot_token: Optional[str] = None,
     slack_app_token: Optional[str] = None,
     reply_in_thread: bool = True,
     broadcast_to_channel: bool = False,
     authorized_users: Optional[List[str]] = None,
-    slack_format: SlackFormat = SlackFormat.DEFAULT,
+    openai_api_key: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> None:
     """Run the Slack bot.
 
     Args:
-        config_path: Path to config file
         slack_bot_token: Slack bot token (xoxb-...). If None, uses SLACK_BOT_TOKEN env var
         slack_app_token: Slack app token (xapp-...). If None, uses SLACK_APP_TOKEN env var
         reply_in_thread: If True, reply in thread. If False, reply in main channel
         broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
-        authorized_users: List of user IDs authorized to run releases. If None, all users are authorized
-        slack_format: Slack message format (default or one-step)
+        authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
+        openai_api_key: OpenAI API key for LLM-based command detection. If None, uses OPENAI_API_KEY env var
     """
-    # Load config
-    config = load_config(config_path)
 
     # Create and start bot
-    bot = ReleaseStatusBot(
-        config=config,
+    bot = ReleaseBot(
         slack_bot_token=slack_bot_token,
         slack_app_token=slack_app_token,
         reply_in_thread=reply_in_thread,
         broadcast_to_channel=broadcast_to_channel,
         authorized_users=authorized_users,
-        slack_format=slack_format,
+        openai_api_key=openai_api_key,
+        config_path=config_path,
     )
 
     await bot.start()

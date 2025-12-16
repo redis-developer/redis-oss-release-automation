@@ -2,24 +2,23 @@
 
 import asyncio
 import logging
+import os
 from typing import Dict, List, Optional
 
 import typer
+from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.models import ReleaseType
-from redis_release.state_display import print_state_table
-from redis_release.state_manager import (
-    InMemoryStateStorage,
-    S3StateStorage,
-    StateManager,
-)
-from redis_release.state_slack import init_slack_printer
-
+from .bht.conversation_state import InboxMessage
+from .bht.conversation_tree import initialize_conversation_tree
 from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
+from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
-from .models import ReleaseArgs
+from .models import ReleaseArgs, ReleaseType, SlackArgs
+from .state_display import print_state_table
+from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
+from .state_slack import init_slack_printer
 
 app = typer.Typer(
     name="redis-release",
@@ -131,6 +130,19 @@ def release_print(
 
 
 @app.command()
+def conversation_print() -> None:
+    """Print and render (using graphviz) the conversation behaviour tree."""
+    setup_logging()
+    tree, _ = initialize_conversation_tree(
+        ConversationArgs(
+            inbox=InboxMessage(message="test", context=[]), openai_api_key="dummy"
+        )
+    )
+    render_dot_tree(tree.root)
+    print(unicode_tree(tree.root))
+
+
+@app.command()
 def release(
     release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
     config_file: Optional[str] = typer.Option(
@@ -182,8 +194,10 @@ def release(
         only_packages=only_packages or [],
         force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
-        slack_token=slack_token,
-        slack_channel_id=slack_channel_id,
+        slack_args=SlackArgs(
+            bot_token=slack_token,
+            channel_id=slack_channel_id,
+        ),
     )
 
     # Use context manager version with automatic lock management
@@ -219,7 +233,6 @@ def status(
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
-    # Create release args
     args = ReleaseArgs(
         release_tag=release_tag,
         force_rebuild=[],
@@ -235,7 +248,6 @@ def status(
         # Always print to console
         print_state_table(state_syncer.state)
 
-        # Post to Slack if requested
         if slack:
             printer = init_slack_printer(slack_token, slack_channel_id)
             printer.update_message(state_syncer.state)
@@ -243,9 +255,6 @@ def status(
 
 @app.command()
 def slack_bot(
-    config_file: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file (default: config.yaml)"
-    ),
     slack_bot_token: Optional[str] = typer.Option(
         None,
         "--slack-bot-token",
@@ -269,54 +278,41 @@ def slack_bot(
     authorized_users: Optional[List[str]] = typer.Option(
         None,
         "--authorized-user",
-        help="User ID authorized to run releases (can be specified multiple times). If not specified, all users are authorized",
+        help="User ID authorized to run commands (can be specified multiple times). If not specified, all users are authorized",
     ),
-    slack_format: str = typer.Option(
-        "default",
-        "--slack-format",
-        help="Slack message format: 'default' shows all steps, 'one-step' shows only the last step",
+    openai_api_key: Optional[str] = typer.Option(
+        None,
+        "--openai-api-key",
+        help="OpenAI API key for LLM-based command detection. If not provided, uses OPENAI_API_KEY env var",
+    ),
+    config: str = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to config file (default: config.yaml)",
     ),
 ) -> None:
-    """Run Slack bot that listens for status requests.
+    """Run Slack bot that processes mentions via conversation tree.
 
-    The bot listens for mentions containing 'status' and a version tag (e.g., '8.4-m01'),
-    and responds by posting the release status to the channel.
-
-    By default, replies are posted in threads to keep channels clean. Use --no-reply-in-thread
-    to post directly in the channel. Use --broadcast to show thread replies in the main channel.
-
-    Only users specified with --authorized-user can run releases. Status command is available to all users.
-    You can also include the word 'broadcast' in the release message to broadcast updates to the main channel.
+    The bot listens for mentions and processes them through a conversation tree
+    to detect and execute commands.
 
     Requires Socket Mode to be enabled in your Slack app configuration.
     """
-    from redis_release.models import SlackFormat
     from redis_release.slack_bot import run_bot
 
     setup_logging()
-    config_path = config_file or "config.yaml"
-
-    # Parse slack_format
-    try:
-        slack_format_enum = SlackFormat(slack_format)
-    except ValueError:
-        logger.error(
-            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
-        )
-        raise typer.BadParameter(
-            f"Invalid slack format: {slack_format}. Must be 'default' or 'one-step'"
-        )
 
     logger.info("Starting Slack bot...")
     asyncio.run(
         run_bot(
-            config_path=config_path,
             slack_bot_token=slack_bot_token,
             slack_app_token=slack_app_token,
             reply_in_thread=reply_in_thread,
             broadcast_to_channel=broadcast_to_channel,
             authorized_users=authorized_users,
-            slack_format=slack_format_enum,
+            openai_api_key=openai_api_key,
+            config_path=config,
         )
     )
 
