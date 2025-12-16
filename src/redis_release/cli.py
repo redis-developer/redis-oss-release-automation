@@ -10,7 +10,6 @@ import typer
 from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
 
-from .ai_parser import parse_message_with_ai
 from .bht.conversation_state import InboxMessage
 from .bht.conversation_tree import (
     create_conversation_root_node,
@@ -354,77 +353,6 @@ def slack_bot(
             config_path=config,
         )
     )
-
-
-@app.command()
-def ai(
-    message: str = typer.Option(
-        ..., "--message", "-m", help="Natural language release command"
-    ),
-    config_file: Optional[str] = typer.Option(
-        None, "--config", "-c", help="Path to config file (default: config.yaml)"
-    ),
-    openai_api_key: Optional[str] = typer.Option(
-        None,
-        "--openai-api-key",
-        help="OpenAI API key (if not provided, uses OPENAI_API_KEY env var)",
-    ),
-    model: str = typer.Option(
-        "gpt-4o-mini",
-        "--model",
-        help="OpenAI model to use (default: gpt-4o-mini)",
-    ),
-    execute: bool = typer.Option(
-        False,
-        "--execute",
-        help="Execute the release after parsing (default: just show the parsed args)",
-    ),
-    tree_cutoff: int = typer.Option(
-        5000, "--tree-cutoff", help="Max number of ticks to run the tree for"
-    ),
-) -> None:
-    """[EXPERIMENTAL] Parse natural language message into ReleaseArgs using AI.
-
-    This command uses OpenAI to parse a natural language description of a release
-    into a structured ReleaseArgs object. By default, it only displays the parsed
-    arguments. Use --execute to actually run the release.
-
-    Examples:
-        redis-release ai --message "Release 8.4-m01-int1"
-        redis-release ai --message "Release 8.4-m01-int1 for docker only"
-        redis-release ai --message "Force rebuild all packages for 8.4-m01-int1"
-        redis-release ai --message "Release 8.4-m01-int1 with docker as internal" --execute
-    """
-    setup_logging()
-
-    try:
-        # Parse the message using AI
-        args = parse_message_with_ai(message, api_key=openai_api_key, model=model)
-
-        # Display the parsed arguments
-        logger.info("[green]Successfully parsed release arguments:[/green]")
-        print(json.dumps(args.model_dump(), indent=2, default=str))
-
-        if not execute:
-            logger.info(
-                "\n[yellow]Note:[/yellow] This is a dry run. Use --execute to actually run the release."
-            )
-            return
-
-        # Execute the release if requested
-        logger.info("\n[cyan]Executing release...[/cyan]")
-        config_path = config_file or "config.yaml"
-        config = load_config(config_path)
-
-        with initialize_tree_and_state(config, args) as (tree, _):
-            asyncio.run(async_tick_tock(tree, cutoff=tree_cutoff))
-
-    except ValueError as e:
-        logger.error(f"[red]Error:[/red] {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        logger.error(f"[red]Unexpected error:[/red] {e}", exc_info=True)
-        raise typer.Exit(1)
 
 
 @app.command()
