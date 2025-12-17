@@ -1,12 +1,14 @@
+from typing import cast
+
 from py_trees.behaviour import Behaviour
 
-from redis_release.bht.behaviours_docker import (
+from .behaviours_docker import (
     DetectReleaseTypeDocker,
     DockerWorkflowInputs,
     NeedToReleaseDocker,
 )
-from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
-from redis_release.bht.tree_factory_generic import GenericPackageFactory
+from .state import DockerMeta, PackageMeta, ReleaseMeta, Workflow
+from .tree_factory_generic import GenericPackageFactory
 
 
 class DockerFactory(GenericPackageFactory):
@@ -21,7 +23,11 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return DockerWorkflowInputs(
-            name, workflow, package_meta, release_meta, log_prefix=log_prefix
+            name,
+            workflow,
+            cast(DockerMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
         )
 
     def create_publish_workflow_inputs(
@@ -33,7 +39,11 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return DockerWorkflowInputs(
-            name, workflow, package_meta, release_meta, log_prefix=log_prefix
+            name,
+            workflow,
+            cast(DockerMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
         )
 
     def create_need_to_release_behaviour(
@@ -44,7 +54,7 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return NeedToReleaseDocker(
-            name, package_meta, release_meta, log_prefix=log_prefix
+            name, cast(DockerMeta, package_meta), release_meta, log_prefix=log_prefix
         )
 
     def create_detect_release_type_behaviour(
@@ -55,5 +65,5 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return DetectReleaseTypeDocker(
-            name, package_meta, release_meta, log_prefix=log_prefix
+            name, cast(DockerMeta, package_meta), release_meta, log_prefix=log_prefix
         )

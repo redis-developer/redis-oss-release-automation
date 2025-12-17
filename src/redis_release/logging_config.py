@@ -2,7 +2,7 @@
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 from rich.logging import RichHandler
 
@@ -104,3 +104,10 @@ def setup_logging(
     logging.getLogger("botocore").setLevel(third_party_level)
     logging.getLogger("boto3").setLevel(third_party_level)
     logging.getLogger("urllib3").setLevel(third_party_level)
+
+
+def log_once(key: str, container: Dict[str, bool]) -> bool:
+    if key not in container:
+        container[key] = True
+        return True
+    return False
