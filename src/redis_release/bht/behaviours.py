@@ -26,6 +26,7 @@ from py_trees.common import Status
 from redis_release.bht.state import reset_model_to_defaults
 
 from ..github_client_async import GitHubClientAsync
+from ..logging_config import log_once
 from ..models import RedisVersion, ReleaseType, WorkflowConclusion, WorkflowStatus
 from .logging_wrapper import PyTreesLoggerWrapper
 from .state import Package, PackageMeta, ReleaseMeta, Workflow
@@ -53,10 +54,7 @@ class LoggingAction(Behaviour):
         return Status.FAILURE
 
     def log_once(self, key: str, container: Dict[str, bool]) -> bool:
-        if key not in container:
-            container[key] = True
-            return True
-        return False
+        return log_once(key, container)
 
 
 class ReleaseAction(LoggingAction):
