@@ -8,8 +8,13 @@ from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter
 
 from redis_release.bht.backchain import create_PPA, latch_chains
-from redis_release.bht.behaviours import GenericWorkflowInputs, NeedToPublishRelease
+from redis_release.bht.behaviours import (
+    GenericWorkflowInputs,
+    IsTargetRefIdentified,
+    NeedToPublishRelease,
+)
 from redis_release.bht.composites import (
+    IdentifyTargetRefGuarded,
     ResetPackageStateGuarded,
     RestartPackageGuarded,
     RestartWorkflowGuarded,
@@ -19,7 +24,6 @@ from redis_release.bht.ppas import (
     create_download_artifacts_ppa,
     create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
-    create_identify_target_ref_ppa,
     create_trigger_workflow_ppa,
     create_workflow_completion_ppa,
 )
@@ -118,7 +122,7 @@ class GenericPackageFactory(ABC):
         )
         if trigger_preconditions:
             latch_chains(trigger_workflow, *trigger_preconditions)
-        identify_target_ref = create_identify_target_ref_ppa(
+        identify_target_ref = self.create_identify_target_ref_tree_branch(
             package_meta,
             release_meta,
             github_client,
@@ -366,6 +370,27 @@ class GenericPackageFactory(ABC):
         log_prefix: str,
     ) -> Behaviour:
         raise NotImplementedError
+
+    def create_identify_target_ref_tree_branch(
+        self,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str,
+    ) -> Union[Selector, Sequence]:
+        return create_PPA(
+            "Identify Target Ref",
+            IdentifyTargetRefGuarded(
+                "",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+            ),
+            IsTargetRefIdentified(
+                "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
+            ),
+        )
 
 
 class PackageWithValidation:

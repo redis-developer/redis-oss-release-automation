@@ -7,6 +7,8 @@ See backchain.py for more details on backchaining.
 
 Chains are formed and latched in `tree_factory.py`
 
+Note: functions from here are gradually migrating to respective tree factory files
+
 """
 
 from typing import Union
@@ -110,27 +112,6 @@ def create_trigger_workflow_ppa(
             log_prefix=log_prefix,
         ),
         IsWorkflowTriggered("Is Workflow Triggered?", workflow, log_prefix=log_prefix),
-        IsTargetRefIdentified(
-            "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
-        ),
-    )
-
-
-def create_identify_target_ref_ppa(
-    package_meta: PackageMeta,
-    release_meta: ReleaseMeta,
-    github_client: GitHubClientAsync,
-    log_prefix: str,
-) -> Union[Selector, Sequence]:
-    return create_PPA(
-        "Identify Target Ref",
-        IdentifyTargetRefGuarded(
-            "",
-            package_meta,
-            release_meta,
-            github_client,
-            log_prefix=log_prefix,
-        ),
         IsTargetRefIdentified(
             "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
         ),

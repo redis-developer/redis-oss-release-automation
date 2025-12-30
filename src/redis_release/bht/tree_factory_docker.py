@@ -1,12 +1,18 @@
-from typing import cast
+from typing import Union, cast
 
 from py_trees.behaviour import Behaviour
+from py_trees.composites import Selector, Sequence
 
+from ..github_client_async import GitHubClientAsync
+from .behaviours import IsTargetRefIdentified
 from .behaviours_docker import (
     DetectReleaseTypeDocker,
     DockerWorkflowInputs,
+    IdentifyTargetRefDocker,
     NeedToReleaseDocker,
 )
+from .composites import IdentifyTargetRefGuarded
+from .ppas import create_PPA
 from .state import DockerMeta, PackageMeta, ReleaseMeta, Workflow
 from .tree_factory_generic import GenericPackageFactory
 
@@ -66,4 +72,33 @@ class DockerFactory(GenericPackageFactory):
     ) -> Behaviour:
         return DetectReleaseTypeDocker(
             name, cast(DockerMeta, package_meta), release_meta, log_prefix=log_prefix
+        )
+
+    def create_identify_target_ref_tree_branch(
+        self,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str,
+    ) -> Union[Selector, Sequence]:
+        identifier = IdentifyTargetRefDocker(
+            "Identify Target Ref Docker",
+            package_meta,
+            release_meta,
+            github_client,
+            log_prefix=log_prefix,
+        )
+        return create_PPA(
+            "Identify Target Ref",
+            IdentifyTargetRefGuarded(
+                "",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+                behaviour=identifier,
+            ),
+            IsTargetRefIdentified(
+                "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
+            ),
         )

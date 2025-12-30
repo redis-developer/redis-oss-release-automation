@@ -224,16 +224,19 @@ class IdentifyTargetRefGuarded(StatusFlagGuard):
         release_meta: ReleaseMeta,
         github_client: GitHubClientAsync,
         log_prefix: str = "",
+        behaviour: Optional[Behaviour] = None,
     ) -> None:
-        super().__init__(
-            None if name == "" else name,
-            IdentifyTargetRef(
+        if behaviour is None:
+            behaviour = IdentifyTargetRef(
                 "Identify Target Ref",
                 package_meta,
                 release_meta,
                 github_client,
                 log_prefix=log_prefix,
-            ),
+            )
+        super().__init__(
+            None if name == "" else name,
+            behaviour,
             package_meta.ephemeral,
             "identify_ref",
             log_prefix=log_prefix,

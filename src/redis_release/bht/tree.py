@@ -25,31 +25,16 @@ from ..models import PackageType, ReleaseArgs
 from ..state_display import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
-from .backchain import latch_chains
-from .behaviours import NeedToPublishRelease
-from .composites import (
-    ParallelBarrier,
-    ResetPackageStateGuarded,
-    RestartPackageGuarded,
-    RestartWorkflowGuarded,
-)
+from .composites import ParallelBarrier
 from .ppas import (
     create_download_artifacts_ppa,
     create_extract_artifact_result_ppa,
     create_find_workflow_by_uuid_ppa,
-    create_identify_target_ref_ppa,
     create_trigger_workflow_ppa,
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
 )
-from .state import (
-    SUPPORTED_STATE_VERSION,
-    Package,
-    PackageMeta,
-    ReleaseMeta,
-    ReleaseState,
-    Workflow,
-)
+from .state import SUPPORTED_STATE_VERSION, ReleaseState
 from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
@@ -310,7 +295,9 @@ class TreeInspector:
                 workflow, package_meta, release_meta, github_client, log_prefix
             )
         elif name == "identify_target_ref":
-            return create_identify_target_ref_ppa(
+            return get_factory(
+                self.package_type
+            ).create_identify_target_ref_tree_branch(
                 package_meta, release_meta, github_client, log_prefix
             )
         elif name == "download_artifacts":

@@ -107,7 +107,6 @@ class IdentifyTargetRef(ReleaseAction):
                 f"Parsed release version: {self.release_version.major}.{self.release_version.minor}"
             )
         except ValueError as e:
-            self.logger.error(f"Failed to parse release tag: {e}")
             return
 
         # List remote branches matching release pattern with major version
