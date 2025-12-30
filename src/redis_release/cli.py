@@ -147,9 +147,19 @@ def release(
         "--slack-channel-id",
         help="Slack channel ID to post status updates to",
     ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -194,9 +204,19 @@ def status(
         "--slack-token",
         help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
     ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Display release status in console and optionally post to Slack."""
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -258,6 +278,16 @@ def slack_bot(
         "-c",
         help="Path to config file (default: config.yaml)",
     ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Run Slack bot that processes mentions via conversation tree.
 
@@ -268,7 +298,7 @@ def slack_bot(
     """
     from redis_release.slack_bot import run_bot
 
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
 
     logger.info("Starting Slack bot...")
     asyncio.run(
