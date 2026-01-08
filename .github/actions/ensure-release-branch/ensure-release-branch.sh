@@ -153,6 +153,8 @@ if execute_command git ls-remote --heads origin "$RELEASE_VERSION_BRANCH" | grep
 
     execute_command --no-std -- git_fetch_unshallow origin "$RELEASE_VERSION_BRANCH"
     execute_command --no-std -- git checkout "${RELEASE_VERSION_BRANCH}"
+    execute_command --no-std -- git rev-parse HEAD
+    echo "release_version_branch_sha=$last_cmd_stdout" >> "$GITHUB_OUTPUT"
     echo "Successfully checked out to $RELEASE_VERSION_BRANCH"
 
     exit 0
@@ -171,6 +173,8 @@ echo "Current branch: $(git branch --show-current)"
 # Create RELEASE_VERSION_BRANCH based on RELEASE_BRANCH and push to origin
 execute_command --no-std -- git checkout -b "$RELEASE_VERSION_BRANCH"
 execute_command --no-std -- git push origin HEAD:"$RELEASE_VERSION_BRANCH"
+execute_command --no-std -- git rev-parse HEAD
+echo "release_version_branch_sha=$last_cmd_stdout" >> "$GITHUB_OUTPUT"
 echo "Created and pushed $RELEASE_VERSION_BRANCH based on $RELEASE_BRANCH"
 
 echo "Successfully set up $RELEASE_VERSION_BRANCH - working directory now points to this branch"
