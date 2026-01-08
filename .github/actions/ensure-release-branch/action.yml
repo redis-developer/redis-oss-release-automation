@@ -22,6 +22,9 @@ outputs:
   release_branch:
     description: 'The release branch name, e.g.: release/8.X'
     value: ${{ steps.ensure-branch.outputs.release_branch }}
+  release_version_branch_sha:
+    description: 'The release version branch SHA'
+    value: ${{ steps.ensure-branch.outputs.release_version_branch_sha }}
 
 runs:
   using: "composite"
