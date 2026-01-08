@@ -43,6 +43,16 @@ class DockerWorkflowInputs(ReleaseAction):
             for module, version in self.package_meta.module_versions.items():
                 self.workflow.inputs[f"{module.value}_version"] = version
 
+        if self.release_meta.ephemeral.slack_channel_id is not None:
+            self.workflow.inputs["slack_channel_id"] = (
+                self.release_meta.ephemeral.slack_channel_id
+            )
+
+        if self.release_meta.ephemeral.slack_message_ts is not None:
+            self.workflow.inputs["slack_thread_ts"] = (
+                self.release_meta.ephemeral.slack_message_ts
+            )
+
         if self.log_once("workflow_inputs_set", self.workflow.ephemeral.log_once_flags):
             self.logger.info(f"Workflow inputs set: {self.workflow.inputs}")
 
