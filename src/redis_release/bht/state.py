@@ -223,7 +223,7 @@ class ReleaseMetaEphemeral(BaseModel):
 
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
     slack_channel_id: Optional[str] = None
-    slack_message_ts: Optional[str] = None
+    slack_thread_ts: Optional[str] = None
 
 
 class ReleaseMeta(BaseModel):

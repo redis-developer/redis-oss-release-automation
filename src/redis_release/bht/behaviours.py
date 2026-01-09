@@ -254,7 +254,6 @@ class TriggerWorkflow(ReleaseAction):
             )
             self.feedback_message = "failed to trigger workflow"
             return
-        self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
         if self.log_once(
             "workflow_trigger_start", self.workflow.ephemeral.log_once_flags

@@ -7,7 +7,8 @@ from ..github_client_async import GitHubClientAsync
 from .behaviours import IsTargetRefIdentified
 from .behaviours_docker import (
     DetectReleaseTypeDocker,
-    DockerWorkflowInputs,
+    DockerBuildWorkflowInputs,
+    DockerPublishWorkflowInputs,
     IdentifyTargetRefDocker,
     NeedToReleaseDocker,
 )
@@ -28,7 +29,7 @@ class DockerFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        return DockerWorkflowInputs(
+        return DockerBuildWorkflowInputs(
             name,
             workflow,
             cast(DockerMeta, package_meta),
@@ -44,7 +45,7 @@ class DockerFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        return DockerWorkflowInputs(
+        return DockerPublishWorkflowInputs(
             name,
             workflow,
             cast(DockerMeta, package_meta),

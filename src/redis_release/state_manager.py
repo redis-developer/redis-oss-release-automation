@@ -281,7 +281,7 @@ class StateManager:
 
             if self.args.slack_args:
                 state.meta.ephemeral.slack_channel_id = self.args.slack_args.channel_id
-                state.meta.ephemeral.slack_message_ts = self.args.slack_args.thread_ts
+                state.meta.ephemeral.slack_thread_ts = self.args.slack_args.thread_ts
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""

@@ -7,7 +7,7 @@ from .behaviours import IdentifyTargetRef, LoggingAction, ReleaseAction
 from .state import DockerMeta, ReleaseMeta, Workflow
 
 
-class DockerWorkflowInputs(ReleaseAction):
+class DockerBuildWorkflowInputs(ReleaseAction):
     def __init__(
         self,
         name: str,
@@ -48,9 +48,49 @@ class DockerWorkflowInputs(ReleaseAction):
                 self.release_meta.ephemeral.slack_channel_id
             )
 
-        if self.release_meta.ephemeral.slack_message_ts is not None:
+        if self.release_meta.ephemeral.slack_thread_ts is not None:
             self.workflow.inputs["slack_thread_ts"] = (
-                self.release_meta.ephemeral.slack_message_ts
+                self.release_meta.ephemeral.slack_thread_ts
+            )
+
+        if self.release_meta.tag is not None:
+            self.workflow.inputs["release_tag"] = self.release_meta.tag
+        if self.package_meta.release_type is not None:
+            self.workflow.inputs["release_type"] = self.package_meta.release_type.value
+
+        if self.log_once("workflow_inputs_set", self.workflow.ephemeral.log_once_flags):
+            self.logger.info(f"Workflow inputs set: {self.workflow.inputs}")
+
+        return Status.SUCCESS
+
+
+class DockerPublishWorkflowInputs(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        workflow: Workflow,
+        package_meta: DockerMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.workflow = workflow
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        self.release_version: Optional[RedisVersion] = None
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        pass
+
+    def update(self) -> Status:
+        if self.release_meta.ephemeral.slack_channel_id is not None:
+            self.workflow.inputs["slack_channel_id"] = (
+                self.release_meta.ephemeral.slack_channel_id
+            )
+
+        if self.release_meta.ephemeral.slack_thread_ts is not None:
+            self.workflow.inputs["slack_thread_ts"] = (
+                self.release_meta.ephemeral.slack_thread_ts
             )
 
         if self.log_once("workflow_inputs_set", self.workflow.ephemeral.log_once_flags):
@@ -173,7 +213,7 @@ class NeedToReleaseDocker(LoggingAction):
         try:
             self.release_version = RedisVersion.parse(self.release_meta.tag)
         except ValueError as e:
-            self.logger.error(f"Failed to parse release tag: {e}")
+            self.logger.debug(f"Failed to parse release tag: {e}")
             return
         pass
 

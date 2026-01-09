@@ -30,6 +30,9 @@ class PlainTextFormatter(logging.Formatter):
             except Exception:
                 pass
 
+        # Add basename to record for use in format string
+        record.basename = os.path.basename(record.pathname)
+
         return super().format(record)
 
 
@@ -133,17 +136,6 @@ def setup_logging(
     # This ensures both handlers can receive messages at their respective levels
     min_level = min(level, file_level_int) if log_file else level
 
-    # Configure basic logging first (clears any existing handlers)
-    logging.basicConfig(
-        level=min_level,
-        format="%(name)s: %(message)s",
-        datefmt="[%X]",
-        handlers=[],
-        force=True,
-    )
-
-    root_logger = logging.getLogger()
-
     # Add Rich handler for console output
     rich_handler = RichHandler(
         rich_tracebacks=True,
@@ -155,18 +147,30 @@ def setup_logging(
         omit_repeated_times=False,
     )
     rich_handler.setLevel(level)
-    root_logger.addHandler(rich_handler)
+
+    handlers: list = [rich_handler]
 
     # Add file handler if log_file is specified
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(file_level_int)
         # Use PlainTextFormatter to strip Rich markup
+        # Format: timestamp\tlogger_name\tlevel\tmessage\tfilename:line
         formatter = PlainTextFormatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            "%(asctime)s\t%(name)s\t%(levelname)s\t%(message)s\t%(basename)s:%(lineno)d"
         )
         file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
+        handlers.append(file_handler)
+
+    # Configure basic logging with both handlers
+    # The format here is used by RichHandler to show logger name
+    logging.basicConfig(
+        level=min_level,
+        format="%(name)s: %(message)s",
+        datefmt="[%X]",
+        handlers=handlers,
+        force=True,
+    )
 
     # Optionally reduce noise from some verbose libraries
     logging.getLogger("asyncio").setLevel(third_party_level)

@@ -147,6 +147,11 @@ def release(
         "--slack-channel-id",
         help="Slack channel ID to post status updates to",
     ),
+    slack_thread_ts: Optional[str] = typer.Option(
+        None,
+        "--slack-thread-ts",
+        help="Slack thread timestamp to post status updates to",
+    ),
     log_file: Optional[str] = typer.Option(
         None,
         "--log-file",
@@ -174,6 +179,7 @@ def release(
         slack_args=SlackArgs(
             bot_token=slack_token,
             channel_id=slack_channel_id,
+            thread_ts=slack_thread_ts,
         ),
     )
 
