@@ -3,11 +3,13 @@
 import asyncio
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import typer
 from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
+
+from redis_release.cli_util import parse_force_release_type, parse_module_versions
 
 from .bht.conversation_state import InboxMessage
 from .bht.conversation_tree import initialize_conversation_tree
@@ -15,7 +17,7 @@ from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
 from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
-from .models import ReleaseArgs, ReleaseType, SlackArgs
+from .models import RedisModule, ReleaseArgs, SlackArgs
 from .state_display import print_state_table
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
@@ -27,47 +29,6 @@ app = typer.Typer(
 )
 
 logger = logging.getLogger(__name__)
-
-
-def parse_force_release_type(
-    force_release_type_list: Optional[List[str]],
-) -> Dict[str, ReleaseType]:
-    """Parse force_release_type arguments from 'package_name:release_type' format.
-
-    Args:
-        force_release_type_list: List of strings in format 'package_name:release_type'
-
-    Returns:
-        Dictionary mapping package names to ReleaseType
-
-    Raises:
-        typer.BadParameter: If format is invalid or release type is unknown
-    """
-    if not force_release_type_list:
-        return {}
-
-    result = {}
-    for item in force_release_type_list:
-        if ":" not in item:
-            raise typer.BadParameter(
-                f"Invalid format '{item}'. Expected 'package_name:release_type' (e.g., 'docker:internal')"
-            )
-
-        package_name, release_type_str = item.split(":", 1)
-        package_name = package_name.strip()
-        release_type_str = release_type_str.strip().lower()
-
-        try:
-            release_type = ReleaseType(release_type_str)
-        except ValueError:
-            valid_types = ", ".join([rt.value for rt in ReleaseType])
-            raise typer.BadParameter(
-                f"Invalid release type '{release_type_str}'. Valid types: {valid_types}"
-            )
-
-        result[package_name] = release_type
-
-    return result
 
 
 @app.command()
@@ -158,6 +119,11 @@ def release(
         "--only-packages",
         help="Only process specific packages (can be specified multiple times)",
     ),
+    module_versions: Optional[List[str]] = typer.Option(
+        None,
+        "--module-version",
+        help="Specific module version to use (e.g., 'redisjson:2.4.0'). Can be specified multiple times.",
+    ),
     tree_cutoff: int = typer.Option(
         5000, "--tree-cutoff", "-m", help="Max number of ticks to run the tree for"
     ),
@@ -181,9 +147,24 @@ def release(
         "--slack-channel-id",
         help="Slack channel ID to post status updates to",
     ),
+    slack_thread_ts: Optional[str] = typer.Option(
+        None,
+        "--slack-thread-ts",
+        help="Slack thread timestamp to post status updates to",
+    ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -194,9 +175,11 @@ def release(
         only_packages=only_packages or [],
         force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
+        module_versions=parse_module_versions(module_versions),
         slack_args=SlackArgs(
             bot_token=slack_token,
             channel_id=slack_channel_id,
+            thread_ts=slack_thread_ts,
         ),
     )
 
@@ -227,9 +210,19 @@ def status(
         "--slack-token",
         help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
     ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Display release status in console and optionally post to Slack."""
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
     config_path = config_file or "config.yaml"
     config = load_config(config_path)
 
@@ -291,6 +284,16 @@ def slack_bot(
         "-c",
         help="Path to config file (default: config.yaml)",
     ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
 ) -> None:
     """Run Slack bot that processes mentions via conversation tree.
 
@@ -301,7 +304,7 @@ def slack_bot(
     """
     from redis_release.slack_bot import run_bot
 
-    setup_logging()
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
 
     logger.info("Starting Slack bot...")
     asyncio.run(

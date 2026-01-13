@@ -14,7 +14,8 @@ from rich.pretty import pretty_repr
 from redis_release.bht.state import ReleaseState, logger
 from redis_release.config import Config
 
-from .bht.state import ReleaseState
+from .bht.state import DockerMeta, PackageType, ReleaseState
+from .logging_config import log_once
 from .models import ReleaseArgs
 
 logger = logging.getLogger(__name__)
@@ -221,10 +222,10 @@ class StateManager:
     def default_state(self) -> ReleaseState:
         """Create default state from config."""
         state = ReleaseState.from_config(self.config)
-        self.apply_args(state)
+        self.apply_args(state, quiet=True)
         return state
 
-    def apply_args(self, state: ReleaseState) -> None:
+    def apply_args(self, state: ReleaseState, quiet: bool = False) -> None:
         """Apply arguments to state."""
         state.meta.tag = self.tag
 
@@ -240,7 +241,8 @@ class StateManager:
                         state.packages[package_name].meta.ephemeral.force_rebuild = True
 
             if self.args.force_release_type:
-                logger.info(f"Force release type: {self.args.force_release_type}")
+                if not quiet:
+                    logger.info(f"Force release type: {self.args.force_release_type}")
                 # Handle "all" keyword to apply to all packages
                 if "all" in self.args.force_release_type:
                     release_type = self.args.force_release_type["all"]
@@ -266,6 +268,20 @@ class StateManager:
                             logger.warning(
                                 f"Package '{package_name}' not found in state, skipping release type override"
                             )
+            if self.args.module_versions:
+                for package in state.packages.values():
+                    if package.meta.package_type == PackageType.DOCKER:
+                        assert isinstance(package.meta, DockerMeta)
+                        if not quiet:
+                            for module, version in self.args.module_versions.items():
+                                logger.info(
+                                    f"Set module version for [yellow]{module}: {version}[/]"
+                                )
+                        package.meta.module_versions = self.args.module_versions
+
+            if self.args.slack_args:
+                state.meta.ephemeral.slack_channel_id = self.args.slack_args.channel_id
+                state.meta.ephemeral.slack_thread_ts = self.args.slack_args.thread_ts
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""

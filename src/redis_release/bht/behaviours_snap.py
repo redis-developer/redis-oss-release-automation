@@ -86,6 +86,11 @@ class DetectSnapReleaseAndRiskLevel(ReleaseAction):
                 self.package_meta.release_type = ReleaseType.PUBLIC
                 self.package_meta.snap_risk_level = SnapRiskLevel.EDGE
             else:
+                if self.release_version is None and self.release_meta.tag != "":
+                    self.logger.info(
+                        f"Release version is not set, skipping probably custom release: {self.release_meta.tag}"
+                    )
+                    return Status.SUCCESS
                 assert self.release_version is not None
                 if self.package_meta.release_type is None:
                     if self.release_version.is_internal:
@@ -142,6 +147,18 @@ class ClassifySnapVersion(ReleaseAction):
     def initialise(self) -> None:
         """Initialize by validating inputs and starting download task."""
         if self.package_meta.ephemeral.is_version_acceptable is not None:
+            return
+
+        # TODO: don't like this expresion, should be better way to handle custom releases skipping
+        if (
+            self.release_meta.tag is not None
+            and self.release_meta.tag != ""
+            and self.release_meta.tag != "unstable"
+            and self.package_meta.snap_risk_level is None
+        ):
+            self.package_meta.ephemeral.is_version_acceptable = False
+            # we need to set remote version to not None as it is a sign of successful classify step
+            self.package_meta.remote_version = "custom"
             return
 
         self.feedback_message = ""

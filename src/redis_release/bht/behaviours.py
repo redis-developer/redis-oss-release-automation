@@ -26,6 +26,7 @@ from py_trees.common import Status
 from redis_release.bht.state import reset_model_to_defaults
 
 from ..github_client_async import GitHubClientAsync
+from ..logging_config import log_once
 from ..models import RedisVersion, ReleaseType, WorkflowConclusion, WorkflowStatus
 from .logging_wrapper import PyTreesLoggerWrapper
 from .state import Package, PackageMeta, ReleaseMeta, Workflow
@@ -53,10 +54,7 @@ class LoggingAction(Behaviour):
         return Status.FAILURE
 
     def log_once(self, key: str, container: Dict[str, bool]) -> bool:
-        if key not in container:
-            container[key] = True
-            return True
-        return False
+        return log_once(key, container)
 
 
 class ReleaseAction(LoggingAction):
@@ -109,7 +107,6 @@ class IdentifyTargetRef(ReleaseAction):
                 f"Parsed release version: {self.release_version.major}.{self.release_version.minor}"
             )
         except ValueError as e:
-            self.logger.error(f"Failed to parse release tag: {e}")
             return
 
         # List remote branches matching release pattern with major version
@@ -257,7 +254,6 @@ class TriggerWorkflow(ReleaseAction):
             )
             self.feedback_message = "failed to trigger workflow"
             return
-        self.workflow.inputs["release_tag"] = self.release_meta.tag
         ref = self.package_meta.ref if self.package_meta.ref is not None else "main"
         if self.log_once(
             "workflow_trigger_start", self.workflow.ephemeral.log_once_flags

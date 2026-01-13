@@ -37,6 +37,7 @@ packages:
     repo: redis/redis-rpm
     build_workflow: release_build_and_test.yml
     build_inputs: {}
+    build_timeout_minutes: 45
     publish_internal_release: yes
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10

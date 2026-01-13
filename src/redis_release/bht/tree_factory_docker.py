@@ -1,12 +1,21 @@
-from py_trees.behaviour import Behaviour
+from typing import Union, cast
 
-from redis_release.bht.behaviours_docker import (
+from py_trees.behaviour import Behaviour
+from py_trees.composites import Selector, Sequence
+
+from ..github_client_async import GitHubClientAsync
+from .behaviours import IsTargetRefIdentified
+from .behaviours_docker import (
     DetectReleaseTypeDocker,
-    DockerWorkflowInputs,
+    DockerBuildWorkflowInputs,
+    DockerPublishWorkflowInputs,
+    IdentifyTargetRefDocker,
     NeedToReleaseDocker,
 )
-from redis_release.bht.state import PackageMeta, ReleaseMeta, Workflow
-from redis_release.bht.tree_factory_generic import GenericPackageFactory
+from .composites import IdentifyTargetRefGuarded
+from .ppas import create_PPA
+from .state import DockerMeta, PackageMeta, ReleaseMeta, Workflow
+from .tree_factory_generic import GenericPackageFactory
 
 
 class DockerFactory(GenericPackageFactory):
@@ -20,8 +29,12 @@ class DockerFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        return DockerWorkflowInputs(
-            name, workflow, package_meta, release_meta, log_prefix=log_prefix
+        return DockerBuildWorkflowInputs(
+            name,
+            workflow,
+            cast(DockerMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
         )
 
     def create_publish_workflow_inputs(
@@ -32,8 +45,12 @@ class DockerFactory(GenericPackageFactory):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        return DockerWorkflowInputs(
-            name, workflow, package_meta, release_meta, log_prefix=log_prefix
+        return DockerPublishWorkflowInputs(
+            name,
+            workflow,
+            cast(DockerMeta, package_meta),
+            release_meta,
+            log_prefix=log_prefix,
         )
 
     def create_need_to_release_behaviour(
@@ -44,7 +61,7 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return NeedToReleaseDocker(
-            name, package_meta, release_meta, log_prefix=log_prefix
+            name, cast(DockerMeta, package_meta), release_meta, log_prefix=log_prefix
         )
 
     def create_detect_release_type_behaviour(
@@ -55,5 +72,34 @@ class DockerFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return DetectReleaseTypeDocker(
-            name, package_meta, release_meta, log_prefix=log_prefix
+            name, cast(DockerMeta, package_meta), release_meta, log_prefix=log_prefix
+        )
+
+    def create_identify_target_ref_tree_branch(
+        self,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str,
+    ) -> Union[Selector, Sequence]:
+        identifier = IdentifyTargetRefDocker(
+            "Identify Target Ref Docker",
+            package_meta,
+            release_meta,
+            github_client,
+            log_prefix=log_prefix,
+        )
+        return create_PPA(
+            "Identify Target Ref",
+            IdentifyTargetRefGuarded(
+                "",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+                behaviour=identifier,
+            ),
+            IsTargetRefIdentified(
+                "Is Target Ref Identified?", package_meta, log_prefix=log_prefix
+            ),
         )

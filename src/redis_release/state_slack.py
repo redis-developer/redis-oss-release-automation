@@ -227,22 +227,23 @@ class SlackStatePrinter:
                 }
             )
 
-        # Legend with two columns
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "✅ Success\n❌ Failed",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": "⏳ In progress\n⚪ Not started",
-                    },
-                ],
-            }
-        )
+        # Legend with two columns (skip to reduce visual noise)
+        if False:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "✅ Success\n❌ Failed",
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": "⏳ In progress\n⚪ Not started",
+                        },
+                    ],
+                }
+            )
 
         blocks.append({"type": "divider"})
 
@@ -252,8 +253,19 @@ class SlackStatePrinter:
             formatted_name = self.format_package_name(package_name, package)
 
             # Get workflow statuses
-            build_status_emoji = self._get_status_emoji(package, package.build)
-            publish_status_emoji = self._get_status_emoji(package, package.publish)
+            build_status, build_status_emoji = self._get_status_emoji(
+                package, package.build
+            )
+            publish_status, publish_status_emoji = self._get_status_emoji(
+                package, package.publish
+            )
+
+            # skip if both build and publish are not started
+            if (
+                build_status == StepStatus.NOT_STARTED
+                and publish_status == StepStatus.NOT_STARTED
+            ):
+                continue
 
             # Package section
             blocks.append(
@@ -309,7 +321,9 @@ class SlackStatePrinter:
 
         return blocks
 
-    def _get_status_emoji(self, package: Package, workflow: Workflow) -> str:
+    def _get_status_emoji(
+        self, package: Package, workflow: Workflow
+    ) -> Tuple[StepStatus, str]:
         """Get emoji status for a workflow.
 
         For build workflow of Homebrew/Snap packages, checks validation status first.
@@ -331,11 +345,14 @@ class SlackStatePrinter:
                 package.meta  # type: ignore
             )
             if validation_status != StepStatus.SUCCEEDED:
-                return self._get_step_status_emoji(validation_status)
+                return (
+                    validation_status,
+                    self._get_step_status_emoji(validation_status),
+                )
 
         # Check workflow status
         workflow_status = DisplayModel.get_workflow_status(package, workflow)
-        return self._get_step_status_emoji(workflow_status[0])
+        return (workflow_status[0], self._get_step_status_emoji(workflow_status[0]))
 
     def _get_step_status_emoji(self, status: StepStatus) -> str:
         """Convert step status to emoji string.
