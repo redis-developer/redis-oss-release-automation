@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.behaviours import Failure as AlwaysFailure
@@ -37,12 +37,13 @@ class GenericPackageFactory(ABC):
 
     def create_package_release_goal_tree_branch(
         self,
-        package: Package,
+        packages: Dict[str, Package],
         release_meta: ReleaseMeta,
         default_package: Package,
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
+        package: Package = packages[package_name]
         package_release = self.create_package_release_execute_workflows_tree_branch(
             package, release_meta, default_package, github_client, package_name
         )
