@@ -212,7 +212,7 @@ class Package(BaseModel):
         default_factory=PackageMeta, discriminator="serialization_hint"
     )
     build: Workflow = Field(default_factory=Workflow)
-    publish: Workflow = Field(default_factory=Workflow)
+    publish: Optional[Workflow] = None
 
 
 class ReleaseMetaEphemeral(BaseModel):
@@ -305,17 +305,6 @@ class ReleaseState(BaseModel):
                     f"Package '{package_name}': build_workflow cannot be empty"
                 )
 
-            # Validate and get publish workflow file
-            if not isinstance(package_config.publish_workflow, str):
-                raise ValueError(
-                    f"Package '{package_name}': publish_workflow must be a string, "
-                    f"got {type(package_config.publish_workflow).__name__}"
-                )
-            if not package_config.publish_workflow.strip():
-                raise ValueError(
-                    f"Package '{package_name}': publish_workflow cannot be empty"
-                )
-
             # Initialize package metadata - create appropriate subclass based on package_type
             try:
                 package_meta = cls._create_package_meta_from_config(package_config)
@@ -330,13 +319,18 @@ class ReleaseState(BaseModel):
                 timeout_minutes=package_config.build_timeout_minutes,
             )
 
-            # Initialize publish workflow
-            publish_workflow = Workflow(
-                workflow_type=WorkflowType.PUBLISH,
-                workflow_file=package_config.publish_workflow,
-                inputs=package_config.publish_inputs.copy(),
-                timeout_minutes=package_config.publish_timeout_minutes,
-            )
+            publish_workflow: Optional[Workflow] = None
+            if (
+                isinstance(package_config.publish_workflow, str)
+                and package_config.publish_workflow.strip()
+            ):
+                # Initialize publish workflow
+                publish_workflow = Workflow(
+                    workflow_type=WorkflowType.PUBLISH,
+                    workflow_file=package_config.publish_workflow,
+                    inputs=package_config.publish_inputs.copy(),
+                    timeout_minutes=package_config.publish_timeout_minutes,
+                )
 
             # Create package state with initialized workflows
             packages[package_name] = Package(

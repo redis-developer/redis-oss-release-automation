@@ -216,8 +216,12 @@ class ConsoleStatePrinter:
             else:
                 build_status = self.get_workflow_status_display(package, package.build)
 
-            # Determine publish status
-            publish_status = self.get_workflow_status_display(package, package.publish)
+            publish_status = ""
+            if package.publish is not None:
+                # Determine publish status
+                publish_status = self.get_workflow_status_display(
+                    package, package.publish
+                )
 
             # Collect details from workflows
             details = self.collect_details(package)
@@ -313,11 +317,12 @@ class ConsoleStatePrinter:
         build_status = DisplayModel.get_workflow_status(package, package.build)
         if build_status[0] != StepStatus.NOT_STARTED:
             details.extend(self.collect_text_details(build_status[1], "Build Workflow"))
-        publish_status = DisplayModel.get_workflow_status(package, package.publish)
-        if publish_status[0] != StepStatus.NOT_STARTED:
-            details.extend(
-                self.collect_text_details(publish_status[1], "Publish Workflow")
-            )
+        if package.publish is not None:
+            publish_status = DisplayModel.get_workflow_status(package, package.publish)
+            if publish_status[0] != StepStatus.NOT_STARTED:
+                details.extend(
+                    self.collect_text_details(publish_status[1], "Publish Workflow")
+                )
 
         return "\n".join(details)
 

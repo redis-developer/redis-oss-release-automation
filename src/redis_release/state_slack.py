@@ -256,9 +256,12 @@ class SlackStatePrinter:
             build_status, build_status_emoji = self._get_status_emoji(
                 package, package.build
             )
-            publish_status, publish_status_emoji = self._get_status_emoji(
-                package, package.publish
-            )
+            publish_status = StepStatus.NOT_STARTED
+            publish_status_emoji = ""
+            if package.publish is not None:
+                publish_status, publish_status_emoji = self._get_status_emoji(
+                    package, package.publish
+                )
 
             # skip if both build and publish are not started
             if (
@@ -268,21 +271,30 @@ class SlackStatePrinter:
                 continue
 
             # Package section
+            build_with_emoji = f"*Build:* {build_status_emoji}"
+            publish_with_emoji = ""
+            if package.publish is not None:
+                publish_with_emoji = f"*Publish:* {publish_status_emoji}"
+            header_with_emojis = "  |  ".join(
+                filter(bool, [build_with_emoji, publish_with_emoji])
+            )
             blocks.append(
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{formatted_name}*\n*Build:* {build_status_emoji}   |   *Publish:* {publish_status_emoji}",
+                        "text": f"*{formatted_name}*\n{header_with_emojis}",
                     },
                 }
             )
 
             # Workflow details in context
             build_details = self._collect_workflow_details_slack(package, package.build)
-            publish_details = self._collect_workflow_details_slack(
-                package, package.publish
-            )
+            publish_details = ""
+            if package.publish is not None:
+                publish_details = self._collect_workflow_details_slack(
+                    package, package.publish
+                )
 
             if build_details or publish_details:
                 elements = []
@@ -299,7 +311,7 @@ class SlackStatePrinter:
                     elements.append(
                         {"type": "mrkdwn", "text": f"{build_title}\n{build_details}"}
                     )
-                if publish_details:
+                if package.publish is not None and publish_details:
                     # Create link for Publish Workflow if run_id exists
                     publish_link = get_workflow_link(
                         package.meta.repo, package.publish.run_id

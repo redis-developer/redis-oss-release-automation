@@ -35,6 +35,7 @@ class TestReleaseStateFromConfig:
         assert state.packages["test-package"].meta.repo == "test/repo"
         assert state.packages["test-package"].meta.ref is None
         assert state.packages["test-package"].build.workflow_file == "build.yml"
+        assert state.packages["test-package"].publish is not None
         assert state.packages["test-package"].publish.workflow_file == "publish.yml"
         # Check default timeout values
         assert state.packages["test-package"].build.timeout_minutes == 45
@@ -59,6 +60,7 @@ class TestReleaseStateFromConfig:
         state = ReleaseState.from_config(config)
 
         assert state.packages["test-package"].build.timeout_minutes == 60
+        assert state.packages["test-package"].publish is not None
         assert state.packages["test-package"].publish.timeout_minutes == 20
 
     def test_from_config_with_ref(self) -> None:
@@ -102,6 +104,7 @@ class TestReleaseStateFromConfig:
             "key1": "value1",
             "key2": "value2",
         }
+        assert state.packages["test-package"].publish is not None
         assert state.packages["test-package"].publish.inputs == {
             "publish_key": "publish_value"
         }
@@ -131,6 +134,7 @@ class TestReleaseStateFromConfig:
         assert pkg.meta.ref == "main"
         assert pkg.build.timeout_minutes == 60
         assert pkg.build.inputs == {"build_arg": "build_val"}
+        assert pkg.publish is not None
         assert pkg.publish.timeout_minutes == 20
         assert pkg.publish.inputs == {"publish_arg": "publish_val"}
 
@@ -375,6 +379,7 @@ class TestWorkflowEphemeral:
 
         # Modify ephemeral fields
         state.packages["test-package"].build.ephemeral.trigger_workflow = Status.FAILURE
+        assert state.packages["test-package"].publish is not None
         state.packages["test-package"].publish.ephemeral.wait_for_completion = (
             Status.SUCCESS
         )

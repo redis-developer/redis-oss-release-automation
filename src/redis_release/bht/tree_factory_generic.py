@@ -157,6 +157,7 @@ class GenericPackageFactory(ABC):
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
+        children: List[Behaviour] = []
         build = self.create_build_workflow_tree_branch(
             package,
             release_meta,
@@ -165,26 +166,33 @@ class GenericPackageFactory(ABC):
             package_name,
         )
         build.name = f"Build {package_name}"
-        publish = self.create_publish_workflow_tree_branch(
-            package.build,
-            package.publish,
-            package.meta,
-            release_meta,
-            default_package.publish,
-            github_client,
-            package_name,
-        )
+        children.append(build)
+
+        if package.publish is not None:
+            assert default_package.publish is not None
+            publish = self.create_publish_workflow_tree_branch(
+                package.build,
+                package.publish,
+                package.meta,
+                release_meta,
+                default_package.publish,
+                github_client,
+                package_name,
+            )
+            publish.name = f"Publish {package_name}"
+            children.append(publish)
+
         reset_package_state = ResetPackageStateGuarded(
             "",
             package,
             default_package,
             log_prefix=package_name,
         )
-        publish.name = f"Publish {package_name}"
+        children.insert(0, reset_package_state)
         package_release = Sequence(
             f"Package Release {package_name}",
             memory=False,
-            children=[reset_package_state, build, publish],
+            children=children,
         )
         return package_release
 
@@ -407,6 +415,7 @@ class PackageWithValidation:
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
+        children: List[Behaviour] = []
         build = self.create_build_workflow_tree_branch(
             package,
             release_meta,
@@ -415,20 +424,25 @@ class PackageWithValidation:
             package_name,
         )
         build.name = f"Build {package_name}"
-        publish = self.create_publish_workflow_tree_branch(
-            package.build,
-            package.publish,
-            package.meta,
-            release_meta,
-            default_package.publish,
-            github_client,
-            package_name,
-        )
-        publish.name = f"Publish {package_name}"
+        children.append(build)
+        if package.publish is not None:
+            assert default_package.publish is not None
+            publish = self.create_publish_workflow_tree_branch(
+                package.build,
+                package.publish,
+                package.meta,
+                release_meta,
+                default_package.publish,
+                github_client,
+                package_name,
+            )
+            publish.name = f"Publish {package_name}"
+            children.append(publish)
+
         package_release = Sequence(
             f"Execute Workflows {package_name}",
             memory=False,
-            children=[build, publish],
+            children=children,
         )
         return package_release
 
