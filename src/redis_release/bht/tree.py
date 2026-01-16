@@ -22,7 +22,7 @@ from rich.text import Text
 from ..config import Config, PackageConfig
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType, ReleaseArgs
-from ..state_display import print_state_table
+from ..state_console import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
 from .composites import ParallelBarrier

@@ -18,7 +18,7 @@ from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
 from .models import RedisModule, ReleaseArgs, SlackArgs
-from .state_display import print_state_table
+from .state_console import print_state_table
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
 

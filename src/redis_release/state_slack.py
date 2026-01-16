@@ -12,15 +12,7 @@ from slack_sdk.errors import SlackApiError
 from redis_release.models import SlackFormat
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
-from .bht.state import (
-    HomebrewMeta,
-    HomebrewMetaEphemeral,
-    Package,
-    ReleaseState,
-    SnapMeta,
-    SnapMetaEphemeral,
-    Workflow,
-)
+from .bht.state import Package, ReleaseState, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -349,21 +341,6 @@ class SlackStatePrinter:
         """
         display_model = get_display_model(package.meta)
 
-        # For build workflow of Homebrew/Snap packages, check validation status first
-        if workflow == package.build and (
-            type(package.meta.ephemeral) == HomebrewMetaEphemeral
-            or type(package.meta.ephemeral) == SnapMetaEphemeral
-        ):
-            # Check validation status first
-            validation_status, _ = display_model.get_release_validation_status(
-                package.meta  # type: ignore
-            )
-            if validation_status != StepStatus.SUCCEEDED:
-                return (
-                    validation_status,
-                    self._get_step_status_emoji(validation_status),
-                )
-
         # Check workflow status
         workflow_status = display_model.get_workflow_status(package, workflow)
         return (workflow_status[0], self._get_step_status_emoji(workflow_status[0]))
@@ -406,54 +383,34 @@ class SlackStatePrinter:
         display_model = get_display_model(package.meta)
 
         workflow_status = display_model.get_workflow_status(package, workflow)
-        # For build workflow of Homebrew/Snap packages, include validation details
-        if workflow == package.build and (
-            type(package.meta.ephemeral) == HomebrewMetaEphemeral
-            or type(package.meta.ephemeral) == SnapMetaEphemeral
-        ):
-            validation_status, validation_steps = (
-                display_model.get_release_validation_status(package.meta)  # type: ignore
-            )
-            # Show any validation steps only when build has started or validation has failed
-            if (
-                validation_status != StepStatus.NOT_STARTED
-                and workflow_status[0] != StepStatus.NOT_STARTED
-            ) or (validation_status == StepStatus.FAILED):
-                details.extend(
-                    self._format_steps_for_slack(validation_steps, "Release Validation")
-                )
-
         # Add workflow details
         if workflow_status[0] != StepStatus.NOT_STARTED:
-            workflow_name = (
-                "Build Workflow" if workflow == package.build else "Publish Workflow"
-            )
-            details.extend(
-                self._format_steps_for_slack(workflow_status[1], workflow_name)
-            )
+            details.extend(self._format_steps_for_slack(workflow_status[1]))
 
         if self.slack_format == SlackFormat.ONE_STEP:
             details = details[-1:]
 
         return "\n".join(details)
 
-    def _format_steps_for_slack(
-        self, steps: List[Union[Step, Section]], prefix: str
-    ) -> List[str]:
+    def _format_steps_for_slack(self, steps: List[Union[Step, Section]]) -> List[str]:
         """Format step details for Slack display.
 
+        The first item in the steps list should be a Section, which will be used as the header.
+
         Args:
-            steps: List of Step or Section objects
-            prefix: Section prefix/title
+            steps: List of Step and Section objects (first item should be Section)
 
         Returns:
             List of formatted step strings
         """
         details: List[str] = []
-        # details.append(f"*{prefix}*")
 
         for item in steps:
-            if isinstance(item, Step):
+            if isinstance(item, Section):
+                # Section can be used as header if needed
+                # details.append(f"*{item.name}*")
+                pass
+            elif isinstance(item, Step):
                 if item.status == StepStatus.SUCCEEDED:
                     details.append(f"• ✅ {item.name}")
                 elif item.status == StepStatus.RUNNING:
