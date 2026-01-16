@@ -156,7 +156,7 @@ class TestReleaseStateFromConfig:
             ReleaseState.from_config(config)
 
     def test_from_config_with_empty_publish_workflow(self) -> None:
-        """Test from_config fails when publish_workflow is empty."""
+        """Test from_config sets publish to None when publish_workflow is empty."""
         config = Config(
             version=1,
             packages={
@@ -169,8 +169,8 @@ class TestReleaseStateFromConfig:
             },
         )
 
-        with pytest.raises(ValueError, match="publish_workflow cannot be empty"):
-            ReleaseState.from_config(config)
+        state = ReleaseState.from_config(config)
+        assert state.packages["test-package"].publish is None
 
     def test_from_config_with_whitespace_only_build_workflow(self) -> None:
         """Test from_config fails when build_workflow is whitespace only."""
@@ -190,7 +190,7 @@ class TestReleaseStateFromConfig:
             ReleaseState.from_config(config)
 
     def test_from_config_with_whitespace_only_publish_workflow(self) -> None:
-        """Test from_config fails when publish_workflow is whitespace only."""
+        """Test from_config sets publish to None when publish_workflow is whitespace only."""
         config = Config(
             version=1,
             packages={
@@ -203,8 +203,8 @@ class TestReleaseStateFromConfig:
             },
         )
 
-        with pytest.raises(ValueError, match="publish_workflow cannot be empty"):
-            ReleaseState.from_config(config)
+        state = ReleaseState.from_config(config)
+        assert state.packages["test-package"].publish is None
 
     def test_from_config_with_multiple_packages(self) -> None:
         """Test from_config with multiple packages."""
@@ -269,7 +269,7 @@ class TestReleaseStateFromConfig:
             ReleaseState.from_config(config)
 
     def test_from_config_with_boolean_publish_workflow(self) -> None:
-        """Test from_config fails when publish_workflow is a boolean."""
+        """Test from_config sets publish to None when publish_workflow is False."""
         config = Config(
             version=1,
             packages={
@@ -282,8 +282,8 @@ class TestReleaseStateFromConfig:
             },
         )
 
-        with pytest.raises(ValueError, match="publish_workflow must be a string"):
-            ReleaseState.from_config(config)
+        state = ReleaseState.from_config(config)
+        assert state.packages["test-package"].publish is None
 
 
 class TestWorkflowEphemeral:
