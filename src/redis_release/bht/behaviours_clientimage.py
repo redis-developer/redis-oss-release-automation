@@ -4,7 +4,7 @@ from py_trees.common import Status
 
 from ..models import ReleaseType
 from .behaviours import LoggingAction
-from .state import PackageMeta, ReleaseMeta
+from .state import PackageMeta, ReleaseMeta, Workflow
 
 
 class DetectReleaseTypeClientImage(LoggingAction):
@@ -59,3 +59,23 @@ class NeedToReleaseClientImage(LoggingAction):
             self.logger.info(feedback_message)
 
         return Status.SUCCESS
+
+
+class AwaitDockerImage(LoggingAction):
+    def __init__(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        docker_build_workflow: Workflow,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        self.docker_build_workflow = docker_build_workflow
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.docker_build_workflow.result is not None:
+            return Status.SUCCESS
+        return Status.FAILURE
