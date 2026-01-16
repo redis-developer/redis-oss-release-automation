@@ -4,13 +4,13 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from redis_release.models import SlackFormat
-from redis_release.state_display import DisplayModel, StepStatus
+from redis_release.state_display import DisplayModel, Section, Step, StepStatus
 
 from .bht.state import (
     HomebrewMeta,
@@ -435,12 +435,12 @@ class SlackStatePrinter:
         return "\n".join(details)
 
     def _format_steps_for_slack(
-        self, steps: List[Tuple[StepStatus, str, Optional[str]]], prefix: str
+        self, steps: List[Union[Step, Section]], prefix: str
     ) -> List[str]:
         """Format step details for Slack display.
 
         Args:
-            steps: List of (step_status, step_name, step_message) tuples
+            steps: List of Step or Section objects
             prefix: Section prefix/title
 
         Returns:
@@ -449,16 +449,17 @@ class SlackStatePrinter:
         details: List[str] = []
         # details.append(f"*{prefix}*")
 
-        for step_status, step_name, step_message in steps:
-            if step_status == StepStatus.SUCCEEDED:
-                details.append(f"• ✅ {step_name}")
-            elif step_status == StepStatus.RUNNING:
-                details.append(f"• ⏳ {step_name}")
-            elif step_status == StepStatus.NOT_STARTED:
-                details.append(f"• ⚪ {step_name}")
-            else:  # FAILED or INCORRECT
-                msg = f" ({step_message})" if step_message else ""
-                details.append(f"• ❌ {step_name}{msg}")
-                break
+        for item in steps:
+            if isinstance(item, Step):
+                if item.status == StepStatus.SUCCEEDED:
+                    details.append(f"• ✅ {item.name}")
+                elif item.status == StepStatus.RUNNING:
+                    details.append(f"• ⏳ {item.name}")
+                elif item.status == StepStatus.NOT_STARTED:
+                    details.append(f"• ⚪ {item.name}")
+                else:  # FAILED or INCORRECT
+                    msg = f" ({item.message})" if item.message else ""
+                    details.append(f"• ❌ {item.name}{msg}")
+                    break
 
         return details

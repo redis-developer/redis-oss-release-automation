@@ -1,5 +1,6 @@
 """Console display utilities for release state."""
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple, Union
 
@@ -30,6 +31,20 @@ class StepStatus(str, Enum):
     FAILED = "failed"
     SUCCEEDED = "succeeded"
     INCORRECT = "incorrect"
+
+
+@dataclass
+class Step:
+    status: StepStatus = StepStatus.INCORRECT
+    name: str = ""
+    message: Optional[str] = None
+    has_result: bool = False
+    ephemeral_status: Optional[Status] = None
+
+
+@dataclass
+class Section:
+    name: str
 
 
 # Decision table for step status
@@ -68,10 +83,10 @@ class DisplayModel:
     @staticmethod
     def get_workflow_status(
         package: Package, workflow: Workflow
-    ) -> Tuple[StepStatus, List[Tuple[StepStatus, str, Optional[str]]]]:
+    ) -> Tuple[StepStatus, List[Union[Step, Section]]]:
         """Get workflow status based on ephemeral and result fields.
 
-        Returns tuple of overall status and list of step statuses.
+        Returns tuple of overall status and list of steps.
 
         See WorkflowEphemeral for more details on the flags.
 
@@ -80,58 +95,55 @@ class DisplayModel:
             workflow: The workflow to check
 
         Returns:
-            Tuple of (overall_status, list of (step_status, step_name, step_message))
+            Tuple of (overall_status, list of Step objects)
         """
-        steps_status: List[Tuple[StepStatus, str, Optional[str]]] = []
+        steps_status: List[Union[Step, Section]] = []
         steps = [
-            (
-                package.meta.ref is not None,
-                package.meta.ephemeral.identify_ref,
-                "Identify target ref",
-                None,
+            Step(
+                name="Identify target ref",
+                has_result=package.meta.ref is not None,
+                ephemeral_status=package.meta.ephemeral.identify_ref,
             ),
-            (
-                workflow.triggered_at is not None,
-                workflow.ephemeral.trigger_workflow,
-                "Trigger workflow",
-                None,
+            Step(
+                name="Trigger workflow",
+                has_result=workflow.triggered_at is not None,
+                ephemeral_status=workflow.ephemeral.trigger_workflow,
             ),
-            (
-                workflow.run_id is not None,
-                workflow.ephemeral.identify_workflow,
-                "Find workflow run",
-                None,
+            Step(
+                name="Find workflow run",
+                has_result=workflow.run_id is not None,
+                ephemeral_status=workflow.ephemeral.identify_workflow,
             ),
-            (
-                workflow.conclusion == WorkflowConclusion.SUCCESS,
-                workflow.ephemeral.wait_for_completion,
-                "Wait for completion",
-                workflow.ephemeral.wait_for_completion_message,
+            Step(
+                name="Wait for completion",
+                has_result=workflow.conclusion == WorkflowConclusion.SUCCESS,
+                ephemeral_status=workflow.ephemeral.wait_for_completion,
+                message=workflow.ephemeral.wait_for_completion_message,
             ),
-            (
-                workflow.artifacts is not None,
-                workflow.ephemeral.download_artifacts,
-                "Download artifacts",
-                None,
+            Step(
+                name="Download artifacts",
+                has_result=workflow.artifacts is not None,
+                ephemeral_status=workflow.ephemeral.download_artifacts,
             ),
-            (
-                workflow.result is not None,
-                workflow.ephemeral.extract_artifact_result,
-                "Get result",
-                None,
+            Step(
+                name="Get result",
+                has_result=workflow.result is not None,
+                ephemeral_status=workflow.ephemeral.extract_artifact_result,
             ),
         ]
-        for result, status_flag, name, status_msg in steps:
-            s = DisplayModel.get_step_status(result, status_flag)
-            steps_status.append((s, name, status_msg))
-            if s != StepStatus.SUCCEEDED:
-                return (s, steps_status)
+        for step in steps:
+            step.status = DisplayModel.get_step_status(
+                step.has_result, step.ephemeral_status
+            )
+            steps_status.append(step)
+            if step.status != StepStatus.SUCCEEDED:
+                return (step.status, steps_status)
         return (StepStatus.SUCCEEDED, steps_status)
 
     @staticmethod
     def get_release_validation_status(
         meta: Union[HomebrewMeta, SnapMeta],
-    ) -> Tuple[StepStatus, List[Tuple[StepStatus, str, Optional[str]]]]:
+    ) -> Tuple[StepStatus, List[Union[Step, Section]]]:
         """Get release validation status for Homebrew or Snap packages.
 
         This method checks validation steps specific to Homebrew and Snap packages,
@@ -141,22 +153,23 @@ class DisplayModel:
             meta: The package metadata (HomebrewMeta or SnapMeta)
 
         Returns:
-            Tuple of (overall_status, list of (step_status, step_name, step_message))
+            Tuple of (overall_status, list of Step objects)
         """
-        steps_status: List[Tuple[StepStatus, str, Optional[str]]] = []
+        steps_status: List[Union[Step, Section]] = []
         steps = [
-            (
-                meta.remote_version is not None,
-                meta.ephemeral.classify_remote_versions,
-                "Classify remote versions",
-                None,
+            Step(
+                name="Classify remote versions",
+                has_result=meta.remote_version is not None,
+                ephemeral_status=meta.ephemeral.classify_remote_versions,
             ),
         ]
-        for result, status_flag, name, status_msg in steps:
-            s = DisplayModel.get_step_status(result, status_flag)
-            steps_status.append((s, name, status_msg))
-            if s != StepStatus.SUCCEEDED:
-                return (s, steps_status)
+        for step in steps:
+            step.status = DisplayModel.get_step_status(
+                step.has_result, step.ephemeral_status
+            )
+            steps_status.append(step)
+            if step.status != StepStatus.SUCCEEDED:
+                return (step.status, steps_status)
         return (StepStatus.SUCCEEDED, steps_status)
 
 
@@ -265,24 +278,25 @@ class ConsoleStatePrinter:
         return "[bold red]✗ Failed[/bold red]"
 
     def collect_text_details(
-        self, steps: List[Tuple[StepStatus, str, Optional[str]]], prefix: str
+        self, steps: List[Union[Step, Section]], prefix: str
     ) -> List[str]:
         details: List[str] = []
 
         details.append(f"{prefix}")
         indent = " " * 2
 
-        for step_status, step_name, step_message in steps:
-            if step_status == StepStatus.SUCCEEDED:
-                details.append(f"{indent}[green]✓ {step_name}[/green]")
-            elif step_status == StepStatus.RUNNING:
-                details.append(f"{indent}[yellow]⏳ {step_name}[/yellow]")
-            elif step_status == StepStatus.NOT_STARTED:
-                details.append(f"{indent}[dim]Not started: {step_name}[/dim]")
-            else:
-                msg = f" ({step_message})" if step_message else ""
-                details.append(f"{indent}[red]✗ {step_name} failed[/red]{msg}")
-                break
+        for item in steps:
+            if isinstance(item, Step):
+                if item.status == StepStatus.SUCCEEDED:
+                    details.append(f"{indent}[green]✓ {item.name}[/green]")
+                elif item.status == StepStatus.RUNNING:
+                    details.append(f"{indent}[yellow]⏳ {item.name}[/yellow]")
+                elif item.status == StepStatus.NOT_STARTED:
+                    details.append(f"{indent}[dim]Not started: {item.name}[/dim]")
+                else:
+                    msg = f" ({item.message})" if item.message else ""
+                    details.append(f"{indent}[red]✗ {item.name} failed[/red]{msg}")
+                    break
 
         return details
 
