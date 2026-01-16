@@ -122,6 +122,12 @@ class PackageMetaEphemeral(BaseModel):
     identify_ref_failed: bool = False
     identify_ref: Optional[common.Status] = None
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
+    # Package root behavior status flag: reflects status of the entire package release process
+    # Used to implement dependencies between packages, e.g.: ClientImage waits
+    # for Docker to finish if status is RUNNING and proceeds to build or to
+    # error otherwise
+    # Not used for status display, which examines the state and the flags for all steps explicitly
+    root_node_status: Optional[common.Status] = None
 
 
 class HomebrewMetaEphemeral(PackageMetaEphemeral):
@@ -153,7 +159,8 @@ class DockerMetaEphemeral(PackageMetaEphemeral):
 
 
 class ClientImageMetaEphemeral(PackageMetaEphemeral):
-    pass
+    validate_docker_image: Optional[common.Status] = None
+    validate_docker_image_message: Optional[str] = None
 
 
 class PackageMeta(BaseModel):
@@ -206,7 +213,9 @@ class ClientImageMeta(PackageMeta):
     """Metadata for Client Image package."""
 
     serialization_hint: Literal["clientimage"] = "clientimage"  # type: ignore[assignment]
-    base_image_url: Optional[str] = None
+    base_image: Optional[str] = None
+    base_image_tag: Optional[str] = None
+    output_image_tag: Optional[str] = None
     ephemeral: ClientImageMetaEphemeral = Field(default_factory=ClientImageMetaEphemeral)  # type: ignore[assignment]
 
 

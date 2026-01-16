@@ -9,7 +9,14 @@ from py_trees.common import Status
 
 from redis_release.models import WorkflowConclusion, WorkflowType
 
-from .bht.state import HomebrewMeta, Package, PackageMeta, SnapMeta, Workflow
+from .bht.state import (
+    ClientImageMeta,
+    HomebrewMeta,
+    Package,
+    PackageMeta,
+    SnapMeta,
+    Workflow,
+)
 from .models import PackageType
 
 
@@ -203,6 +210,33 @@ class DisplayModelWithReleaseValidation(DisplayModelGeneric):
         return result
 
 
+class DisplayModelClientImage(DisplayModelGeneric):
+    """DisplayModel for client image packages."""
+
+    def get_workflow_steps(
+        self, package: Package, workflow: Workflow
+    ) -> List[Union[Step, Section]]:
+        """Get the list of workflow steps with client image specific steps prepended."""
+        assert isinstance(
+            package.meta, ClientImageMeta
+        ), f"DisplayModelClientImage requires ClientImageMeta, got {type(package.meta).__name__}"
+
+        result: List[Union[Step, Section]] = []
+        base_steps = super().get_workflow_steps(package, workflow)
+
+        validation_section = Section(name="Validate Base Image")
+        validation_step = Step(
+            name="Locate Docker image",
+            has_result=package.meta.base_image is not None,
+            ephemeral_status=package.meta.ephemeral.validate_docker_image,
+            message=package.meta.ephemeral.validate_docker_image_message,
+        )
+        result.extend([validation_section, validation_step])
+
+        result.extend(base_steps)
+        return result
+
+
 def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
     """Factory function to get the appropriate DisplayModel for a package.
 
@@ -215,6 +249,9 @@ def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
     # Return specialized DisplayModel for packages that require release validation
     if package_meta.package_type in (PackageType.HOMEBREW, PackageType.SNAP):
         return DisplayModelWithReleaseValidation()
+
+    if package_meta.package_type == PackageType.CLIENTIMAGE:
+        return DisplayModelClientImage()
 
     # Default DisplayModel for all other package types
     return DisplayModelGeneric()

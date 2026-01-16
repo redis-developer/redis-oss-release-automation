@@ -19,6 +19,7 @@ from redis_release.bht.composites import (
     RestartPackageGuarded,
     RestartWorkflowGuarded,
 )
+from redis_release.bht.decorators import StatusFlagGuard
 from redis_release.bht.ppas import (
     create_attach_release_handle_ppa,
     create_download_artifacts_ppa,
@@ -31,6 +32,8 @@ from redis_release.bht.state import Package, PackageMeta, ReleaseMeta, Workflow
 from redis_release.bht.tree_factory_protocol import GenericPackageFactoryProtocol
 from redis_release.github_client_async import GitHubClientAsync
 
+from .decorators import StatusFlagGuard
+
 
 class GenericPackageFactory(ABC):
     """Default factory for packages without specific customizations."""
@@ -42,26 +45,32 @@ class GenericPackageFactory(ABC):
         default_package: Package,
         github_client: GitHubClientAsync,
         package_name: str,
-    ) -> Union[Selector, Sequence]:
+    ) -> Union[Selector, Sequence, Behaviour]:
         package: Package = packages[package_name]
         package_release = self.create_package_release_execute_workflows_tree_branch(
             package, release_meta, default_package, github_client, package_name
         )
-        return Selector(
-            f"Package Release {package_name} Goal",
-            memory=False,
-            children=[
-                Inverter(
-                    "Not",
-                    self.create_need_to_release_behaviour(
-                        f"Need To Release {package_name}?",
-                        package.meta,
-                        release_meta,
-                        log_prefix=package_name,
+        return StatusFlagGuard(
+            name=None,
+            child=Selector(
+                f"Package Release {package_name} Goal",
+                memory=False,
+                children=[
+                    Inverter(
+                        "Not",
+                        self.create_need_to_release_behaviour(
+                            f"Need To Release {package_name}?",
+                            package.meta,
+                            release_meta,
+                            log_prefix=package_name,
+                        ),
                     ),
-                ),
-                package_release,
-            ],
+                    package_release,
+                ],
+            ),
+            container=package.meta.ephemeral,
+            flag="root_node_status",
+            guard_status=None,
         )
 
     def create_build_workflow_inputs(
