@@ -152,6 +152,10 @@ class DockerMetaEphemeral(PackageMetaEphemeral):
     pass
 
 
+class ClientImageMetaEphemeral(PackageMetaEphemeral):
+    pass
+
+
 class PackageMeta(BaseModel):
     """Metadata for a package (base/generic type)."""
 
@@ -198,6 +202,14 @@ class DockerMeta(PackageMeta):
     ephemeral: DockerMetaEphemeral = Field(default_factory=DockerMetaEphemeral)  # type: ignore[assignment]
 
 
+class ClientImageMeta(PackageMeta):
+    """Metadata for Client Image package."""
+
+    serialization_hint: Literal["clientimage"] = "clientimage"  # type: ignore[assignment]
+    base_image_url: Optional[str] = None
+    ephemeral: ClientImageMetaEphemeral = Field(default_factory=ClientImageMetaEphemeral)  # type: ignore[assignment]
+
+
 class Package(BaseModel):
     """State for a package in the release.
 
@@ -206,10 +218,12 @@ class Package(BaseModel):
     - serialization_hint="generic" -> PackageMeta
     - serialization_hint="homebrew" -> HomebrewMeta
     - serialization_hint="snap" -> SnapMeta
+    - serialization_hint="docker" -> DockerMeta
+    - serialization_hint="clientimage" -> ClientImageMeta
     """
 
-    meta: Union[HomebrewMeta, SnapMeta, PackageMeta, DockerMeta] = Field(
-        default_factory=PackageMeta, discriminator="serialization_hint"
+    meta: Union[HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta] = (
+        Field(default_factory=PackageMeta, discriminator="serialization_hint")
     )
     build: Workflow = Field(default_factory=Workflow)
     publish: Optional[Workflow] = None
@@ -244,14 +258,14 @@ class ReleaseState(BaseModel):
     @staticmethod
     def _create_package_meta_from_config(
         package_config: "PackageConfig",
-    ) -> Union[HomebrewMeta, SnapMeta, PackageMeta]:
+    ) -> Union[HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, PackageMeta]:
         """Create appropriate PackageMeta subclass based on package_type.
 
         Args:
             package_config: Package configuration
 
         Returns:
-            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta or PackageMeta)
+            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta or PackageMeta)
 
         Raises:
             ValueError: If package_type is None
@@ -272,6 +286,13 @@ class ReleaseState(BaseModel):
             )
         elif package_config.package_type == PackageType.DOCKER:
             return DockerMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.CLIENTIMAGE:
+            return ClientImageMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
