@@ -10,7 +10,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from redis_release.models import SlackFormat
-from redis_release.state_display import DisplayModel, Section, Step, StepStatus
+from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
 from .bht.state import (
     HomebrewMeta,
@@ -347,13 +347,15 @@ class SlackStatePrinter:
         Returns:
             Emoji status string
         """
+        display_model = get_display_model(package.meta)
+
         # For build workflow of Homebrew/Snap packages, check validation status first
         if workflow == package.build and (
             type(package.meta.ephemeral) == HomebrewMetaEphemeral
             or type(package.meta.ephemeral) == SnapMetaEphemeral
         ):
             # Check validation status first
-            validation_status, _ = DisplayModel.get_release_validation_status(
+            validation_status, _ = display_model.get_release_validation_status(
                 package.meta  # type: ignore
             )
             if validation_status != StepStatus.SUCCEEDED:
@@ -363,7 +365,7 @@ class SlackStatePrinter:
                 )
 
         # Check workflow status
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        workflow_status = display_model.get_workflow_status(package, workflow)
         return (workflow_status[0], self._get_step_status_emoji(workflow_status[0]))
 
     def _get_step_status_emoji(self, status: StepStatus) -> str:
@@ -401,15 +403,16 @@ class SlackStatePrinter:
             Formatted string of workflow steps
         """
         details: List[str] = []
+        display_model = get_display_model(package.meta)
 
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        workflow_status = display_model.get_workflow_status(package, workflow)
         # For build workflow of Homebrew/Snap packages, include validation details
         if workflow == package.build and (
             type(package.meta.ephemeral) == HomebrewMetaEphemeral
             or type(package.meta.ephemeral) == SnapMetaEphemeral
         ):
             validation_status, validation_steps = (
-                DisplayModel.get_release_validation_status(package.meta)  # type: ignore
+                display_model.get_release_validation_status(package.meta)  # type: ignore
             )
             # Show any validation steps only when build has started or validation has failed
             if (

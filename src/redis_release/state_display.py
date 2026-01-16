@@ -15,11 +15,13 @@ from .bht.state import (
     HomebrewMeta,
     HomebrewMetaEphemeral,
     Package,
+    PackageMeta,
     ReleaseState,
     SnapMeta,
     SnapMetaEphemeral,
     Workflow,
 )
+from .models import PackageType
 
 
 # See WorkflowEphemeral for more details on the flags and steps
@@ -60,9 +62,8 @@ _STEP_STATUS_MAPPING = {
 class DisplayModel:
     """Model for computing display status from workflow state."""
 
-    @staticmethod
     def get_step_status(
-        step_result: bool, step_status_flag: Optional[common.Status]
+        self, step_result: bool, step_status_flag: Optional[common.Status]
     ) -> StepStatus:
         """Get step status based on result and ephemeral flag.
 
@@ -80,9 +81,8 @@ class DisplayModel:
                 return _STEP_STATUS_MAPPING[step_status_flag][step_result]
         return StepStatus.INCORRECT
 
-    @staticmethod
     def get_workflow_status(
-        package: Package, workflow: Workflow
+        self, package: Package, workflow: Workflow
     ) -> Tuple[StepStatus, List[Union[Step, Section]]]:
         """Get workflow status based on ephemeral and result fields.
 
@@ -132,17 +132,14 @@ class DisplayModel:
             ),
         ]
         for step in steps:
-            step.status = DisplayModel.get_step_status(
-                step.has_result, step.ephemeral_status
-            )
+            step.status = self.get_step_status(step.has_result, step.ephemeral_status)
             steps_status.append(step)
             if step.status != StepStatus.SUCCEEDED:
                 return (step.status, steps_status)
         return (StepStatus.SUCCEEDED, steps_status)
 
-    @staticmethod
     def get_release_validation_status(
-        meta: Union[HomebrewMeta, SnapMeta],
+        self, meta: Union[HomebrewMeta, SnapMeta]
     ) -> Tuple[StepStatus, List[Union[Step, Section]]]:
         """Get release validation status for Homebrew or Snap packages.
 
@@ -164,13 +161,26 @@ class DisplayModel:
             ),
         ]
         for step in steps:
-            step.status = DisplayModel.get_step_status(
-                step.has_result, step.ephemeral_status
-            )
+            step.status = self.get_step_status(step.has_result, step.ephemeral_status)
             steps_status.append(step)
             if step.status != StepStatus.SUCCEEDED:
                 return (step.status, steps_status)
         return (StepStatus.SUCCEEDED, steps_status)
+
+
+def get_display_model(package_meta: PackageMeta) -> DisplayModel:
+    """Factory function to get the appropriate DisplayModel for a package.
+
+    Args:
+        package_meta: The package metadata
+
+    Returns:
+        DisplayModel instance appropriate for the package type
+    """
+    # For now, all package types use the same DisplayModel
+    # In the future, this can return specialized DisplayModel subclasses
+    # based on package_meta.package_type
+    return DisplayModel()
 
 
 class ConsoleStatePrinter:
@@ -212,6 +222,9 @@ class ConsoleStatePrinter:
 
         # Process each package
         for package_name, package in sorted(state.packages.items()):
+            # Get display model for this package
+            display_model = get_display_model(package.meta)
+
             # Determine build status
             build_status = ""
             if (
@@ -219,7 +232,7 @@ class ConsoleStatePrinter:
                 or type(package.meta.ephemeral) == SnapMetaEphemeral
             ):
                 # to avoid creating new column validation status is counted as part of build workflow
-                status, _ = DisplayModel.get_release_validation_status(package.meta)  # type: ignore
+                status, _ = display_model.get_release_validation_status(package.meta)  # type: ignore
                 if status != StepStatus.SUCCEEDED:
                     build_status = self.get_step_status_display(status)
                 else:
@@ -262,7 +275,8 @@ class ConsoleStatePrinter:
         Returns:
             Rich-formatted status string
         """
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        display_model = get_display_model(package.meta)
+        workflow_status = display_model.get_workflow_status(package, workflow)
         return self.get_step_status_display(workflow_status[0])
 
     def get_step_status_display(self, step_status: StepStatus) -> str:
@@ -310,14 +324,15 @@ class ConsoleStatePrinter:
             Formatted string of details
         """
         details: List[str] = []
+        display_model = get_display_model(package.meta)
 
-        build_status = DisplayModel.get_workflow_status(package, package.build)
+        build_status = display_model.get_workflow_status(package, package.build)
         if (
             type(package.meta.ephemeral) == HomebrewMetaEphemeral
             or type(package.meta.ephemeral) == SnapMetaEphemeral
         ):
             validation_status, validation_steps = (
-                DisplayModel.get_release_validation_status(package.meta)  # type: ignore
+                display_model.get_release_validation_status(package.meta)  # type: ignore
             )
             # Show any validation steps only when build has started or validation has failed
             if (
@@ -328,11 +343,11 @@ class ConsoleStatePrinter:
                     self.collect_text_details(validation_steps, "Release Validation")
                 )
 
-        build_status = DisplayModel.get_workflow_status(package, package.build)
+        build_status = display_model.get_workflow_status(package, package.build)
         if build_status[0] != StepStatus.NOT_STARTED:
             details.extend(self.collect_text_details(build_status[1], "Build Workflow"))
         if package.publish is not None:
-            publish_status = DisplayModel.get_workflow_status(package, package.publish)
+            publish_status = display_model.get_workflow_status(package, package.publish)
             if publish_status[0] != StepStatus.NOT_STARTED:
                 details.extend(
                     self.collect_text_details(publish_status[1], "Publish Workflow")
