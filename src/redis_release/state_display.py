@@ -43,6 +43,7 @@ class Step:
 @dataclass
 class Section:
     name: str
+    is_workflow: bool = False
 
 
 # Decision table for step status
@@ -68,9 +69,9 @@ class DisplayModelGeneric:
             Section with the appropriate name
         """
         if workflow.workflow_type == WorkflowType.BUILD:
-            return Section(name="Build Workflow")
+            return Section(name="Build Workflow", is_workflow=True)
         elif workflow.workflow_type == WorkflowType.PUBLISH:
-            return Section(name="Publish Workflow")
+            return Section(name="Publish Workflow", is_workflow=True)
         else:
             return Section(name="Workflow")
 
@@ -224,14 +225,19 @@ class DisplayModelClientImage(DisplayModelGeneric):
         result: List[Union[Step, Section]] = []
         base_steps = super().get_workflow_steps(package, workflow)
 
-        validation_section = Section(name="Validate Base Image")
+        validation_section = Section(name="Prerequisites")
+        await_docker_image_step = Step(
+            name="Await docker results",
+            has_result=package.meta.base_image is not None,
+            ephemeral_status=package.meta.ephemeral.await_docker_image,
+        )
         validation_step = Step(
-            name="Locate Docker image",
+            name="Locate docker image",
             has_result=package.meta.base_image is not None,
             ephemeral_status=package.meta.ephemeral.validate_docker_image,
             message=package.meta.ephemeral.validate_docker_image_message,
         )
-        result.extend([validation_section, validation_step])
+        result.extend([validation_section, await_docker_image_step, validation_step])
 
         result.extend(base_steps)
         return result

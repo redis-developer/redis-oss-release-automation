@@ -79,9 +79,11 @@ class AwaitDockerImage(LoggingAction):
 
     def update(self) -> Status:
         if self.docker_package_meta.ephemeral.root_node_status == Status.RUNNING:
+            self.package_meta.ephemeral.await_docker_image = Status.RUNNING
             return Status.RUNNING
 
         if self.docker_build_workflow.result is not None:
+            self.package_meta.ephemeral.await_docker_image = Status.SUCCESS
             return Status.SUCCESS
 
         self.feedback_message = "Docker workflow result not available"
@@ -89,6 +91,7 @@ class AwaitDockerImage(LoggingAction):
         self.package_meta.ephemeral.validate_docker_image_message = (
             self.feedback_message
         )
+        self.package_meta.ephemeral.await_docker_image = Status.FAILURE
         return Status.FAILURE
 
 

@@ -159,6 +159,7 @@ class DockerMetaEphemeral(PackageMetaEphemeral):
 
 
 class ClientImageMetaEphemeral(PackageMetaEphemeral):
+    await_docker_image: Optional[common.Status] = None
     validate_docker_image: Optional[common.Status] = None
     validate_docker_image_message: Optional[str] = None
 

@@ -281,47 +281,105 @@ class SlackStatePrinter:
             )
 
             # Workflow details in context
-            build_details = self._collect_workflow_details_slack(package, package.build)
+            build_link = get_workflow_link(package.meta.repo, package.build.run_id)
+            build_details = self._collect_workflow_details_slack(
+                package, package.build, build_link
+            )
             publish_details = ""
             if package.publish is not None:
+                publish_link = get_workflow_link(
+                    package.meta.repo, package.publish.run_id
+                )
                 publish_details = self._collect_workflow_details_slack(
-                    package, package.publish
+                    package, package.publish, publish_link
                 )
 
             if build_details or publish_details:
                 elements = []
                 if build_details:
-                    # Create link for Build Workflow if run_id exists
-                    build_link = get_workflow_link(
-                        package.meta.repo, package.build.run_id
-                    )
-                    build_title = (
-                        f"<{build_link}|*Build Workflow*>"
-                        if build_link
-                        else "*Build Workflow*"
-                    )
-                    elements.append(
-                        {"type": "mrkdwn", "text": f"{build_title}\n{build_details}"}
-                    )
+                    elements.append({"type": "mrkdwn", "text": build_details})
                 if package.publish is not None and publish_details:
-                    # Create link for Publish Workflow if run_id exists
-                    publish_link = get_workflow_link(
-                        package.meta.repo, package.publish.run_id
-                    )
-                    publish_title = (
-                        f"<{publish_link}|*Publish Workflow*>"
-                        if publish_link
-                        else "*Publish Workflow*"
-                    )
-                    elements.append(
-                        {
-                            "type": "mrkdwn",
-                            "text": f"{publish_title}\n{publish_details}",
-                        }
-                    )
+                    elements.append({"type": "mrkdwn", "text": publish_details})
                 blocks.append({"type": "context", "elements": elements})
 
             blocks.append({"type": "divider"})
+
+        # Add results section
+        result_blocks = self._make_result_blocks(state)
+        if result_blocks:
+            blocks.extend(result_blocks)
+
+        return blocks
+
+    def _make_result_blocks(self, state: ReleaseState) -> List[Dict[str, Any]]:
+        """Create Slack blocks for results section.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of Slack block dictionaries for results
+        """
+        blocks: List[Dict[str, Any]] = []
+
+        # Client image result
+        clientimage_package = state.packages.get("clientimage")
+        if clientimage_package is not None:
+            result = clientimage_package.build.result
+            if result is not None:
+                client_test_image = result.get("client_test_image")
+                if client_test_image:
+                    blocks.append(
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Client Image*\n```\n{client_test_image}\n```",
+                            },
+                        }
+                    )
+
+        return blocks
+
+    def make_clientimage_result_blocks(
+        self, state: ReleaseState
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Create Slack blocks for client image build result.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of Slack block dictionaries, or None if no clientimage result
+        """
+        clientimage_package = state.packages.get("clientimage")
+        if clientimage_package is None:
+            return None
+
+        result = clientimage_package.build.result
+        if result is None:
+            return None
+
+        client_test_image = result.get("client_test_image")
+        if not client_test_image:
+            return None
+
+        blocks: List[Dict[str, Any]] = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🧪 Client Image Published",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"```\n{client_test_image}\n```",
+                },
+            },
+        ]
 
         return blocks
 
@@ -366,7 +424,7 @@ class SlackStatePrinter:
             return "❌ Failed"
 
     def _collect_workflow_details_slack(
-        self, package: Package, workflow: Workflow
+        self, package: Package, workflow: Workflow, workflow_link: Optional[str]
     ) -> str:
         """Collect workflow step details for Slack display.
 
@@ -375,6 +433,7 @@ class SlackStatePrinter:
         Args:
             package: The package containing the workflow
             workflow: The workflow to check
+            workflow_link: Optional link to the workflow run
 
         Returns:
             Formatted string of workflow steps
@@ -385,20 +444,25 @@ class SlackStatePrinter:
         workflow_status = display_model.get_workflow_status(package, workflow)
         # Add workflow details
         if workflow_status[0] != StepStatus.NOT_STARTED:
-            details.extend(self._format_steps_for_slack(workflow_status[1]))
+            details.extend(
+                self._format_steps_for_slack(workflow_status[1], workflow_link)
+            )
 
         if self.slack_format == SlackFormat.ONE_STEP:
             details = details[-1:]
 
         return "\n".join(details)
 
-    def _format_steps_for_slack(self, steps: List[Union[Step, Section]]) -> List[str]:
+    def _format_steps_for_slack(
+        self, steps: List[Union[Step, Section]], workflow_link: Optional[str]
+    ) -> List[str]:
         """Format step details for Slack display.
 
         The first item in the steps list should be a Section, which will be used as the header.
 
         Args:
             steps: List of Step and Section objects (first item should be Section)
+            workflow_link: Optional link to the workflow run
 
         Returns:
             List of formatted step strings
@@ -407,9 +471,10 @@ class SlackStatePrinter:
 
         for item in steps:
             if isinstance(item, Section):
-                # Section can be used as header if needed
-                # details.append(f"*{item.name}*")
-                pass
+                if item.is_workflow and workflow_link:
+                    details.append(f"<{workflow_link}|*{item.name}*>")
+                else:
+                    details.append(f"*{item.name}*")
             elif isinstance(item, Step):
                 if item.status == StepStatus.SUCCEEDED:
                     details.append(f"• ✅ {item.name}")
