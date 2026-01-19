@@ -19,6 +19,8 @@ from .tree_factory_generic import GenericPackageFactory, PackageWithValidation
 
 
 class ClientImageFactory(GenericPackageFactory, PackageWithValidation):
+    build_result_artifact_name = "result"
+
     def create_package_release_goal_tree_branch(
         self,
         packages: Dict[str, Package],

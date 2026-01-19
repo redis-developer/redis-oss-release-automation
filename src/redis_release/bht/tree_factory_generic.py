@@ -38,6 +38,8 @@ from .decorators import StatusFlagGuard
 class GenericPackageFactory(ABC):
     """Default factory for packages without specific customizations."""
 
+    build_result_artifact_name = "release_handle"
+
     def create_package_release_goal_tree_branch(
         self,
         packages: Dict[str, Package],
@@ -226,7 +228,7 @@ class GenericPackageFactory(ABC):
         )
 
         build_workflow = self.create_workflow_with_result_tree_branch(
-            "release_handle",
+            self.build_result_artifact_name,
             package.build,
             package.meta,
             release_meta,
