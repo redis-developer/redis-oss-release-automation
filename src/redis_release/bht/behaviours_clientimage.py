@@ -200,7 +200,8 @@ class ClientImageWorkflowInputs(LoggingAction):
             self.workflow.ephemeral.trigger_workflow = Status.FAILURE
             return Status.FAILURE
 
-        self.workflow.inputs["base_image"] = base_image
+        # cae-client-testing expects specific image name
+        self.workflow.inputs["base_image"] = "docker-library-redis"
         self.workflow.inputs["base_image_tag"] = base_image_tag
         self.workflow.inputs["output_image_tag"] = output_image_tag
 
