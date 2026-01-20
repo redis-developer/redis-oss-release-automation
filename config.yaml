@@ -66,3 +66,11 @@ packages:
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10
     publish_inputs: {}
+  clientimage:
+    repo: redis-developer/cae-client-testing
+    ref: release_automation
+    package_type: clientimage
+    build_workflow: docker-client-libs-test-pre-release.yaml
+    build_timeout_minutes: 20
+    build_inputs:
+      output_registry: ghcr
