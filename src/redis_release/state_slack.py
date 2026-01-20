@@ -237,7 +237,7 @@ class SlackStatePrinter:
             ended_str = "*Ended:* " + state.meta.ephemeral.last_ended_at.strftime(
                 "%Y-%m-%d %H:%M:%S %Z"
             )
-        dates_str = " | ".join([started_str, ended_str])
+        dates_str = " | ".join(x for x in [started_str, ended_str] if x)
         if dates_str:
             blocks.append(
                 {
