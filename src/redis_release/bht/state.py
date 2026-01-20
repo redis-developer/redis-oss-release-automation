@@ -79,7 +79,7 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_STATE_VERSION = 4
+SUPPORTED_STATE_VERSION = 5
 
 
 class WorkflowEphemeral(BaseModel):
@@ -248,13 +248,16 @@ class ReleaseMetaEphemeral(BaseModel):
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
     slack_channel_id: Optional[str] = None
     slack_thread_ts: Optional[str] = None
+    # timestamp of the last attempt to start the release process with this state
+    last_started_at: Optional[datetime] = None
+    # timestamp of the last completion of the release process with this state
+    last_ended_at: Optional[datetime] = None
 
 
 class ReleaseMeta(BaseModel):
     """Metadata for the release."""
 
     tag: Optional[str] = None
-    last_started_at: Optional[datetime] = None
     ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
 
 
