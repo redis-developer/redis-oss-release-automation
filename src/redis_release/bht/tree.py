@@ -22,7 +22,7 @@ from rich.text import Text
 from ..config import Config, PackageConfig
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType, ReleaseArgs
-from ..state_display import print_state_table
+from ..state_console import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
 from .composites import ParallelBarrier
@@ -191,7 +191,7 @@ def create_root_node(
             get_factory(
                 package.meta.package_type
             ).create_package_release_goal_tree_branch(
-                package,
+                state.packages,
                 state.meta,
                 default_state.packages[package_name],
                 github_client,
@@ -342,7 +342,7 @@ class TreeInspector:
             return get_factory(
                 self.package_type
             ).create_package_release_goal_tree_branch(
-                package, release_meta, package, github_client, ""
+                state.packages, release_meta, package, github_client, "inspected"
             )
         elif name == "demo_sequence":
             return create_sequence_branch()

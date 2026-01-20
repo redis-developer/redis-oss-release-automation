@@ -1,24 +1,23 @@
 """Console display utilities for release state."""
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 from py_trees import common
 from py_trees.common import Status
-from rich.console import Console
-from rich.table import Table
 
-from redis_release.models import WorkflowConclusion
+from redis_release.models import WorkflowConclusion, WorkflowType
 
 from .bht.state import (
+    ClientImageMeta,
     HomebrewMeta,
-    HomebrewMetaEphemeral,
     Package,
-    ReleaseState,
+    PackageMeta,
     SnapMeta,
-    SnapMetaEphemeral,
     Workflow,
 )
+from .models import PackageType
 
 
 # See WorkflowEphemeral for more details on the flags and steps
@@ -32,6 +31,21 @@ class StepStatus(str, Enum):
     INCORRECT = "incorrect"
 
 
+@dataclass
+class Step:
+    status: StepStatus = StepStatus.INCORRECT
+    name: str = ""
+    message: Optional[str] = None
+    has_result: bool = False
+    ephemeral_status: Optional[Status] = None
+
+
+@dataclass
+class Section:
+    name: str
+    is_workflow: bool = False
+
+
 # Decision table for step status
 # See WorkflowEphemeral for more details on the flags
 _STEP_STATUS_MAPPING = {
@@ -42,12 +56,27 @@ _STEP_STATUS_MAPPING = {
 }
 
 
-class DisplayModel:
+class DisplayModelGeneric:
     """Model for computing display status from workflow state."""
 
-    @staticmethod
+    def get_workflow_section(self, workflow: Workflow) -> Section:
+        """Get the section name for a workflow based on its type.
+
+        Args:
+            workflow: The workflow to get the section for
+
+        Returns:
+            Section with the appropriate name
+        """
+        if workflow.workflow_type == WorkflowType.BUILD:
+            return Section(name="Build Workflow", is_workflow=True)
+        elif workflow.workflow_type == WorkflowType.PUBLISH:
+            return Section(name="Publish Workflow", is_workflow=True)
+        else:
+            return Section(name="Workflow")
+
     def get_step_status(
-        step_result: bool, step_status_flag: Optional[common.Status]
+        self, step_result: bool, step_status_flag: Optional[common.Status]
     ) -> StepStatus:
         """Get step status based on result and ephemeral flag.
 
@@ -65,13 +94,59 @@ class DisplayModel:
                 return _STEP_STATUS_MAPPING[step_status_flag][step_result]
         return StepStatus.INCORRECT
 
-    @staticmethod
+    def get_workflow_steps(
+        self, package: Package, workflow: Workflow
+    ) -> List[Union[Step, Section]]:
+        """Get the list of workflow steps.
+
+        Args:
+            package: The package containing the workflow
+            workflow: The workflow to check
+
+        Returns:
+            List of Step and Section objects for the workflow, starting with the workflow section
+        """
+        return [
+            self.get_workflow_section(workflow),
+            Step(
+                name="Identify target ref",
+                has_result=package.meta.ref is not None,
+                ephemeral_status=package.meta.ephemeral.identify_ref,
+            ),
+            Step(
+                name="Trigger workflow",
+                has_result=workflow.triggered_at is not None,
+                ephemeral_status=workflow.ephemeral.trigger_workflow,
+            ),
+            Step(
+                name="Find workflow run",
+                has_result=workflow.run_id is not None,
+                ephemeral_status=workflow.ephemeral.identify_workflow,
+            ),
+            Step(
+                name="Wait for completion",
+                has_result=workflow.conclusion == WorkflowConclusion.SUCCESS,
+                ephemeral_status=workflow.ephemeral.wait_for_completion,
+                message=workflow.ephemeral.wait_for_completion_message,
+            ),
+            Step(
+                name="Download artifacts",
+                has_result=workflow.artifacts is not None,
+                ephemeral_status=workflow.ephemeral.download_artifacts,
+            ),
+            Step(
+                name="Get result",
+                has_result=workflow.result is not None,
+                ephemeral_status=workflow.ephemeral.extract_artifact_result,
+            ),
+        ]
+
     def get_workflow_status(
-        package: Package, workflow: Workflow
-    ) -> Tuple[StepStatus, List[Tuple[StepStatus, str, Optional[str]]]]:
+        self, package: Package, workflow: Workflow
+    ) -> Tuple[StepStatus, List[Union[Step, Section]]]:
         """Get workflow status based on ephemeral and result fields.
 
-        Returns tuple of overall status and list of step statuses.
+        Returns tuple of overall status and list of steps, with the workflow section as the first item.
 
         See WorkflowEphemeral for more details on the flags.
 
@@ -80,256 +155,109 @@ class DisplayModel:
             workflow: The workflow to check
 
         Returns:
-            Tuple of (overall_status, list of (step_status, step_name, step_message))
+            Tuple of (overall_status, list starting with Section followed by Step objects)
         """
-        steps_status: List[Tuple[StepStatus, str, Optional[str]]] = []
-        steps = [
-            (
-                package.meta.ref is not None,
-                package.meta.ephemeral.identify_ref,
-                "Identify target ref",
-                None,
-            ),
-            (
-                workflow.triggered_at is not None,
-                workflow.ephemeral.trigger_workflow,
-                "Trigger workflow",
-                None,
-            ),
-            (
-                workflow.run_id is not None,
-                workflow.ephemeral.identify_workflow,
-                "Find workflow run",
-                None,
-            ),
-            (
-                workflow.conclusion == WorkflowConclusion.SUCCESS,
-                workflow.ephemeral.wait_for_completion,
-                "Wait for completion",
-                workflow.ephemeral.wait_for_completion_message,
-            ),
-            (
-                workflow.artifacts is not None,
-                workflow.ephemeral.download_artifacts,
-                "Download artifacts",
-                None,
-            ),
-            (
-                workflow.result is not None,
-                workflow.ephemeral.extract_artifact_result,
-                "Get result",
-                None,
-            ),
-        ]
-        for result, status_flag, name, status_msg in steps:
-            s = DisplayModel.get_step_status(result, status_flag)
-            steps_status.append((s, name, status_msg))
-            if s != StepStatus.SUCCEEDED:
-                return (s, steps_status)
-        return (StepStatus.SUCCEEDED, steps_status)
+        steps = self.get_workflow_steps(package, workflow)
+        steps_status: List[Union[Step, Section]] = []
 
-    @staticmethod
-    def get_release_validation_status(
-        meta: Union[HomebrewMeta, SnapMeta],
-    ) -> Tuple[StepStatus, List[Tuple[StepStatus, str, Optional[str]]]]:
-        """Get release validation status for Homebrew or Snap packages.
-
-        This method checks validation steps specific to Homebrew and Snap packages,
-        such as remote version classification.
-
-        Args:
-            meta: The package metadata (HomebrewMeta or SnapMeta)
-
-        Returns:
-            Tuple of (overall_status, list of (step_status, step_name, step_message))
-        """
-        steps_status: List[Tuple[StepStatus, str, Optional[str]]] = []
-        steps = [
-            (
-                meta.remote_version is not None,
-                meta.ephemeral.classify_remote_versions,
-                "Classify remote versions",
-                None,
-            ),
-        ]
-        for result, status_flag, name, status_msg in steps:
-            s = DisplayModel.get_step_status(result, status_flag)
-            steps_status.append((s, name, status_msg))
-            if s != StepStatus.SUCCEEDED:
-                return (s, steps_status)
-        return (StepStatus.SUCCEEDED, steps_status)
-
-
-class ConsoleStatePrinter:
-    """Handles printing of release state to console using Rich tables."""
-
-    def __init__(self, console: Optional[Console] = None):
-        """Initialize the printer.
-
-        Args:
-            console: Optional Rich Console instance (creates new one if not provided)
-        """
-        self.console = console or Console()
-
-    def print_state_table(self, state: ReleaseState) -> None:
-        """Print table showing the release state.
-
-        Args:
-            state: The ReleaseState to display
-        """
-        # Create table with title
-        table = Table(
-            title=f"[bold cyan]Release State: {state.meta.tag or 'N/A'}[/bold cyan]",
-            show_header=True,
-            show_lines=True,
-            header_style="bold magenta",
-            border_style="bright_blue",
-            title_style="bold cyan",
-        )
-
-        # Add columns
-        table.add_column("Package", style="cyan", no_wrap=True, min_width=20, width=20)
-        table.add_column(
-            "Build", justify="center", no_wrap=True, min_width=20, width=20
-        )
-        table.add_column(
-            "Publish", justify="center", no_wrap=True, min_width=20, width=20
-        )
-        table.add_column("Details", style="yellow", width=100)
-
-        # Process each package
-        for package_name, package in sorted(state.packages.items()):
-            # Determine build status
-            build_status = ""
-            if (
-                type(package.meta.ephemeral) == HomebrewMetaEphemeral
-                or type(package.meta.ephemeral) == SnapMetaEphemeral
-            ):
-                # to avoid creating new column validation status is counted as part of build workflow
-                status, _ = DisplayModel.get_release_validation_status(package.meta)  # type: ignore
-                if status != StepStatus.SUCCEEDED:
-                    build_status = self.get_step_status_display(status)
-                else:
-                    build_status = self.get_workflow_status_display(
-                        package, package.build
-                    )
+        for item in steps:
+            if isinstance(item, Section):
+                # Sections are just added as-is
+                steps_status.append(item)
             else:
-                build_status = self.get_workflow_status_display(package, package.build)
+                # Steps need their status computed
+                item.status = self.get_step_status(
+                    item.has_result, item.ephemeral_status
+                )
+                steps_status.append(item)
+                if item.status != StepStatus.SUCCEEDED:
+                    return (item.status, steps_status)
+        return (StepStatus.SUCCEEDED, steps_status)
 
-            # Determine publish status
-            publish_status = self.get_workflow_status_display(package, package.publish)
 
-            # Collect details from workflows
-            details = self.collect_details(package)
+class DisplayModelWithReleaseValidation(DisplayModelGeneric):
+    """DisplayModel for packages that require release validation (Homebrew, Snap)."""
 
-            # Add row to table
-            table.add_row(
-                package_name,
-                build_status,
-                publish_status,
-                details,
-            )
-
-        # Print the table
-        self.console.print()
-        self.console.print(table)
-        self.console.print()
-
-    def get_workflow_status_display(self, package: Package, workflow: Workflow) -> str:
-        """Get a rich-formatted status display for a workflow.
+    def get_workflow_steps(
+        self, package: Package, workflow: Workflow
+    ) -> List[Union[Step, Section]]:
+        """Get the list of workflow steps with release validation prepended.
 
         Args:
             package: The package containing the workflow
             workflow: The workflow to check
 
         Returns:
-            Rich-formatted status string
+            List of Step and Section objects for the workflow, with release validation section and step prepended
         """
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
-        return self.get_step_status_display(workflow_status[0])
+        assert isinstance(package.meta, (HomebrewMeta, SnapMeta)), (
+            f"DisplayModelWithReleaseValidation requires HomebrewMeta or SnapMeta, "
+            f"got {type(package.meta).__name__}"
+        )
 
-    def get_step_status_display(self, step_status: StepStatus) -> str:
-        if step_status == StepStatus.SUCCEEDED:
-            return "[bold green]✓ Success[/bold green]"
-        elif step_status == StepStatus.RUNNING:
-            return "[bold yellow]⏳ In Progress[/bold yellow]"
-        elif step_status == StepStatus.NOT_STARTED:
-            return "[dim]Not Started[/dim]"
-        elif step_status == StepStatus.INCORRECT:
-            return "[bold red]✗ Invalid state![/bold red]"
+        result: List[Union[Step, Section]] = []
+        base_steps = super().get_workflow_steps(package, workflow)
 
-        return "[bold red]✗ Failed[/bold red]"
-
-    def collect_text_details(
-        self, steps: List[Tuple[StepStatus, str, Optional[str]]], prefix: str
-    ) -> List[str]:
-        details: List[str] = []
-
-        details.append(f"{prefix}")
-        indent = " " * 2
-
-        for step_status, step_name, step_message in steps:
-            if step_status == StepStatus.SUCCEEDED:
-                details.append(f"{indent}[green]✓ {step_name}[/green]")
-            elif step_status == StepStatus.RUNNING:
-                details.append(f"{indent}[yellow]⏳ {step_name}[/yellow]")
-            elif step_status == StepStatus.NOT_STARTED:
-                details.append(f"{indent}[dim]Not started: {step_name}[/dim]")
-            else:
-                msg = f" ({step_message})" if step_message else ""
-                details.append(f"{indent}[red]✗ {step_name} failed[/red]{msg}")
-                break
-
-        return details
-
-    def collect_details(self, package: Package) -> str:
-        """Collect and format all details from package and workflows.
-
-        Args:
-            package: The package to check
-
-        Returns:
-            Formatted string of details
-        """
-        details: List[str] = []
-
-        build_status = DisplayModel.get_workflow_status(package, package.build)
-        if (
-            type(package.meta.ephemeral) == HomebrewMetaEphemeral
-            or type(package.meta.ephemeral) == SnapMetaEphemeral
-        ):
-            validation_status, validation_steps = (
-                DisplayModel.get_release_validation_status(package.meta)  # type: ignore
+        if workflow.workflow_type == WorkflowType.BUILD:
+            validation_section = Section(name="Release Validation")
+            validation_step = Step(
+                name="Classify remote versions",
+                has_result=package.meta.remote_version is not None,
+                ephemeral_status=package.meta.ephemeral.classify_remote_versions,
             )
-            # Show any validation steps only when build has started or validation has failed
-            if (
-                validation_status != StepStatus.NOT_STARTED
-                and build_status[0] != StepStatus.NOT_STARTED
-            ) or (validation_status == StepStatus.FAILED):
-                details.extend(
-                    self.collect_text_details(validation_steps, "Release Validation")
-                )
+            result.extend([validation_section, validation_step])
 
-        build_status = DisplayModel.get_workflow_status(package, package.build)
-        if build_status[0] != StepStatus.NOT_STARTED:
-            details.extend(self.collect_text_details(build_status[1], "Build Workflow"))
-        publish_status = DisplayModel.get_workflow_status(package, package.publish)
-        if publish_status[0] != StepStatus.NOT_STARTED:
-            details.extend(
-                self.collect_text_details(publish_status[1], "Publish Workflow")
-            )
-
-        return "\n".join(details)
+        result.extend(base_steps)
+        return result
 
 
-def print_state_table(state: ReleaseState, console: Optional[Console] = None) -> None:
-    """Print table showing the release state.
+class DisplayModelClientImage(DisplayModelGeneric):
+    """DisplayModel for client image packages."""
 
-    This is a convenience function that creates a ConsoleStatePrinter and prints the state.
+    def get_workflow_steps(
+        self, package: Package, workflow: Workflow
+    ) -> List[Union[Step, Section]]:
+        """Get the list of workflow steps with client image specific steps prepended."""
+        assert isinstance(
+            package.meta, ClientImageMeta
+        ), f"DisplayModelClientImage requires ClientImageMeta, got {type(package.meta).__name__}"
+
+        result: List[Union[Step, Section]] = []
+        base_steps = super().get_workflow_steps(package, workflow)
+
+        validation_section = Section(name="Prerequisites")
+        await_docker_image_step = Step(
+            name="Await docker results",
+            has_result=package.meta.base_image is not None,
+            ephemeral_status=package.meta.ephemeral.await_docker_image,
+        )
+        validation_step = Step(
+            name="Locate docker image",
+            has_result=package.meta.base_image is not None,
+            ephemeral_status=package.meta.ephemeral.validate_docker_image,
+            message=package.meta.ephemeral.validate_docker_image_message,
+        )
+        result.extend([validation_section, await_docker_image_step, validation_step])
+
+        result.extend(base_steps)
+        return result
+
+
+def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
+    """Factory function to get the appropriate DisplayModel for a package.
 
     Args:
-        state: The ReleaseState to display
-        console: Optional Rich Console instance (creates new one if not provided)
+        package_meta: The package metadata
+
+    Returns:
+        DisplayModel instance appropriate for the package type
     """
-    printer = ConsoleStatePrinter(console)
-    printer.print_state_table(state)
+    # Return specialized DisplayModel for packages that require release validation
+    if package_meta.package_type in (PackageType.HOMEBREW, PackageType.SNAP):
+        return DisplayModelWithReleaseValidation()
+
+    if package_meta.package_type == PackageType.CLIENTIMAGE:
+        return DisplayModelClientImage()
+
+    # Default DisplayModel for all other package types
+    return DisplayModelGeneric()

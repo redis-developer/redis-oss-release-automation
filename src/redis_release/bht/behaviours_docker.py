@@ -59,7 +59,7 @@ class DockerBuildWorkflowInputs(ReleaseAction):
             self.workflow.inputs["release_type"] = self.package_meta.release_type.value
 
         if self.log_once("workflow_inputs_set", self.workflow.ephemeral.log_once_flags):
-            self.logger.info(f"Workflow inputs set: {self.workflow.inputs}")
+            self.logger.debug(f"Workflow inputs set: {self.workflow.inputs}")
 
         return Status.SUCCESS
 

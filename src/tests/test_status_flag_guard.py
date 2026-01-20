@@ -124,7 +124,10 @@ class TestStatusFlagGuardInitialization:
         """Test initialization fails with invalid guard_status."""
         container = StatusFlagContainer()
         child = SuccessBehaviour(name="child")
-        with pytest.raises(ValueError, match="guard_status must be FAILURE or SUCCESS"):
+        with pytest.raises(
+            ValueError,
+            match="guard_status must be FAILURE, SUCCESS, or None, got Status.RUNNING",
+        ):
             StatusFlagGuard(
                 name="test_guard",
                 child=child,

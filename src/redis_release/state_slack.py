@@ -4,23 +4,15 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from redis_release.models import SlackFormat
-from redis_release.state_display import DisplayModel, StepStatus
+from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
-from .bht.state import (
-    HomebrewMeta,
-    HomebrewMetaEphemeral,
-    Package,
-    ReleaseState,
-    SnapMeta,
-    SnapMetaEphemeral,
-    Workflow,
-)
+from .bht.state import Package, ReleaseState, Workflow
 
 logger = logging.getLogger(__name__)
 
@@ -256,9 +248,12 @@ class SlackStatePrinter:
             build_status, build_status_emoji = self._get_status_emoji(
                 package, package.build
             )
-            publish_status, publish_status_emoji = self._get_status_emoji(
-                package, package.publish
-            )
+            publish_status = StepStatus.NOT_STARTED
+            publish_status_emoji = ""
+            if package.publish is not None:
+                publish_status, publish_status_emoji = self._get_status_emoji(
+                    package, package.publish
+                )
 
             # skip if both build and publish are not started
             if (
@@ -268,56 +263,123 @@ class SlackStatePrinter:
                 continue
 
             # Package section
+            build_with_emoji = f"*Build:* {build_status_emoji}"
+            publish_with_emoji = ""
+            if package.publish is not None:
+                publish_with_emoji = f"*Publish:* {publish_status_emoji}"
+            header_with_emojis = "  |  ".join(
+                filter(bool, [build_with_emoji, publish_with_emoji])
+            )
             blocks.append(
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{formatted_name}*\n*Build:* {build_status_emoji}   |   *Publish:* {publish_status_emoji}",
+                        "text": f"*{formatted_name}*\n{header_with_emojis}",
                     },
                 }
             )
 
             # Workflow details in context
-            build_details = self._collect_workflow_details_slack(package, package.build)
-            publish_details = self._collect_workflow_details_slack(
-                package, package.publish
+            build_link = get_workflow_link(package.meta.repo, package.build.run_id)
+            build_details = self._collect_workflow_details_slack(
+                package, package.build, build_link
             )
+            publish_details = ""
+            if package.publish is not None:
+                publish_link = get_workflow_link(
+                    package.meta.repo, package.publish.run_id
+                )
+                publish_details = self._collect_workflow_details_slack(
+                    package, package.publish, publish_link
+                )
 
             if build_details or publish_details:
                 elements = []
                 if build_details:
-                    # Create link for Build Workflow if run_id exists
-                    build_link = get_workflow_link(
-                        package.meta.repo, package.build.run_id
-                    )
-                    build_title = (
-                        f"<{build_link}|*Build Workflow*>"
-                        if build_link
-                        else "*Build Workflow*"
-                    )
-                    elements.append(
-                        {"type": "mrkdwn", "text": f"{build_title}\n{build_details}"}
-                    )
-                if publish_details:
-                    # Create link for Publish Workflow if run_id exists
-                    publish_link = get_workflow_link(
-                        package.meta.repo, package.publish.run_id
-                    )
-                    publish_title = (
-                        f"<{publish_link}|*Publish Workflow*>"
-                        if publish_link
-                        else "*Publish Workflow*"
-                    )
-                    elements.append(
-                        {
-                            "type": "mrkdwn",
-                            "text": f"{publish_title}\n{publish_details}",
-                        }
-                    )
+                    elements.append({"type": "mrkdwn", "text": build_details})
+                if package.publish is not None and publish_details:
+                    elements.append({"type": "mrkdwn", "text": publish_details})
                 blocks.append({"type": "context", "elements": elements})
 
             blocks.append({"type": "divider"})
+
+        # Add results section
+        result_blocks = self._make_result_blocks(state)
+        if result_blocks:
+            blocks.extend(result_blocks)
+
+        return blocks
+
+    def _make_result_blocks(self, state: ReleaseState) -> List[Dict[str, Any]]:
+        """Create Slack blocks for results section.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of Slack block dictionaries for results
+        """
+        blocks: List[Dict[str, Any]] = []
+
+        # Client image result
+        clientimage_package = state.packages.get("clientimage")
+        if clientimage_package is not None:
+            result = clientimage_package.build.result
+            if result is not None:
+                client_test_image = result.get("client_test_image")
+                if client_test_image:
+                    blocks.append(
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Client Image*\n```\n{client_test_image}\n```",
+                            },
+                        }
+                    )
+
+        return blocks
+
+    def make_clientimage_result_blocks(
+        self, state: ReleaseState
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Create Slack blocks for client image build result.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of Slack block dictionaries, or None if no clientimage result
+        """
+        clientimage_package = state.packages.get("clientimage")
+        if clientimage_package is None:
+            return None
+
+        result = clientimage_package.build.result
+        if result is None:
+            return None
+
+        client_test_image = result.get("client_test_image")
+        if not client_test_image:
+            return None
+
+        blocks: List[Dict[str, Any]] = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🧪 Client Image Published",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"```\n{client_test_image}\n```",
+                },
+            },
+        ]
 
         return blocks
 
@@ -335,23 +397,10 @@ class SlackStatePrinter:
         Returns:
             Emoji status string
         """
-        # For build workflow of Homebrew/Snap packages, check validation status first
-        if workflow == package.build and (
-            type(package.meta.ephemeral) == HomebrewMetaEphemeral
-            or type(package.meta.ephemeral) == SnapMetaEphemeral
-        ):
-            # Check validation status first
-            validation_status, _ = DisplayModel.get_release_validation_status(
-                package.meta  # type: ignore
-            )
-            if validation_status != StepStatus.SUCCEEDED:
-                return (
-                    validation_status,
-                    self._get_step_status_emoji(validation_status),
-                )
+        display_model = get_display_model(package.meta)
 
         # Check workflow status
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
+        workflow_status = display_model.get_workflow_status(package, workflow)
         return (workflow_status[0], self._get_step_status_emoji(workflow_status[0]))
 
     def _get_step_status_emoji(self, status: StepStatus) -> str:
@@ -375,7 +424,7 @@ class SlackStatePrinter:
             return "❌ Failed"
 
     def _collect_workflow_details_slack(
-        self, package: Package, workflow: Workflow
+        self, package: Package, workflow: Workflow, workflow_link: Optional[str]
     ) -> str:
         """Collect workflow step details for Slack display.
 
@@ -384,37 +433,19 @@ class SlackStatePrinter:
         Args:
             package: The package containing the workflow
             workflow: The workflow to check
+            workflow_link: Optional link to the workflow run
 
         Returns:
             Formatted string of workflow steps
         """
         details: List[str] = []
+        display_model = get_display_model(package.meta)
 
-        workflow_status = DisplayModel.get_workflow_status(package, workflow)
-        # For build workflow of Homebrew/Snap packages, include validation details
-        if workflow == package.build and (
-            type(package.meta.ephemeral) == HomebrewMetaEphemeral
-            or type(package.meta.ephemeral) == SnapMetaEphemeral
-        ):
-            validation_status, validation_steps = (
-                DisplayModel.get_release_validation_status(package.meta)  # type: ignore
-            )
-            # Show any validation steps only when build has started or validation has failed
-            if (
-                validation_status != StepStatus.NOT_STARTED
-                and workflow_status[0] != StepStatus.NOT_STARTED
-            ) or (validation_status == StepStatus.FAILED):
-                details.extend(
-                    self._format_steps_for_slack(validation_steps, "Release Validation")
-                )
-
+        workflow_status = display_model.get_workflow_status(package, workflow)
         # Add workflow details
         if workflow_status[0] != StepStatus.NOT_STARTED:
-            workflow_name = (
-                "Build Workflow" if workflow == package.build else "Publish Workflow"
-            )
             details.extend(
-                self._format_steps_for_slack(workflow_status[1], workflow_name)
+                self._format_steps_for_slack(workflow_status[1], workflow_link)
             )
 
         if self.slack_format == SlackFormat.ONE_STEP:
@@ -423,30 +454,37 @@ class SlackStatePrinter:
         return "\n".join(details)
 
     def _format_steps_for_slack(
-        self, steps: List[Tuple[StepStatus, str, Optional[str]]], prefix: str
+        self, steps: List[Union[Step, Section]], workflow_link: Optional[str]
     ) -> List[str]:
         """Format step details for Slack display.
 
+        The first item in the steps list should be a Section, which will be used as the header.
+
         Args:
-            steps: List of (step_status, step_name, step_message) tuples
-            prefix: Section prefix/title
+            steps: List of Step and Section objects (first item should be Section)
+            workflow_link: Optional link to the workflow run
 
         Returns:
             List of formatted step strings
         """
         details: List[str] = []
-        # details.append(f"*{prefix}*")
 
-        for step_status, step_name, step_message in steps:
-            if step_status == StepStatus.SUCCEEDED:
-                details.append(f"• ✅ {step_name}")
-            elif step_status == StepStatus.RUNNING:
-                details.append(f"• ⏳ {step_name}")
-            elif step_status == StepStatus.NOT_STARTED:
-                details.append(f"• ⚪ {step_name}")
-            else:  # FAILED or INCORRECT
-                msg = f" ({step_message})" if step_message else ""
-                details.append(f"• ❌ {step_name}{msg}")
-                break
+        for item in steps:
+            if isinstance(item, Section):
+                if item.is_workflow and workflow_link:
+                    details.append(f"<{workflow_link}|*{item.name}*>")
+                else:
+                    details.append(f"*{item.name}*")
+            elif isinstance(item, Step):
+                if item.status == StepStatus.SUCCEEDED:
+                    details.append(f"• ✅ {item.name}")
+                elif item.status == StepStatus.RUNNING:
+                    details.append(f"• ⏳ {item.name}")
+                elif item.status == StepStatus.NOT_STARTED:
+                    details.append(f"• ⚪ {item.name}")
+                else:  # FAILED or INCORRECT
+                    msg = f" ({item.message})" if item.message else ""
+                    details.append(f"• ❌ {item.name}{msg}")
+                    break
 
         return details

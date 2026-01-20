@@ -122,6 +122,12 @@ class PackageMetaEphemeral(BaseModel):
     identify_ref_failed: bool = False
     identify_ref: Optional[common.Status] = None
     log_once_flags: Dict[str, bool] = Field(default_factory=dict, exclude=True)
+    # Package root behavior status flag: reflects status of the entire package release process
+    # Used to implement dependencies between packages, e.g.: ClientImage waits
+    # for Docker to finish if status is RUNNING and proceeds to build or to
+    # error otherwise
+    # Not used for status display, which examines the state and the flags for all steps explicitly
+    root_node_status: Optional[common.Status] = None
 
 
 class HomebrewMetaEphemeral(PackageMetaEphemeral):
@@ -150,6 +156,12 @@ class SnapMetaEphemeral(PackageMetaEphemeral):
 
 class DockerMetaEphemeral(PackageMetaEphemeral):
     pass
+
+
+class ClientImageMetaEphemeral(PackageMetaEphemeral):
+    await_docker_image: Optional[common.Status] = None
+    validate_docker_image: Optional[common.Status] = None
+    validate_docker_image_message: Optional[str] = None
 
 
 class PackageMeta(BaseModel):
@@ -198,6 +210,16 @@ class DockerMeta(PackageMeta):
     ephemeral: DockerMetaEphemeral = Field(default_factory=DockerMetaEphemeral)  # type: ignore[assignment]
 
 
+class ClientImageMeta(PackageMeta):
+    """Metadata for Client Image package."""
+
+    serialization_hint: Literal["clientimage"] = "clientimage"  # type: ignore[assignment]
+    base_image: Optional[str] = None
+    base_image_tag: Optional[str] = None
+    output_image_tag: Optional[str] = None
+    ephemeral: ClientImageMetaEphemeral = Field(default_factory=ClientImageMetaEphemeral)  # type: ignore[assignment]
+
+
 class Package(BaseModel):
     """State for a package in the release.
 
@@ -206,13 +228,15 @@ class Package(BaseModel):
     - serialization_hint="generic" -> PackageMeta
     - serialization_hint="homebrew" -> HomebrewMeta
     - serialization_hint="snap" -> SnapMeta
+    - serialization_hint="docker" -> DockerMeta
+    - serialization_hint="clientimage" -> ClientImageMeta
     """
 
-    meta: Union[HomebrewMeta, SnapMeta, PackageMeta, DockerMeta] = Field(
-        default_factory=PackageMeta, discriminator="serialization_hint"
+    meta: Union[HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta] = (
+        Field(default_factory=PackageMeta, discriminator="serialization_hint")
     )
     build: Workflow = Field(default_factory=Workflow)
-    publish: Workflow = Field(default_factory=Workflow)
+    publish: Optional[Workflow] = None
 
 
 class ReleaseMetaEphemeral(BaseModel):
@@ -244,14 +268,14 @@ class ReleaseState(BaseModel):
     @staticmethod
     def _create_package_meta_from_config(
         package_config: "PackageConfig",
-    ) -> Union[HomebrewMeta, SnapMeta, PackageMeta]:
+    ) -> Union[HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, PackageMeta]:
         """Create appropriate PackageMeta subclass based on package_type.
 
         Args:
             package_config: Package configuration
 
         Returns:
-            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta or PackageMeta)
+            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta or PackageMeta)
 
         Raises:
             ValueError: If package_type is None
@@ -272,6 +296,13 @@ class ReleaseState(BaseModel):
             )
         elif package_config.package_type == PackageType.DOCKER:
             return DockerMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.CLIENTIMAGE:
+            return ClientImageMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
@@ -305,17 +336,6 @@ class ReleaseState(BaseModel):
                     f"Package '{package_name}': build_workflow cannot be empty"
                 )
 
-            # Validate and get publish workflow file
-            if not isinstance(package_config.publish_workflow, str):
-                raise ValueError(
-                    f"Package '{package_name}': publish_workflow must be a string, "
-                    f"got {type(package_config.publish_workflow).__name__}"
-                )
-            if not package_config.publish_workflow.strip():
-                raise ValueError(
-                    f"Package '{package_name}': publish_workflow cannot be empty"
-                )
-
             # Initialize package metadata - create appropriate subclass based on package_type
             try:
                 package_meta = cls._create_package_meta_from_config(package_config)
@@ -330,13 +350,18 @@ class ReleaseState(BaseModel):
                 timeout_minutes=package_config.build_timeout_minutes,
             )
 
-            # Initialize publish workflow
-            publish_workflow = Workflow(
-                workflow_type=WorkflowType.PUBLISH,
-                workflow_file=package_config.publish_workflow,
-                inputs=package_config.publish_inputs.copy(),
-                timeout_minutes=package_config.publish_timeout_minutes,
-            )
+            publish_workflow: Optional[Workflow] = None
+            if (
+                isinstance(package_config.publish_workflow, str)
+                and package_config.publish_workflow.strip()
+            ):
+                # Initialize publish workflow
+                publish_workflow = Workflow(
+                    workflow_type=WorkflowType.PUBLISH,
+                    workflow_file=package_config.publish_workflow,
+                    inputs=package_config.publish_inputs.copy(),
+                    timeout_minutes=package_config.publish_timeout_minutes,
+                )
 
             # Create package state with initialized workflows
             packages[package_name] = Package(

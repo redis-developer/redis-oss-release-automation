@@ -174,18 +174,24 @@ class StatusFlagGuard(DecoratorWithLogging):
 
     In contrast to FlagGuard, flag may have 4 values: None, SUCCESS, FAILURE, RUNNING
 
-    If the flag in the container matches the guard_status, the guard
-    returns guard_status immediately without executing the decorated behaviour.
+    If guard_status is set (FAILURE or SUCCESS) and the flag in the container matches
+    the guard_status, the guard returns guard_status immediately without executing
+    the decorated behaviour.
+
+    If guard_status is None, no guarding occurs - the decorator only saves the child's
+    status to the container field.
 
     On any child status update, the flag is set to the child's status value.
 
     Args:
-        name: the decorator name
+        name: the decorator name. If None and guard_status is None, defaults to "Store {flag}".
+              If None and guard_status is set, defaults to "Unless {flag} failed/succeeded".
         child: the child behaviour or subtree
         container: the BaseModel instance containing the flag
         flag: the name of the flag field in the container (can hold common.Status or None)
         message_field: optional name of the field in the container that holds additional message
-        guard_status: the status that prevents execution (FAILURE or SUCCESS, default: FAILURE)
+        guard_status: the status that prevents execution (FAILURE, SUCCESS, or None, default: FAILURE).
+                      If None, no guarding occurs - only status storage.
     """
 
     def __init__(
@@ -195,12 +201,15 @@ class StatusFlagGuard(DecoratorWithLogging):
         container: BaseModel,
         flag: str,
         message_field: Optional[str] = None,
-        guard_status: common.Status = common.Status.FAILURE,
+        guard_status: Optional[common.Status] = common.Status.FAILURE,
         log_prefix: str = "",
     ):
-        if guard_status not in (common.Status.FAILURE, common.Status.SUCCESS):
+        if guard_status is not None and guard_status not in (
+            common.Status.FAILURE,
+            common.Status.SUCCESS,
+        ):
             raise ValueError(
-                f"guard_status must be FAILURE or SUCCESS, got {guard_status}"
+                f"guard_status must be FAILURE, SUCCESS, or None, got {guard_status}"
             )
 
         if not hasattr(container, flag):
@@ -224,23 +233,29 @@ class StatusFlagGuard(DecoratorWithLogging):
         self.message_field = message_field
         self.guard_status = guard_status
         if name is None:
-            status_text = (
-                "failed" if guard_status == common.Status.FAILURE else "succeeded"
-            )
-            name = f"Unless {flag} {status_text}"
+            if guard_status is None:
+                name = f"Store {flag}"
+            else:
+                status_text = (
+                    "failed" if guard_status == common.Status.FAILURE else "succeeded"
+                )
+                name = f"Unless {flag} {status_text}"
         super(StatusFlagGuard, self).__init__(
             name=name, child=child, log_prefix=log_prefix
         )
 
     def _is_guard_active(self) -> bool:
+        if self.guard_status is None:
+            return False
         current_flag_value = getattr(self.container, self.flag, None)
         return current_flag_value == self.guard_status
 
     def update(self) -> common.Status:
-        current_flag_value = getattr(self.container, self.flag, None)
-        if current_flag_value == self.guard_status:
-            self.logger.debug(f"Returning guard status: {self.guard_status}")
-            return self.guard_status
+        if self.guard_status is not None:
+            current_flag_value = getattr(self.container, self.flag, None)
+            if current_flag_value == self.guard_status:
+                self.logger.debug(f"Returning guard status: {self.guard_status}")
+                return self.guard_status
 
         child_status = self.decorated.status
         # Update flag with child's current status

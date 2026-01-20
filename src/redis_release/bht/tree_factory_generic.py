@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.behaviours import Failure as AlwaysFailure
@@ -19,6 +19,7 @@ from redis_release.bht.composites import (
     RestartPackageGuarded,
     RestartWorkflowGuarded,
 )
+from redis_release.bht.decorators import StatusFlagGuard
 from redis_release.bht.ppas import (
     create_attach_release_handle_ppa,
     create_download_artifacts_ppa,
@@ -31,36 +32,47 @@ from redis_release.bht.state import Package, PackageMeta, ReleaseMeta, Workflow
 from redis_release.bht.tree_factory_protocol import GenericPackageFactoryProtocol
 from redis_release.github_client_async import GitHubClientAsync
 
+from .decorators import StatusFlagGuard
+
 
 class GenericPackageFactory(ABC):
     """Default factory for packages without specific customizations."""
 
+    build_result_artifact_name = "release_handle"
+
     def create_package_release_goal_tree_branch(
         self,
-        package: Package,
+        packages: Dict[str, Package],
         release_meta: ReleaseMeta,
         default_package: Package,
         github_client: GitHubClientAsync,
         package_name: str,
-    ) -> Union[Selector, Sequence]:
+    ) -> Union[Selector, Sequence, Behaviour]:
+        package: Package = packages[package_name]
         package_release = self.create_package_release_execute_workflows_tree_branch(
             package, release_meta, default_package, github_client, package_name
         )
-        return Selector(
-            f"Package Release {package_name} Goal",
-            memory=False,
-            children=[
-                Inverter(
-                    "Not",
-                    self.create_need_to_release_behaviour(
-                        f"Need To Release {package_name}?",
-                        package.meta,
-                        release_meta,
-                        log_prefix=package_name,
+        return StatusFlagGuard(
+            name=None,
+            child=Selector(
+                f"Package Release {package_name} Goal",
+                memory=False,
+                children=[
+                    Inverter(
+                        "Not",
+                        self.create_need_to_release_behaviour(
+                            f"Need To Release {package_name}?",
+                            package.meta,
+                            release_meta,
+                            log_prefix=package_name,
+                        ),
                     ),
-                ),
-                package_release,
-            ],
+                    package_release,
+                ],
+            ),
+            container=package.meta.ephemeral,
+            flag="root_node_status",
+            guard_status=None,
         )
 
     def create_build_workflow_inputs(
@@ -156,6 +168,7 @@ class GenericPackageFactory(ABC):
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
+        children: List[Behaviour] = []
         build = self.create_build_workflow_tree_branch(
             package,
             release_meta,
@@ -164,26 +177,33 @@ class GenericPackageFactory(ABC):
             package_name,
         )
         build.name = f"Build {package_name}"
-        publish = self.create_publish_workflow_tree_branch(
-            package.build,
-            package.publish,
-            package.meta,
-            release_meta,
-            default_package.publish,
-            github_client,
-            package_name,
-        )
+        children.append(build)
+
+        if package.publish is not None:
+            assert default_package.publish is not None
+            publish = self.create_publish_workflow_tree_branch(
+                package.build,
+                package.publish,
+                package.meta,
+                release_meta,
+                default_package.publish,
+                github_client,
+                package_name,
+            )
+            publish.name = f"Publish {package_name}"
+            children.append(publish)
+
         reset_package_state = ResetPackageStateGuarded(
             "",
             package,
             default_package,
             log_prefix=package_name,
         )
-        publish.name = f"Publish {package_name}"
+        children.insert(0, reset_package_state)
         package_release = Sequence(
             f"Package Release {package_name}",
             memory=False,
-            children=[reset_package_state, build, publish],
+            children=children,
         )
         return package_release
 
@@ -208,7 +228,7 @@ class GenericPackageFactory(ABC):
         )
 
         build_workflow = self.create_workflow_with_result_tree_branch(
-            "release_handle",
+            self.build_result_artifact_name,
             package.build,
             package.meta,
             release_meta,
@@ -406,6 +426,7 @@ class PackageWithValidation:
         github_client: GitHubClientAsync,
         package_name: str,
     ) -> Union[Selector, Sequence]:
+        children: List[Behaviour] = []
         build = self.create_build_workflow_tree_branch(
             package,
             release_meta,
@@ -414,20 +435,25 @@ class PackageWithValidation:
             package_name,
         )
         build.name = f"Build {package_name}"
-        publish = self.create_publish_workflow_tree_branch(
-            package.build,
-            package.publish,
-            package.meta,
-            release_meta,
-            default_package.publish,
-            github_client,
-            package_name,
-        )
-        publish.name = f"Publish {package_name}"
+        children.append(build)
+        if package.publish is not None:
+            assert default_package.publish is not None
+            publish = self.create_publish_workflow_tree_branch(
+                package.build,
+                package.publish,
+                package.meta,
+                release_meta,
+                default_package.publish,
+                github_client,
+                package_name,
+            )
+            publish.name = f"Publish {package_name}"
+            children.append(publish)
+
         package_release = Sequence(
             f"Execute Workflows {package_name}",
             memory=False,
-            children=[build, publish],
+            children=children,
         )
         return package_release
 

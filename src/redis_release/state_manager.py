@@ -308,7 +308,8 @@ class StateManager:
         for package in state.packages.values():
             package.meta.ephemeral = package.meta.ephemeral.__class__()  # type: ignore
             package.build.ephemeral = package.build.ephemeral.__class__()
-            package.publish.ephemeral = package.publish.ephemeral.__class__()
+            if package.publish is not None:
+                package.publish.ephemeral = package.publish.ephemeral.__class__()
 
     def sync(self) -> None:
         """Save state to storage backend if changed since last sync."""

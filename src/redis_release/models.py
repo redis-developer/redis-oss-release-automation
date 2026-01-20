@@ -23,6 +23,7 @@ class PackageType(str, Enum):
     RPM = "rpm"
     HOMEBREW = "homebrew"
     SNAP = "snap"
+    CLIENTIMAGE = "clientimage"
 
 
 class HomebrewChannel(str, Enum):

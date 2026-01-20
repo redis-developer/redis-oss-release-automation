@@ -1,4 +1,4 @@
-from typing import List, Optional, Protocol, Union
+from typing import Dict, List, Optional, Protocol, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.composites import Selector, Sequence
@@ -12,7 +12,7 @@ class GenericPackageFactoryProtocol(Protocol):
 
     def create_package_release_goal_tree_branch(
         self,
-        package: Package,
+        packages: Dict[str, Package],
         release_meta: ReleaseMeta,
         default_package: Package,
         github_client: GitHubClientAsync,
