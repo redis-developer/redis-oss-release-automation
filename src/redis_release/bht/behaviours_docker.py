@@ -36,6 +36,8 @@ class DockerBuildWorkflowInputs(ReleaseAction):
         # If version is not determined, assume we do want to build from tag
         if self.release_version is not None:
             self.workflow.inputs["run_type"] = "release"
+        elif self.release_meta.tag == "unstable":
+            self.workflow.inputs["run_type"] = "unstable"
         else:
             self.workflow.inputs["run_type"] = "custom"
         if self.package_meta.module_versions:
