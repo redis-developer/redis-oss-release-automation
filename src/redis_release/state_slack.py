@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from click import Option
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -38,6 +39,7 @@ def init_slack_printer(
     thread_ts: Optional[str] = None,
     reply_broadcast: bool = False,
     slack_format: SlackFormat = SlackFormat.DEFAULT,
+    state: Optional[ReleaseState] = None,
 ) -> "SlackStatePrinter":
     """Initialize SlackStatePrinter with validation.
 
@@ -47,6 +49,11 @@ def init_slack_printer(
         thread_ts: Optional thread timestamp to post messages in a thread
         reply_broadcast: If True and thread_ts is set, also show in main channel
         slack_format: Slack message format (default or one-step)
+        state: Optional release state to post initial message to create the thread
+
+    Warning: if state is provided, and thread_ts is not provided, the state will
+    be modified in-place by setting the thread_ts and channel_id. Initial message
+    will be posted to the channel to create the thread.
 
     Returns:
         SlackStatePrinter instance
@@ -64,9 +71,24 @@ def init_slack_printer(
             "Slack token not provided. Use slack_token argument or set SLACK_BOT_TOKEN environment variable"
         )
 
-    return SlackStatePrinter(
+    slack_printer = SlackStatePrinter(
         token, slack_channel_id, thread_ts, reply_broadcast, slack_format
     )
+
+    # If thread_ts is not provided, post initial message to create the thread
+    # and save thread_ts to the state to make all subsequent posts by the
+    # workflows to be in the same thread
+    if state and thread_ts is None:
+        logger.info(
+            "Posting initial slack message to create a thread and save thread_ts to the release state"
+        )
+        slack_printer.update_message(state)
+        if state.meta.ephemeral.slack_channel_id is None:
+            state.meta.ephemeral.slack_channel_id = slack_channel_id
+        if slack_printer.message_ts is not None:
+            state.meta.ephemeral.slack_thread_ts = slack_printer.message_ts
+
+    return slack_printer
 
 
 class SlackStatePrinter:
@@ -204,16 +226,26 @@ class SlackStatePrinter:
             }
         )
 
-        # Show started date from state.meta.last_started_at if available
-        if state.meta.last_started_at:
-            started_str = state.meta.last_started_at.strftime("%Y-%m-%d %H:%M:%S %Z")
+        dates_str = ""
+        started_str = ""
+        ended_str = ""
+        if state.meta.ephemeral.last_started_at:
+            started_str = "*Started:* " + state.meta.ephemeral.last_started_at.strftime(
+                "%Y-%m-%d %H:%M:%S %Z"
+            )
+        if state.meta.ephemeral.last_ended_at:
+            ended_str = "*Ended:* " + state.meta.ephemeral.last_ended_at.strftime(
+                "%Y-%m-%d %H:%M:%S %Z"
+            )
+        dates_str = " | ".join([started_str, ended_str])
+        if dates_str:
             blocks.append(
                 {
                     "type": "context",
                     "elements": [
                         {
                             "type": "mrkdwn",
-                            "text": f"*Started:* {started_str}",
+                            "text": dates_str,
                         }
                     ],
                 }

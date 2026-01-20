@@ -109,7 +109,9 @@ def initialize_tree_and_state(
         tree = BehaviourTree(root)
 
         if not read_only:
-            state_syncer.state.meta.last_started_at = datetime.now(tz=timezone.utc)
+            state_syncer.state.meta.ephemeral.last_started_at = datetime.now(
+                tz=timezone.utc
+            )
 
         # Add snapshot visitor to track visited nodes
         snapshot_visitor = SnapshotVisitor()
@@ -130,6 +132,7 @@ def initialize_tree_and_state(
                     args.slack_args.thread_ts,
                     args.slack_args.reply_broadcast,
                     args.slack_args.format,
+                    state_syncer.state if not read_only else None,
                 )
                 # Capture the non-None printer in the closure
                 printer = slack_printer
@@ -145,6 +148,12 @@ def initialize_tree_and_state(
         try:
             yield (tree, state_syncer)
         finally:
+            if not read_only:
+                state_syncer.state.meta.ephemeral.last_ended_at = datetime.now(
+                    tz=timezone.utc
+                )
+            if slack_printer:
+                slack_printer.update_message(state_syncer.state)
             print_state_table(state_syncer.state)
 
 
