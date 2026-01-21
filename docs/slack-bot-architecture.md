@@ -81,6 +81,7 @@ sequenceDiagram
     Rel->>S3: Final state sync
     Rel->>Slack: Final state update (tick handler)
     Note over Rel: Thread exits
+```
 
 ## Thread Responsibilities
 
