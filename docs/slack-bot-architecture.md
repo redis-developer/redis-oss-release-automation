@@ -63,23 +63,24 @@ sequenceDiagram
     Rel->>Rel: Initialize SlackStatePrinter<br/>(post_tick_handler)
 
     loop For each package
-        Rel->>GH: Trigger workflow<br/>(with slack_channel_id, slack_thread_ts)
-        Rel->>Slack: Update state (tick handler)
-        Note over Workflow: Workflow starts in package repo
-        Workflow->>Slack: POST progress messages<br/>(using SLACK_BOT_TOKEN secret)
+        Rel->>GH: Trigger build workflow
+        Note over Workflow: Workflow executes in package repo
         Rel->>GH: Poll workflow status
+        Workflow->>Slack: POST completion/failure message
         Rel->>S3: Sync state
-        Rel->>Slack: Update state (tick handler)
-        Workflow->>Slack: POST completion message
+        Rel->>Slack: POST progress message
         Rel->>GH: Download artifacts
-        Rel->>GH: Trigger workflow<br/>(publish_workflow)
-        Rel->>Slack: Update state (tick handler)
-        Workflow->>Slack: POST publish messages
+        Rel->>GH: Trigger publish workflow
+        Note over Workflow: Workflow executes in package repo
+        Rel->>GH: Poll workflow status
+        Workflow->>Slack: POST completion/failure message
+        Rel->>S3: Sync state
+        Rel->>Slack: POST progress message
     end
 
     Note over Rel: Release completes
     Rel->>S3: Final state sync
-    Rel->>Slack: Final state update (tick handler)
+    Rel->>Slack: Final progress message
     Note over Rel: Thread exits
 ```
 
