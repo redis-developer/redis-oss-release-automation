@@ -164,6 +164,12 @@ class ClientImageMetaEphemeral(PackageMetaEphemeral):
     validate_docker_image_message: Optional[str] = None
 
 
+class ClientTestMetaEphemeral(PackageMetaEphemeral):
+    await_client_image: Optional[common.Status] = None
+    validate_client_image: Optional[common.Status] = None
+    validate_client_image_message: Optional[str] = None
+
+
 class PackageMeta(BaseModel):
     """Metadata for a package (base/generic type)."""
 
@@ -220,6 +226,14 @@ class ClientImageMeta(PackageMeta):
     ephemeral: ClientImageMetaEphemeral = Field(default_factory=ClientImageMetaEphemeral)  # type: ignore[assignment]
 
 
+class ClientTestMeta(PackageMeta):
+    """Metadata for Client Test package."""
+
+    serialization_hint: Literal["clienttest"] = "clienttest"  # type: ignore[assignment]
+    client_test_image: Optional[str] = None
+    ephemeral: ClientTestMetaEphemeral = Field(default_factory=ClientTestMetaEphemeral)  # type: ignore[assignment]
+
+
 class Package(BaseModel):
     """State for a package in the release.
 
@@ -230,11 +244,12 @@ class Package(BaseModel):
     - serialization_hint="snap" -> SnapMeta
     - serialization_hint="docker" -> DockerMeta
     - serialization_hint="clientimage" -> ClientImageMeta
+    - serialization_hint="clienttest" -> ClientTestMeta
     """
 
-    meta: Union[HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta] = (
-        Field(default_factory=PackageMeta, discriminator="serialization_hint")
-    )
+    meta: Union[
+        HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta, ClientTestMeta
+    ] = (Field(default_factory=PackageMeta, discriminator="serialization_hint"))
     build: Workflow = Field(default_factory=Workflow)
     publish: Optional[Workflow] = None
 
@@ -272,14 +287,16 @@ class ReleaseState(BaseModel):
     @staticmethod
     def _create_package_meta_from_config(
         package_config: "PackageConfig",
-    ) -> Union[HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, PackageMeta]:
+    ) -> Union[
+        HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, ClientTestMeta, PackageMeta
+    ]:
         """Create appropriate PackageMeta subclass based on package_type.
 
         Args:
             package_config: Package configuration
 
         Returns:
-            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta or PackageMeta)
+            PackageMeta subclass instance (HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, ClientTestMeta or PackageMeta)
 
         Raises:
             ValueError: If package_type is None
@@ -307,6 +324,13 @@ class ReleaseState(BaseModel):
             )
         elif package_config.package_type == PackageType.CLIENTIMAGE:
             return ClientImageMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.CLIENTTEST:
+            return ClientTestMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,

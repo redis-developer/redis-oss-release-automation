@@ -1,0 +1,60 @@
+name: "Redis-py client testing"
+
+on:
+  push:
+    branches: [ "redis-py-package" ]
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      client_test_image:
+        description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
+        required: false
+
+# UUID is used to help automation to identify workflow run in the list of workflow runs.
+run-name: "Test redis-py client${{ github.event.inputs.workflow_uuid && format(': {0}', github.event.inputs.workflow_uuid) || '' }}"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+    name: Redis-py test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract Redis version from Docker image
+        id: extract_version
+        env:
+          IMAGE_TAG: ${{ inputs.client_test_image }}
+        run: |
+          # Construct full image name
+          FULL_IMAGE="redislabs/client-libs-test:${IMAGE_TAG}"
+
+          # Pull the Docker image
+          docker pull "${FULL_IMAGE}"
+
+          # Extract the io.redis.version label
+          REDIS_VERSION=$(docker inspect "${FULL_IMAGE}" --format='{{index .Config.Labels "io.redis.version"}}')
+
+          echo "Extracted Redis version: ${REDIS_VERSION}"
+
+          # Handle "unstable" version - convert to "8"
+          if [[ "${REDIS_VERSION}" == "unstable" ]]; then
+            REDIS_VERSION="8"
+            echo "Converted unstable to version 8"
+          fi
+
+          echo "Final Redis version: ${REDIS_VERSION}"
+          echo "redis_version=${REDIS_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Run tests
+        uses: dariaguy/redis-py/.github/actions/run-tests@callable-run-tests
+        with:
+            python-version: 3.14
+            parser-backend: plain
+            redis-version: ${{ steps.extract_version.outputs.redis_version }}
+            redis-py-repo: redis/redis-py
+            redis-py-ref: master
+            client-libs-test-image: ${{ inputs.client_test_image }}
