@@ -259,7 +259,7 @@ class ReleaseBot:
             logger.debug(f"Checking if bot is participating in thread {thread_ts}")
 
             # Check if bot has participated in this thread
-            is_participating = await self._is_bot_in_thread(channel, thread_ts)
+            is_participating = await self.is_bot_participating(channel, thread_ts)
 
             logger.debug(f"Bot participating in thread: {is_participating}")
 
@@ -300,7 +300,7 @@ class ReleaseBot:
             logger.error(f"Error getting thread messages: {e}", exc_info=True)
             return []
 
-    async def _is_bot_in_thread(self, channel: str, thread_ts: str) -> bool:
+    async def is_bot_participating(self, channel: str, thread_ts: str) -> bool:
         """Check if the bot has participated in a thread.
 
         Args:
@@ -333,6 +333,7 @@ class ReleaseBot:
             bot_mention = f"<@{bot_user_id}>"
 
             # Check if any message is from the bot or mentions the bot
+            is_participating = False
             for msg in messages:
                 msg_user = msg.get("user")
                 msg_bot_id = msg.get("bot_id")
@@ -343,15 +344,18 @@ class ReleaseBot:
                 # Check if message is from the bot
                 if msg_user == bot_user_id or msg_bot_id:
                     logger.debug(f"Found bot message in thread")
-                    return True
+                    if "I will ignore this thread" in msg_text:
+                        logger.debug(f"Found ignore message in thread")
+                        is_participating = False
+                        break
 
                 # Check if message mentions the bot
                 if bot_mention in msg_text:
                     logger.debug(f"Found bot mention in thread")
-                    return True
+                    is_participating = True
 
             logger.debug(f"No bot messages or mentions found in thread")
-            return False
+            return is_participating
 
         except Exception as e:
             logger.error(

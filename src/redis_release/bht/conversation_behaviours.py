@@ -11,7 +11,12 @@ from slack_sdk import WebClient
 from redis_release.conversation_models import CommandDetectionResult
 
 from ..config import Config
-from ..conversation_models import Command, ConversationCockpit
+from ..conversation_models import (
+    COMMAND_DESCRIPTIONS,
+    IGNORE_THREAD_MESSAGE,
+    Command,
+    ConversationCockpit,
+)
 from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
@@ -82,7 +87,10 @@ class LLMCommandClassifier(ReleaseAction):
             return Status.FAILURE
 
         # Prepare prompt with available commands
-        commands_list = "\n".join([f"- {cmd.value}" for cmd in Command])
+        commands_list = []
+        for cmd in Command:
+            commands_list.append(f"- {cmd.value}: {COMMAND_DESCRIPTIONS[cmd]}")
+        commands_list_txt = "\n".join(commands_list)
 
         confirmation_instructions = ""
         if self.state.llm_confirmation_required:
@@ -95,15 +103,10 @@ Set release_args whenever user has provided enough information to execute the co
 
 """
 
-        instructions = f"""You are a router for a Redis release automation CLI assistant.
+        instructions = f"""You are a router for a Redis release and custom build automation CLI assistant.
 
-Available commands:
-{commands_list}
-
-Given the user message (and optional history), decide:
-- Does the user want to run a command?
-- If yes, which command and with what args?
-- Otherwise, are they just asking for help/info?
+Given the user message (and optional history), decide what of the available commands the user wants to run:
+{commands_list_txt}
 
 {confirmation_instructions}
 
@@ -121,6 +124,8 @@ If any packages are mentioned it's likely for only_packages.
 For status command, extract the following information from the user's message:
 - release_tag: The release tag (e.g., "8.4-m01-int1", "7.2.5")
 
+For ignore_thread command just set the command to ignore_thread.
+
 Available package types: docker, debian, rpm, homebrew, snap
 
 
@@ -130,6 +135,8 @@ Output using the provided JSON schema fields:
 - release_args: optional LLMReleaseArgs for release command execution
 - status_args: optional StatusArgs for release command execution
 - reply: optional natural language text to send back"""
+
+        logger.debug(f"LLM instructions: {instructions}")
 
         # Build context history
         history_text = ""
@@ -227,6 +234,10 @@ Output using the provided JSON schema fields:
                             or "Please provide release tag and other required information."
                         )
                         return Status.FAILURE
+                elif command == Command.IGNORE_THREAD:
+                    self.state.command = Command.IGNORE_THREAD
+                    self.state.replies.append(IGNORE_THREAD_MESSAGE)
+                    return Status.SUCCESS
                 else:
                     self.state.replies.append(
                         reply or "I'm not sure what you want me to do."

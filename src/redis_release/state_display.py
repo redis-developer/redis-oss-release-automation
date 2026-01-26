@@ -1,4 +1,7 @@
-"""Console display utilities for release state."""
+"""Console display utilities for release state.
+
+Models help to organize basic display logic and structure and make it reusable across different output formats.
+"""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -47,7 +50,8 @@ class Section:
 
 
 # Decision table for step status
-# See WorkflowEphemeral for more details on the flags
+# See state.py for detailed description of how the flags are used to determine
+# the step status
 _STEP_STATUS_MAPPING = {
     None: {False: StepStatus.NOT_STARTED, True: StepStatus.SUCCEEDED},
     Status.RUNNING: {False: StepStatus.RUNNING},

@@ -184,7 +184,8 @@ def initialize_tree_and_state(
                     args.slack_args.thread_ts,
                     args.slack_args.reply_broadcast,
                     args.slack_args.format,
-                    state_syncer.state if not read_only else None,
+                    state=state_syncer.state if not read_only else None,
+                    state_name=state_syncer.state_name,
                 )
                 # Capture the non-None printer in the closure
                 printer = slack_printer

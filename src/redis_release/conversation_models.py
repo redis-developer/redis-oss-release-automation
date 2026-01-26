@@ -7,12 +7,27 @@ from pydantic import BaseModel, Field
 
 from .models import SlackArgs
 
+IGNORE_THREAD_MESSAGE = "I will ignore this thread."
+
 
 class Command(str, Enum):
 
     RELEASE = "release"
+    CUSTOM_BUILD = "custom_build"
     STATUS = "status"
     HELP = "help"
+    IGNORE_THREAD = "ignore_thread"
+    NEED_CONTEXT = "need_context"
+
+
+COMMAND_DESCRIPTIONS = {
+    Command.RELEASE: "Start or restart a release process using provided version tag and parameters.",
+    Command.CUSTOM_BUILD: "Start or restart a custom build process using provided version tag and parameters. Custom build allows to build Redis using arbitrary tag for redis and for all the modules",
+    Command.STATUS: "Check the status of a release: run status command for existing release state",
+    Command.HELP: "Get help",
+    Command.IGNORE_THREAD: "Ignore this thread, do not answer any more messages in this thread without explicit mention",
+    Command.NEED_CONTEXT: "Need more context to understand the request",
+}
 
 
 class InboxMessage(BaseModel):
