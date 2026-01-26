@@ -284,6 +284,16 @@ def slack_bot(
         "-c",
         help="Path to config file (default: config.yaml)",
     ),
+    ignore_channels: Optional[List[str]] = typer.Option(
+        None,
+        "--ignore-channel",
+        help="Channel ID to ignore messages from (can be specified multiple times)",
+    ),
+    only_channels: Optional[List[str]] = typer.Option(
+        None,
+        "--only-channel",
+        help="Only process messages from these channel IDs (can be specified multiple times)",
+    ),
     log_file: Optional[str] = typer.Option(
         None,
         "--log-file",
@@ -316,6 +326,8 @@ def slack_bot(
             authorized_users=authorized_users,
             openai_api_key=openai_api_key,
             config_path=config,
+            ignore_channels=ignore_channels,
+            only_channels=only_channels,
         )
     )
 

@@ -56,6 +56,8 @@ class ReleaseBot:
         authorized_users: Optional[List[str]] = None,
         openai_api_key: Optional[str] = None,
         config_path: Optional[str] = None,
+        ignore_channels: Optional[List[str]] = None,
+        only_channels: Optional[List[str]] = None,
     ) -> None:
         """Initialize the bot.
 
@@ -65,11 +67,15 @@ class ReleaseBot:
             reply_in_thread: If True, reply in thread. If False, reply in main channel
             broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
             authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
-            llm: OpenAI client for LLM-based command detection
+            openai_api_key: OpenAI API key for LLM-based command detection
+            ignore_channels: List of channel IDs to ignore messages from
+            only_channels: List of channel IDs to only process messages from
         """
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
+        self.ignore_channels = ignore_channels or []
+        self.only_channels = only_channels or []
 
         self.config_path = config_path
 
@@ -165,6 +171,19 @@ class ReleaseBot:
                 assert isinstance(channel, str)
                 assert isinstance(user, str)
                 assert isinstance(thread_ts, str)
+
+                # Channel filtering
+                if self.only_channels and channel not in self.only_channels:
+                    logger.debug(
+                        f"Ignoring message from channel {channel}: not in only_channels list"
+                    )
+                    return
+
+                if self.ignore_channels and channel in self.ignore_channels:
+                    logger.debug(
+                        f"Ignoring message from channel {channel}: in ignore_channels list"
+                    )
+                    return
 
                 logger.info(
                     f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}: {text}"
@@ -268,7 +287,7 @@ class ReleaseBot:
                 channel=channel, ts=thread_ts
             )
 
-            messages = result.get("messages", [])
+            messages: List[Dict[str, Any]] = result.get("messages", [])
             # Extract text from messages, excluding the bot's own messages
             context = [
                 msg.get("text", "")
@@ -307,7 +326,7 @@ class ReleaseBot:
                 channel=channel, ts=thread_ts
             )
 
-            messages = result.get("messages", [])
+            messages: List[Dict[str, Any]] = result.get("messages", [])
             logger.debug(f"Found {len(messages)} messages in thread {thread_ts}")
 
             # Bot mention pattern: <@USER_ID>
@@ -436,6 +455,8 @@ async def run_bot(
     authorized_users: Optional[List[str]] = None,
     openai_api_key: Optional[str] = None,
     config_path: Optional[str] = None,
+    ignore_channels: Optional[List[str]] = None,
+    only_channels: Optional[List[str]] = None,
 ) -> None:
     """Run the Slack bot.
 
@@ -446,6 +467,8 @@ async def run_bot(
         broadcast_to_channel: If True and reply_in_thread is True, also show in main channel
         authorized_users: List of user IDs authorized to run commands. If None, all users are authorized
         openai_api_key: OpenAI API key for LLM-based command detection. If None, uses OPENAI_API_KEY env var
+        ignore_channels: List of channel IDs to ignore messages from
+        only_channels: List of channel IDs to only process messages from
     """
 
     # Create and start bot
@@ -457,6 +480,8 @@ async def run_bot(
         authorized_users=authorized_users,
         openai_api_key=openai_api_key,
         config_path=config_path,
+        ignore_channels=ignore_channels,
+        only_channels=only_channels,
     )
 
     await bot.start()
