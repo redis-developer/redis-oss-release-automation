@@ -40,13 +40,16 @@ jobs:
 
           echo "Extracted Redis version: ${REDIS_VERSION}"
 
-          # Handle "unstable" version - convert to "8"
+          # Store original version for result.json
+          echo "redis_version_original=${REDIS_VERSION}" >> $GITHUB_OUTPUT
+
+          # Handle "unstable" version - convert to "8" for testing action
           if [[ "${REDIS_VERSION}" == "unstable" ]]; then
             REDIS_VERSION="8"
-            echo "Converted unstable to version 8"
+            echo "Converted unstable to version 8 for testing action"
           fi
 
-          echo "Final Redis version: ${REDIS_VERSION}"
+          echo "Final Redis version for tests: ${REDIS_VERSION}"
           echo "redis_version=${REDIS_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Run tests
@@ -58,3 +61,39 @@ jobs:
             redis-py-repo: redis/redis-py
             redis-py-ref: master
             client-libs-test-image: ${{ inputs.client_test_image }}
+
+      - name: Create result artifact
+        if: always()
+        shell: bash
+        run: |
+          # Determine status based on previous steps
+          if [ "${{ job.status }}" == "success" ]; then
+            STATUS="success"
+          else
+            STATUS="failure"
+          fi
+
+          # Construct full image name for reference
+          FULL_IMAGE="redislabs/client-libs-test:${{ inputs.client_test_image }}"
+
+          # Create result.json with comprehensive test information
+          cat > result.json << EOF
+          {
+            "status": "${STATUS}",
+            "client_test_image_tag": "${{ inputs.client_test_image }}",
+            "redis_version": "${{ steps.extract_version.outputs.redis_version_original }}",
+            "python_version": "3.14",
+            "parser_backend": "plain",
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 7
