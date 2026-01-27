@@ -5,18 +5,20 @@ Models help to organize basic display logic and structure and make it reusable a
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from py_trees import common
 from py_trees.common import Status
 
-from redis_release.models import WorkflowConclusion, WorkflowType
+from redis_release.models import RedisModule, WorkflowConclusion, WorkflowType
 
 from .bht.state import (
     ClientImageMeta,
+    DockerMeta,
     HomebrewMeta,
     Package,
     PackageMeta,
+    ReleaseState,
     SnapMeta,
     Workflow,
 )
@@ -62,6 +64,44 @@ _STEP_STATUS_MAPPING = {
 
 class DisplayModelGeneric:
     """Model for computing display status from workflow state."""
+
+    def get_custom_versions(self, state: ReleaseState) -> Dict[str, str]:
+        """Get custom version information for display.
+
+        Detects whether the build is custom using is_custom_build flag
+        or if any module has a requested custom version.
+
+        Args:
+            state: The release state
+
+        Returns:
+            Dictionary of component names to versions. Empty if not a custom build.
+            Contains 'redis: <release_tag>' if custom build, plus any explicit module versions.
+        """
+        result: Dict[str, str] = {}
+
+        # Check if any docker package has explicit module versions
+        docker_package = state.packages.get("docker")
+        module_versions: Dict[RedisModule, str] = {}
+        if docker_package and isinstance(docker_package.meta, DockerMeta):
+            if docker_package.meta.module_versions:
+                module_versions = docker_package.meta.module_versions
+
+        # Determine if this is a custom build
+        is_custom = state.meta.is_custom_build or bool(module_versions)
+
+        if not is_custom:
+            return result
+
+        # Add redis version (release tag)
+        if state.meta.tag:
+            result["redis"] = state.meta.tag
+
+        # Add explicit module versions
+        for module, version in module_versions.items():
+            result[module.value] = version
+
+        return result
 
     def get_workflow_section(self, workflow: Workflow) -> Section:
         """Get the section name for a workflow based on its type.

@@ -11,7 +11,13 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from redis_release.models import SlackFormat
-from redis_release.state_display import Section, Step, StepStatus, get_display_model
+from redis_release.state_display import (
+    DisplayModelGeneric,
+    Section,
+    Step,
+    StepStatus,
+    get_display_model,
+)
 
 from .bht.state import Package, ReleaseState, Workflow
 
@@ -144,7 +150,9 @@ class SlackStatePrinter:
         return formatted
 
     def _blocks_append(
-        self, blocks: List[Dict[str, Any]], block: Optional[Dict[str, Any]]
+        self,
+        blocks: List[Dict[str, Any]],
+        block: Optional[List[Union[Dict[str, Any], None]]],
     ) -> None:
         """Append block to blocks list if block is not None.
 
@@ -153,7 +161,9 @@ class SlackStatePrinter:
             block: The block to append (if not None)
         """
         if block is not None:
-            blocks.append(block)
+            for b in block:
+                if isinstance(b, dict):
+                    blocks.append(b)
 
     def _make_header_blocks(self, state: ReleaseState) -> List[Dict[str, Any]]:
         """Create header blocks for Slack message.
@@ -166,13 +176,14 @@ class SlackStatePrinter:
         """
         blocks: List[Dict[str, Any]] = []
 
-        # Header
+        # Header - use "Custom Build" if is_custom_build, otherwise "Release"
+        header_prefix = "Custom Build" if state.meta.is_custom_build else "Release"
         blocks.append(
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"Release {state.meta.tag or 'N/A'} — Status",
+                    "text": f"{header_prefix} {state.meta.tag or 'N/A'} — Status",
                 },
             }
         )
@@ -186,7 +197,7 @@ class SlackStatePrinter:
                     {"type": "mrkdwn", "text": f"state-name: {self.state_name}"}
                 ],
             }
-        self._blocks_append(blocks, state_name_block)
+        self._blocks_append(blocks, [state_name_block])
 
         # Dates
         started_str = ""
@@ -207,7 +218,47 @@ class SlackStatePrinter:
                 "type": "context",
                 "elements": [{"type": "mrkdwn", "text": dates_str}],
             }
-        self._blocks_append(blocks, dates_block)
+        self._blocks_append(blocks, [dates_block])
+
+        return blocks
+
+    def _make_custom_build_blocks(
+        self, state: ReleaseState
+    ) -> List[Union[Dict[str, Any], None]]:
+        """Create custom build info blocks for Slack message.
+
+        Uses display model to get custom build info and creates a block
+        if there are custom versions to display.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of custom build block dictionaries (empty if not a custom build)
+        """
+        blocks: List[Dict[str, Any]] = []
+
+        display_model = DisplayModelGeneric()
+        custom_versions = display_model.get_custom_versions(state)
+
+        if not custom_versions:
+            return blocks
+
+        # Format custom versions as a list
+        version_lines = [
+            f"• *{name}:* {version}" for name, version in custom_versions.items()
+        ]
+        versions_text = "\n".join(version_lines)
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Custom Versions*\n{versions_text}",
+                },
+            }
+        )
 
         return blocks
 
@@ -285,6 +336,9 @@ class SlackStatePrinter:
             List of Slack block dictionaries
         """
         blocks: List[Dict[str, Any]] = self._make_header_blocks(state)
+
+        # Add custom build info if applicable
+        self._blocks_append(blocks, self._make_custom_build_blocks(state))
 
         blocks.append({"type": "divider"})
 
