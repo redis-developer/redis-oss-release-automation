@@ -83,7 +83,7 @@ jobs:
             "client_test_image_tag": "${{ inputs.client_test_image }}",
             "redis_version": "${{ steps.extract_version.outputs.redis_version_original }}",
             "python_version": "3.14",
-            "parser_backend": "plain",
+            "parser_backend": "plain"
           }
           EOF
 
