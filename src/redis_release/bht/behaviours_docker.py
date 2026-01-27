@@ -40,10 +40,14 @@ class DockerBuildWorkflowInputs(ReleaseAction):
             self.workflow.inputs["run_type"] = "unstable"
         else:
             self.workflow.inputs["run_type"] = "custom"
+
         if self.package_meta.module_versions:
             self.workflow.inputs["run_type"] = "custom"
             for module, version in self.package_meta.module_versions.items():
                 self.workflow.inputs[f"{module.value}_version"] = version
+
+        if self.release_meta.is_custom_build:
+            self.workflow.inputs["run_type"] = "custom"
 
         if self.release_meta.ephemeral.slack_channel_id is not None:
             self.workflow.inputs["slack_channel_id"] = (
@@ -140,14 +144,17 @@ class DetectReleaseTypeDocker(LoggingAction):
             result = Status.SUCCESS
             self.feedback_message = f"Release type for docker (from state): {self.package_meta.release_type}"
         elif self.release_version is not None:
-            if self.release_version.is_internal:
+            if self.release_meta.is_custom_build:
+                # Custom builds are always internal
                 self.package_meta.release_type = ReleaseType.INTERNAL
+                self.feedback_message = f"Custom build requested, setting release type for docker: {self.package_meta.release_type}"
             else:
-                self.package_meta.release_type = ReleaseType.PUBLIC
+                if self.release_version.is_internal:
+                    self.package_meta.release_type = ReleaseType.INTERNAL
+                else:
+                    self.package_meta.release_type = ReleaseType.PUBLIC
+                self.feedback_message = f"Detected release type for docker: {self.package_meta.release_type}"
             result = Status.SUCCESS
-            self.feedback_message = (
-                f"Detected release type for docker: {self.package_meta.release_type}"
-            )
         else:
             self.package_meta.release_type = ReleaseType.INTERNAL
             self.feedback_message = "Set release type to internal for custom build"

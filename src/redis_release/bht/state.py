@@ -259,6 +259,7 @@ class ReleaseMeta(BaseModel):
 
     tag: Optional[str] = None
     ephemeral: ReleaseMetaEphemeral = Field(default_factory=ReleaseMetaEphemeral)
+    is_custom_build: bool = False
 
 
 class ReleaseState(BaseModel):
