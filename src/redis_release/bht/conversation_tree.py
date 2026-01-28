@@ -17,6 +17,7 @@ from .conversation_behaviours import (
     IsCommandStarted,
     IsLLMAvailable,
     LLMCommandClassifier,
+    LLMCommandClassifier2,
     NeedConfirmation,
     RunReleaseCommand,
     RunStatusCommand,
@@ -34,12 +35,14 @@ def create_conversation_root_node(
     input: InboxMessage,
     config: Config,
     cockpit: ConversationCockpit,
+    context: Optional[List[InboxMessage]] = None,
     slack_args: Optional[SlackArgs] = None,
     authorized_users: Optional[List[str]] = None,
 ) -> Tuple[Behaviour, ConversationState]:
     state = ConversationState(
         llm_available=cockpit.llm is not None,
         message=input,
+        context=context,
         slack_args=slack_args,
         authorized_users=authorized_users,
     )
@@ -60,7 +63,7 @@ def create_conversation_root_node(
                     ),
                 ],
             ),
-            LLMCommandClassifier("LLM Classification", state, cockpit),
+            LLMCommandClassifier2("LLM Classification", state, cockpit),
         ],
     )
 

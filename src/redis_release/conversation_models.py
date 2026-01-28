@@ -17,27 +17,32 @@ class Command(str, Enum):
     STATUS = "status"
     HELP = "help"
     IGNORE_THREAD = "ignore_thread"
-    NEED_CONTEXT = "need_context"
+    SKIP_MESSAGE = "skip_message"
 
 
 COMMAND_DESCRIPTIONS = {
     Command.RELEASE: "Start or restart a release process using provided version tag and parameters.",
-    Command.CUSTOM_BUILD: "Start or restart a custom build process using provided version tag and parameters. Custom build allows to build Redis using arbitrary tag for redis and for all the modules",
+    Command.CUSTOM_BUILD: """Start or restart a custom build process using provided version tag and parameters.
+    Custom build allows to build Redis using arbitrary tag for redis and for all the modules.
+    It is intended to run tests for custom in development versions of Redis and modules before creating actual release.
+    Custom build may be referred as run tests for Redis or run tests for modules.
+    """,
     Command.STATUS: "Check the status of a release: run status command for existing release state",
     Command.HELP: "Get help",
     Command.IGNORE_THREAD: "Ignore this thread, do not answer any more messages in this thread without explicit mention",
-    Command.NEED_CONTEXT: "Need more context to understand the request",
+    Command.SKIP_MESSAGE: "Skip this message, it's not relevant to the conversation or is intended for other user.",
 }
 
 
 class InboxMessage(BaseModel):
     message: str
-    context: List[str]
     user: Optional[str] = None
+    is_bot: bool = False
 
 
 class ConversationArgs(BaseModel):
     inbox: Optional[InboxMessage]
+    context: Optional[List[InboxMessage]] = None
     config_path: Optional[str] = None
     slack_args: Optional[SlackArgs] = None
     openai_api_key: Optional[str] = None
@@ -86,6 +91,15 @@ class CommandDetectionResult(BaseModel):
     )
     is_confirmed: bool = Field(
         False, description="Whether the user is confirming a command"
+    )
+    reply: Optional[str] = Field(
+        None, description="Natural language reply to send back to user"
+    )
+
+
+class CommandDetectionResult2(BaseModel):
+    command: Optional[Command] = Field(
+        None, description="Detected command name (release, status, custom_build, etc.)"
     )
     reply: Optional[str] = Field(
         None, description="Natural language reply to send back to user"

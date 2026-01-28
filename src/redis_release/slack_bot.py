@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import threading
+from pprint import pformat, pprint
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import janus
@@ -100,6 +101,9 @@ class ReleaseBot:
         # Initialize async Slack app
         self.app = AsyncApp(token=self.bot_token)
 
+        # Workspace emojis (populated on start)
+        self.emojis: Dict[str, str] = {}
+
         # Register event handlers
         self._register_handlers()
 
@@ -192,11 +196,10 @@ class ReleaseBot:
                 # Get slack thread messages
                 context = await self._get_thread_messages(channel, thread_ts)
 
-                inbox_message = InboxMessage(
-                    message=text, user=user, context=context or []
-                )
+                inbox_message = InboxMessage(message=text, user=user)
                 args = ConversationArgs(
                     inbox=inbox_message,
+                    context=context,
                     config_path=self.config_path,
                     slack_args=SlackArgs(
                         bot_token=self.bot_token,
@@ -271,7 +274,9 @@ class ReleaseBot:
             else:
                 logger.debug("Bot not participating in this thread, ignoring message")
 
-    async def _get_thread_messages(self, channel: str, thread_ts: str) -> List[str]:
+    async def _get_thread_messages(
+        self, channel: str, thread_ts: str
+    ) -> List[InboxMessage]:
         """Get all messages from a thread.
 
         Args:
@@ -288,12 +293,17 @@ class ReleaseBot:
             )
 
             messages: List[Dict[str, Any]] = result.get("messages", [])
-            # Extract text from messages, excluding the bot's own messages
-            context = [
-                msg.get("text", "")
+            logger.debug(f"Msgs in thread " + pformat(messages))
+            # Extract text from messages
+            context: List[InboxMessage] = [
+                InboxMessage(
+                    message=msg.get("text", ""),
+                    user=msg.get("user"),
+                    is_bot=msg.get("bot_id") is not None,
+                )
                 for msg in messages
-                if msg.get("text") and not msg.get("bot_id")
             ]
+            logger.debug(f"Context: " + pformat(context))
             return context
 
         except Exception as e:
@@ -444,9 +454,26 @@ class ReleaseBot:
                 text=text,
             )
 
+    async def _fetch_emojis(self) -> None:
+        """Fetch workspace emojis and store them in self.emojis."""
+        try:
+            result = await self.app.client.emoji_list()
+            if result.get("ok"):
+                self.emojis = result.get("emoji", {})
+                logger.info(f"Fetched {len(self.emojis)} workspace emojis")
+                logger.debug(f"Emojis: {pformat(self.emojis)}")
+            else:
+                logger.warning(f"Failed to fetch emojis: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error fetching emojis: {e}", exc_info=True)
+
     async def start(self) -> None:
         """Start the bot using Socket Mode."""
         logger.info("Starting Slack bot in Socket Mode...")
+
+        # Fetch workspace emojis before starting
+        await self._fetch_emojis()
+
         handler = AsyncSocketModeHandler(self.app, self.app_token)
         await handler.start_async()
 

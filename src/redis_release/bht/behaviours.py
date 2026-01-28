@@ -49,6 +49,7 @@ class LoggingAction(Behaviour):
 
     def log_exception_and_return_failure(self, e: Exception) -> Status:
         self.logger.error(f"[red]failed with exception:[/red] {type(e).__name__}: {e}")
+        self.feedback_message = f"failed with exception: {type(e).__name__}: {e}"
         # use the underlying logger to get the full traceback
         self.logger._logger.error(f"[red]Full traceback:[/red]", exc_info=True)
         return Status.FAILURE

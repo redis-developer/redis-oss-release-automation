@@ -10,6 +10,7 @@ class ConversationState(BaseModel):
     llm_available: bool = False
     llm_confirmation_required: bool = True
     message: Optional[InboxMessage] = None
+    context: Optional[List[InboxMessage]] = None
     command: Optional[Command] = None
     command_started: bool = False
     is_confirmed: bool = False
