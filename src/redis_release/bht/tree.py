@@ -8,7 +8,7 @@ import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Iterator, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
@@ -34,10 +34,14 @@ from .ppas import (
     create_workflow_completion_ppa,
     create_workflow_success_ppa,
 )
-from .state import SUPPORTED_STATE_VERSION, ReleaseState
+from .state import SUPPORTED_STATE_VERSION, Package, ReleaseState
 from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
+
+
+# Packages that support custom builds
+CUSTOM_BUILD_PACKAGES = ["docker", "clientimage"]
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
@@ -81,6 +85,49 @@ def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
         logger.debug(f"Active task: {task_name} - {coro_name}")
 
 
+def arrange_packages_list(
+    packages: Dict[str, Package],
+    only_packages: List[str],
+    custom_build: bool,
+) -> List[str]:
+    """Arrange and filter the list of packages to process.
+
+    Args:
+        packages: Dictionary of package names to Package objects
+        only_packages: List of package names to filter to (if non-empty)
+        custom_build: If True, only include packages that support custom builds
+
+    Returns:
+        Filtered list of package names to process
+    """
+    # Define available packages based on custom_build mode
+    available_packages: List[str] = []
+    result: List[str] = []
+    if custom_build:
+        available_packages = CUSTOM_BUILD_PACKAGES
+
+    if available_packages:
+        if only_packages:
+            for p in list(set(only_packages) - set(available_packages)):
+                logger.warning(
+                    f"Package {p}: not available for custom builds, but was requested as only package"
+                )
+            result = list(set(available_packages) & set(only_packages))
+        else:
+            result = available_packages
+    else:
+        for package_name, package in packages.items():
+            if only_packages and package_name not in only_packages:
+                logger.info(f"Skipping package {package_name}: not in only_packages")
+                continue
+            result.append(package_name)
+
+    if not result:
+        raise ValueError("No packages left after filtering")
+
+    return result
+
+
 @contextmanager
 def initialize_tree_and_state(
     config: Config,
@@ -100,11 +147,16 @@ def initialize_tree_and_state(
         args=args,
         read_only=read_only,
     ) as state_syncer:
+        packages_list = arrange_packages_list(
+            packages=state_syncer.state.packages,
+            only_packages=args.only_packages,
+            custom_build=args.custom_build,
+        )
         root = create_root_node(
             state_syncer.state,
             state_syncer.default_state(),
             github_client,
-            args.only_packages,
+            packages_list=packages_list,
         )
         tree = BehaviourTree(root)
 
@@ -184,7 +236,7 @@ def create_root_node(
     state: ReleaseState,
     default_state: ReleaseState,
     github_client: GitHubClientAsync,
-    only_packages: Optional[List[str]] = None,
+    packages_list: List[str],
 ) -> Behaviour:
 
     root = ParallelBarrier(
@@ -192,10 +244,8 @@ def create_root_node(
         memory=False,
         children=[],
     )
-    for package_name, package in state.packages.items():
-        if only_packages and package_name not in only_packages:
-            logger.info(f"Skipping package {package_name} as it's not in only_packages")
-            continue
+    for package_name in packages_list:
+        package = state.packages[package_name]
         root.add_child(
             get_factory(
                 package.meta.package_type

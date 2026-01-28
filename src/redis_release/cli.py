@@ -54,6 +54,11 @@ def release_print(
         "--only-packages",
         help="Only process specific packages (can be specified multiple times)",
     ),
+    custom_build: bool = typer.Option(
+        False,
+        "--custom-build",
+        help="Enforce custom build mode, this will interpret release tag as a git ref (branch or tag) and use only packages supporting custom builds",
+    ),
 ) -> None:
     """Print and render (using graphviz) the release behaviour tree or a specific PPA."""
     config_path = config_file or "config.yaml"
@@ -64,6 +69,7 @@ def release_print(
         release_tag=release_tag,
         force_rebuild=[],
         only_packages=only_packages or [],
+        custom_build=custom_build,
     )
     setup_logging()
 
@@ -137,6 +143,11 @@ def release(
         "--override-state-name",
         help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
     ),
+    custom_build: bool = typer.Option(
+        False,
+        "--custom-build",
+        help="Enforce custom build mode, this will interpret release tag as a git ref (branch or tag) and use only packages supporting custom builds",
+    ),
     slack_token: Optional[str] = typer.Option(
         None,
         "--slack-token",
@@ -176,6 +187,7 @@ def release(
         force_release_type=parse_force_release_type(force_release_type),
         override_state_name=override_state_name,
         module_versions=parse_module_versions(module_versions),
+        custom_build=custom_build,
         slack_args=SlackArgs(
             bot_token=slack_token,
             channel_id=slack_channel_id,

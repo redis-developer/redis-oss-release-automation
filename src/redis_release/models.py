@@ -222,6 +222,7 @@ class ReleaseArgs(BaseModel):
     module_versions: Dict[RedisModule, str] = Field(default_factory=dict)
 
     slack_args: Optional["SlackArgs"] = None
+    custom_build: bool = False
 
 
 class SlackArgs(BaseModel):
