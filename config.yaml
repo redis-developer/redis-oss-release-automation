@@ -77,4 +77,4 @@ packages:
     ref: redis-py-package
     package_type: clienttest
     build_workflow: redis-py.yml
-    build_timeout_minutes: 60
+    build_timeout_minutes: 45

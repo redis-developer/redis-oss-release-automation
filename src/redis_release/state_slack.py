@@ -402,16 +402,17 @@ class SlackStatePrinter:
                 )
             # Show error message if workflow failed
             elif workflow.conclusion == WorkflowConclusion.FAILURE and workflow.run_id is not None:
-                workflow_url = f"https://github.com/{state.release_meta.github_repo}/actions/runs/{workflow.run_id}"
-                blocks.append(
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"*Redis-py Tests*\n❌ Workflow failed\n<{workflow_url}|View workflow logs>",
-                        },
-                    }
-                )
+                workflow_url = get_workflow_link(redispy_package.meta.repo, workflow.run_id)
+                if workflow_url:
+                    blocks.append(
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"*Redis-py Tests*\n:x: Test failed - <{workflow_url}|view logs>",
+                            },
+                        }
+                    )
 
         return blocks
 
