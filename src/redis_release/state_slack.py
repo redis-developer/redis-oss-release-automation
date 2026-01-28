@@ -10,7 +10,7 @@ from click import Option
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from redis_release.models import SlackFormat
+from redis_release.models import PackageType, SlackFormat
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
 from .bht.state import Package, ReleaseState, Workflow
@@ -295,7 +295,9 @@ class SlackStatePrinter:
                 continue
 
             # Package section
-            build_with_emoji = f"*Build:* {build_status_emoji}"
+            # Use "Test" label for clienttest package types instead of "Build"
+            build_label = "Test" if package.meta.package_type == PackageType.CLIENTTEST else "Build"
+            build_with_emoji = f"*{build_label}:* {build_status_emoji}"
             publish_with_emoji = ""
             if package.publish is not None:
                 publish_with_emoji = f"*Publish:* {publish_status_emoji}"
@@ -370,6 +372,31 @@ class SlackStatePrinter:
                             },
                         }
                     )
+
+        # Redis-py test results
+        redispy_package = state.packages.get("redis-py")
+        if redispy_package is not None:
+            result = redispy_package.build.result
+            if result is not None:
+                status = result.get("status", "unknown")
+                redis_version = result.get("redis_version", "N/A")
+                image_tag = result.get("client_test_image_tag", "N/A")
+                python_version = result.get("python_version", "N/A")
+                parser = result.get("parser_backend", "N/A")
+
+                # Status emoji
+                status_emoji = "✅" if status == "success" else "❌"
+                status_text = "Success" if status == "success" else "Failed"
+
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Redis-py Tests*\n{status_emoji} {status_text}\n```\nRedis Version: {redis_version}\nImage Tag: {image_tag}\nPython: {python_version}\nParser: {parser}\n```",
+                        },
+                    }
+                )
 
         return blocks
 

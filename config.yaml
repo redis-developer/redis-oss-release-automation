@@ -68,7 +68,7 @@ packages:
     publish_inputs: {}
   clientimage:
     repo: redis-developer/cae-client-testing
-    ref: make-tls-backwards-compatible
+    ref: main
     package_type: clientimage
     build_workflow: docker-client-libs-test-pre-release.yaml
     build_timeout_minutes: 20
