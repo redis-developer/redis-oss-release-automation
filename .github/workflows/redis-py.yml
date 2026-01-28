@@ -58,8 +58,8 @@ jobs:
             python-version: 3.14
             parser-backend: plain
             redis-version: ${{ steps.extract_version.outputs.redis_version }}
-            redis-py-repo: redis/redis-py
-            redis-py-ref: master
+            repository: redis/redis-py
+            ref: master
             client-libs-test-image: ${{ inputs.client_test_image }}
 
       - name: Create result artifact
