@@ -13,7 +13,7 @@ from slack_sdk.errors import SlackApiError
 from redis_release.models import PackageType, SlackFormat
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
-from .bht.state import Package, ReleaseState, Workflow
+from .bht.state import Package, ReleaseState, Workflow, WorkflowConclusion
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +377,9 @@ class SlackStatePrinter:
         redispy_package = state.packages.get("redis-py")
         if redispy_package is not None:
             result = redispy_package.build.result
+            workflow = redispy_package.build
+
+            # Show result if workflow succeeded and we have results
             if result is not None:
                 status = result.get("status", "unknown")
                 redis_version = result.get("redis_version", "N/A")
@@ -394,6 +397,18 @@ class SlackStatePrinter:
                         "text": {
                             "type": "mrkdwn",
                             "text": f"*Redis-py Tests*\n{status_emoji} {status_text}\n```\nRedis Version: {redis_version}\nImage Tag: {image_tag}\nPython: {python_version}\nParser: {parser}\n```",
+                        },
+                    }
+                )
+            # Show error message if workflow failed
+            elif workflow.conclusion == WorkflowConclusion.FAILURE and workflow.run_id is not None:
+                workflow_url = f"https://github.com/{state.release_meta.github_repo}/actions/runs/{workflow.run_id}"
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Redis-py Tests*\n❌ Workflow failed\n<{workflow_url}|View workflow logs>",
                         },
                     }
                 )

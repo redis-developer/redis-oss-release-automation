@@ -1,8 +1,6 @@
 name: "Redis-py client testing"
 
 on:
-  push:
-    branches: [ "redis-py-package" ]
   workflow_dispatch:
     inputs:
       workflow_uuid:
