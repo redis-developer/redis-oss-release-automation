@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 # Packages that support custom builds
-CUSTOM_BUILD_PACKAGES = ["docker", "clientimage"]
+CUSTOM_BUILD_PACKAGES = ["docker", "clientimage", "redis-py"]
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
