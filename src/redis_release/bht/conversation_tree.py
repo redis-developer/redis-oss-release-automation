@@ -13,11 +13,19 @@ from ..config import Config, load_config
 from ..conversation_models import ConversationArgs, ConversationCockpit, InboxMessage
 from ..models import SlackArgs
 from .conversation_behaviours import (
+    HasIntent,
     HasReleaseArgs,
+    IsAction,
     IsCommandStarted,
     IsLLMAvailable,
+    IsNoAction,
+    IsQuestion,
+    LLMActionHandler,
     LLMCommandClassifier,
     LLMCommandClassifier2,
+    LLMIntentDetector,
+    LLMNoActionHandler,
+    LLMQuestionHandler,
     NeedConfirmation,
     RunReleaseCommand,
     RunStatusCommand,
@@ -38,6 +46,7 @@ def create_conversation_root_node(
     context: Optional[List[InboxMessage]] = None,
     slack_args: Optional[SlackArgs] = None,
     authorized_users: Optional[List[str]] = None,
+    emojis: Optional[List[str]] = None,
 ) -> Tuple[Behaviour, ConversationState]:
     state = ConversationState(
         llm_available=cockpit.llm is not None,
@@ -45,8 +54,53 @@ def create_conversation_root_node(
         context=context,
         slack_args=slack_args,
         authorized_users=authorized_users,
+        emojis=emojis or [],
     )
     state.message = input
+
+    LLMStage2 = Selector(
+        "LLM Stage 2",
+        memory=False,
+        children=[
+            Sequence(
+                "Question",
+                memory=False,
+                children=[
+                    IsQuestion("Is Question", state, cockpit),
+                    LLMQuestionHandler("Handle Question", state, cockpit),
+                ],
+            ),
+            Sequence(
+                "Action",
+                memory=False,
+                children=[
+                    IsAction("Is Action", state, cockpit),
+                    LLMActionHandler("Handle Action", state, cockpit),
+                ],
+            ),
+            Sequence(
+                "NoAction",
+                memory=False,
+                children=[
+                    IsNoAction("Is No Action", state, cockpit),
+                    LLMNoActionHandler("Handle NoAction", state, cockpit),
+                ],
+            ),
+        ],
+    )
+
+    LLMIntent = Selector(
+        "LLM Intent",
+        memory=False,
+        children=[
+            HasIntent("Has Intent", state, cockpit),
+            LLMIntentDetector("Detect Intent", state, cockpit),
+        ],
+    )
+
+    LLMClass = Sequence(
+        "LLM Classification", memory=False, children=[LLMIntent, LLMStage2]
+    )
 
     command_detector = Selector(
         "Classify Command",
@@ -63,7 +117,8 @@ def create_conversation_root_node(
                     ),
                 ],
             ),
-            LLMCommandClassifier2("LLM Classification", state, cockpit),
+            # LLMCommandClassifier2("LLM Classification", state, cockpit),
+            LLMClass,
         ],
     )
 
@@ -137,8 +192,10 @@ def initialize_conversation_tree(
         args.inbox,
         config=config,
         cockpit=cockpit,
+        context=args.context,
         slack_args=args.slack_args,
         authorized_users=args.authorized_users,
+        emojis=args.emojis,
     )
     tree = BehaviourTree(root)
     snapshot_visitor = SnapshotVisitor()
@@ -153,6 +210,8 @@ def run_conversation_tree(
     """Abstacting away tree run
     Currently it's just a single tick, but it may change in future
     """
+    from ..conversation_models import BotReply
+
     try:
         tree.tick()
         try:
@@ -163,7 +222,7 @@ def run_conversation_tree(
             logger.error(f"Error putting reply to queue: {e}", exc_info=True)
     except Exception as e:
         try:
-            reply_queue.put(f"Error running conversation tree: {str(e)}")
+            reply_queue.put(BotReply(text=f"Error running conversation tree: {str(e)}"))
         except Exception as e:
             logger.error(f"Error putting error reply to queue: {e}", exc_info=True)
     finally:

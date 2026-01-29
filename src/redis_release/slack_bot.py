@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import threading
 from pprint import pformat, pprint
 from typing import Any, Callable, Coroutine, Dict, List, Optional
@@ -10,11 +11,16 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
-from redis_release.bht.conversation_state import InboxMessage
 from redis_release.models import SlackArgs
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
-from .conversation_models import ConversationArgs
+from .conversation_models import (
+    BotQueueItem,
+    BotReaction,
+    BotReply,
+    ConversationArgs,
+    InboxMessage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +122,10 @@ class ReleaseBot:
         Args:
             args: Conversation arguments
         """
-        queue: janus.Queue[str] = janus.Queue()
+        queue: janus.Queue[BotQueueItem] = janus.Queue()
 
         tree, state = initialize_conversation_tree(args, queue.sync_q)
+        logger.debug("Init State: " + pformat(state))
 
         # Create thread for running the tree (but don't start yet)
         tree_thread = threading.Thread(
@@ -130,6 +137,10 @@ class ReleaseBot:
         assert args.slack_args
         assert args.slack_args.channel_id
         assert args.slack_args.thread_ts
+        assert args.inbox
+
+        # Get the inbox message timestamp for reactions
+        inbox_ts = args.inbox.slack_ts
 
         # Create and start queue listener as background task
         queue_listener = self.create_queue_listener(
@@ -137,6 +148,7 @@ class ReleaseBot:
             args.slack_args.channel_id,
             args.slack_args.thread_ts,
             tree_thread,
+            inbox_ts,
         )
         asyncio.create_task(queue_listener())
 
@@ -196,7 +208,7 @@ class ReleaseBot:
                 # Get slack thread messages
                 context = await self._get_thread_messages(channel, thread_ts)
 
-                inbox_message = InboxMessage(message=text, user=user)
+                inbox_message = InboxMessage(message=text, user=user, slack_ts=ts)
                 args = ConversationArgs(
                     inbox=inbox_message,
                     context=context,
@@ -209,6 +221,7 @@ class ReleaseBot:
                     ),
                     openai_api_key=self.openai_api_key,
                     authorized_users=self.authorized_users,
+                    emojis=self._limit_emojis(),
                 )
 
                 self.start_conversation(args)
@@ -274,6 +287,131 @@ class ReleaseBot:
             else:
                 logger.debug("Bot not participating in this thread, ignoring message")
 
+    def _extract_rich_text_element(self, element: Dict[str, Any]) -> str:
+        """Extract text from a rich_text element (recursive).
+
+        Args:
+            element: A rich_text element dict
+
+        Returns:
+            Extracted text string
+        """
+        element_type = element.get("type", "")
+
+        # Direct text elements
+        if element_type == "text":
+            return str(element.get("text", ""))
+        elif element_type == "link":
+            # Links may have text or just URL
+            return str(element.get("text", element.get("url", "")))
+        elif element_type == "emoji":
+            return f":{element.get('name', '')}:"
+        elif element_type == "user":
+            return f"<@{element.get('user_id', '')}>"
+        elif element_type == "channel":
+            return f"<#{element.get('channel_id', '')}>"
+        elif element_type == "usergroup":
+            return f"<!subteam^{element.get('usergroup_id', '')}>"
+        elif element_type == "broadcast":
+            return f"@{element.get('range', 'here')}"
+
+        # Container elements with nested elements
+        elif element_type in (
+            "rich_text_section",
+            "rich_text_preformatted",
+            "rich_text_quote",
+        ):
+            parts = []
+            for sub_element in element.get("elements", []):
+                parts.append(self._extract_rich_text_element(sub_element))
+            return "".join(parts)
+        elif element_type == "rich_text_list":
+            parts = []
+            style = element.get("style", "bullet")
+            for i, item in enumerate(element.get("elements", [])):
+                prefix = f"{i + 1}. " if style == "ordered" else "• "
+                parts.append(prefix + self._extract_rich_text_element(item))
+            return "\n".join(parts)
+
+        return ""
+
+    def _extract_block_text(self, block: Dict[str, Any]) -> List[str]:
+        """Extract text from a single Slack block.
+
+        Args:
+            block: A Slack block dict
+
+        Returns:
+            List of text strings extracted from the block
+        """
+        block_type = block.get("type", "")
+        texts: List[str] = []
+
+        if block_type == "rich_text":
+            # Rich text blocks have nested elements
+            for element in block.get("elements", []):
+                text = self._extract_rich_text_element(element)
+                if text:
+                    texts.append(text)
+
+        elif block_type == "section":
+            # Section blocks have text field and optional fields
+            text_obj = block.get("text", {})
+            if text_obj and text_obj.get("text"):
+                texts.append(text_obj.get("text", ""))
+            # Also check fields array
+            for field in block.get("fields", []):
+                if field.get("text"):
+                    texts.append(field.get("text", ""))
+
+        elif block_type == "header":
+            text_obj = block.get("text", {})
+            if text_obj and text_obj.get("text"):
+                texts.append(text_obj.get("text", ""))
+
+        elif block_type == "context":
+            # Context blocks have elements array
+            for element in block.get("elements", []):
+                if (
+                    element.get("type") == "mrkdwn"
+                    or element.get("type") == "plain_text"
+                ):
+                    if element.get("text"):
+                        texts.append(element.get("text", ""))
+
+        elif block_type == "divider":
+            texts.append("---")
+
+        return texts
+
+    def _extract_text_from_message(self, message: Dict[str, Any]) -> str:
+        """Extract all text content from a Slack message with blocks.
+
+        This handles messages with rich_text, section, header, context blocks
+        and falls back to the plain text field if no blocks are present.
+
+        Args:
+            message: Slack message dict
+
+        Returns:
+            Extracted text content as a single string
+        """
+        blocks = message.get("blocks", [])
+
+        if not blocks:
+            # No blocks, use plain text fallback
+            return str(message.get("text", ""))
+
+        extracted_parts: List[str] = []
+        for block in blocks:
+            extracted_parts.extend(self._extract_block_text(block))
+
+        if extracted_parts:
+            return "\n".join(extracted_parts)
+
+        # Fallback to text field if block extraction yielded nothing
+        return str(message.get("text", ""))
+
     async def _get_thread_messages(
         self, channel: str, thread_ts: str
     ) -> List[InboxMessage]:
@@ -294,12 +432,13 @@ class ReleaseBot:
 
             messages: List[Dict[str, Any]] = result.get("messages", [])
             logger.debug(f"Msgs in thread " + pformat(messages))
-            # Extract text from messages
+            # Extract text from messages (including blocks)
             context: List[InboxMessage] = [
                 InboxMessage(
-                    message=msg.get("text", ""),
+                    message=self._extract_text_from_message(msg),
                     user=msg.get("user"),
                     is_bot=msg.get("bot_id") is not None,
+                    slack_ts=msg.get("ts"),
                 )
                 for msg in messages
             ]
@@ -375,10 +514,11 @@ class ReleaseBot:
 
     def create_queue_listener(
         self,
-        queue: janus.Queue[str],
+        queue: janus.Queue[BotQueueItem],
         channel: str,
         thread_ts: str,
         tree_thread: threading.Thread,
+        inbox_ts: Optional[str] = None,
     ) -> Callable[[], Coroutine[Any, Any, None]]:
         """Create a queue listener function for the given async queue and Slack args.
 
@@ -387,6 +527,7 @@ class ReleaseBot:
             channel: Slack channel ID
             thread_ts: Thread timestamp to reply in
             tree_thread: The thread running the conversation tree
+            inbox_ts: Timestamp of the inbox message (for reactions)
 
         Returns:
             An async function that listens to the queue and sends messages to Slack
@@ -400,15 +541,27 @@ class ReleaseBot:
                 while True:
                     try:
                         # Wait for message from queue with timeout
-                        message = await asyncio.wait_for(async_q.get(), timeout=1)
-                        logger.debug(f"Received message from queue")
+                        item = await asyncio.wait_for(async_q.get(), timeout=1)
+                        logger.debug(f"Received item from queue: {type(item).__name__}")
 
-                        # Send message to Slack thread
+                        # Handle the queue item based on its type
                         try:
-                            await self._send_reply(channel, thread_ts, message)
+                            if isinstance(item, BotReply):
+                                await self._send_reply(channel, thread_ts, item.text)
+                            elif isinstance(item, BotReaction):
+                                # Use the message_ts from the reaction, or fall back to inbox_ts
+                                reaction_ts = item.message_ts or inbox_ts
+                                if reaction_ts:
+                                    await self._add_reaction(
+                                        channel, reaction_ts, item.emoji
+                                    )
+                                else:
+                                    logger.warning(
+                                        f"Cannot add reaction: no message timestamp available"
+                                    )
                         except Exception as e:
                             logger.error(
-                                f"Error sending message to Slack: {e}",
+                                f"Error sending to Slack: {e}",
                                 exc_info=True,
                             )
                     except asyncio.TimeoutError:
@@ -432,6 +585,20 @@ class ReleaseBot:
                 logger.debug("Queue listener exiting")
 
         return queue_listener
+
+    async def _add_reaction(self, channel: str, timestamp: str, emoji: str) -> None:
+        """Add a reaction to a message.
+
+        Args:
+            channel: Slack channel ID
+            timestamp: Message timestamp to react to
+            emoji: Emoji name (without colons)
+        """
+        await self.app.client.reactions_add(
+            channel=channel,
+            timestamp=timestamp,
+            name=emoji,
+        )
 
     async def _send_reply(self, channel: str, thread_ts: str, text: str) -> None:
         """Send a reply message.
@@ -461,11 +628,21 @@ class ReleaseBot:
             if result.get("ok"):
                 self.emojis = result.get("emoji", {})
                 logger.info(f"Fetched {len(self.emojis)} workspace emojis")
-                logger.debug(f"Emojis: {pformat(self.emojis)}")
             else:
                 logger.warning(f"Failed to fetch emojis: {result.get('error')}")
         except Exception as e:
             logger.error(f"Error fetching emojis: {e}", exc_info=True)
+
+    def _limit_emojis(self) -> List[str]:
+        """Shuffle and return 10% of available emojis.
+
+        Returns:
+            List of emoji names (shuffled, 10% of total, minimum 1)
+        """
+        keys = list(self.emojis.keys())
+        random.shuffle(keys)
+        count = max(1, len(keys) // 10)
+        return keys[:count]
 
     async def start(self) -> None:
         """Start the bot using Socket Mode."""

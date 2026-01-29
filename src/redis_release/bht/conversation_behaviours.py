@@ -17,9 +17,15 @@ from ..config import Config
 from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
     IGNORE_THREAD_MESSAGE,
+    BotReaction,
+    BotReply,
     Command,
     CommandDetectionResult2,
     ConversationCockpit,
+    NoActionResolutionResult,
+    QuestionResolutionResult,
+    UserIntent,
+    UserIntentDetectionResult,
 )
 from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
@@ -170,7 +176,7 @@ Output using the provided JSON schema fields:
                 self.feedback_message = "LLM returned empty response"
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    "I couldn't process your request. Please try again."
+                    BotReply(text="I couldn't process your request. Please try again.")
                 )
                 return Status.FAILURE
 
@@ -188,8 +194,10 @@ Output using the provided JSON schema fields:
                 )
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    reply
-                    or f"I'm not confident enough (confidence: {confidence:.2f}). Please clarify your request."
+                    BotReply(
+                        text=reply
+                        or f"I'm not confident enough (confidence: {confidence:.2f}). Please clarify your request."
+                    )
                 )
                 return Status.FAILURE
 
@@ -198,7 +206,10 @@ Output using the provided JSON schema fields:
 
                 if command == Command.HELP:
                     self.state.replies.append(
-                        reply or "How can I help you with Redis release automation?"
+                        BotReply(
+                            text=reply
+                            or "How can I help you with Redis release automation?"
+                        )
                     )
                     return Status.SUCCESS
                 elif command == Command.STATUS:
@@ -212,7 +223,10 @@ Output using the provided JSON schema fields:
                         return Status.SUCCESS
                     else:
                         self.state.replies.append(
-                            reply or "Please provide release tag to check status."
+                            BotReply(
+                                text=reply
+                                or "Please provide release tag to check status."
+                            )
                         )
                         return Status.FAILURE
                 elif command == Command.RELEASE:
@@ -234,30 +248,34 @@ Output using the provided JSON schema fields:
                         return Status.SUCCESS
                     else:
                         self.state.replies.append(
-                            reply
-                            or "Please provide release tag and other required information."
+                            BotReply(
+                                text=reply
+                                or "Please provide release tag and other required information."
+                            )
                         )
                         return Status.FAILURE
                 elif command == Command.IGNORE_THREAD:
                     self.state.command = Command.IGNORE_THREAD
-                    self.state.replies.append(IGNORE_THREAD_MESSAGE)
+                    self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
                     return Status.SUCCESS
                 else:
                     self.state.replies.append(
-                        reply or "I'm not sure what you want me to do."
+                        BotReply(text=reply or "I'm not sure what you want me to do.")
                     )
                     return Status.FAILURE
             except ValueError as e:
                 self.feedback_message = f"Failed to parse command: {e}"
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    reply or f"Failed to handle command: {command}, error: {e}"
+                    BotReply(
+                        text=reply or f"Failed to handle command: {command}, error: {e}"
+                    )
                 )
                 return Status.FAILURE
         except Exception as e:
             self.feedback_message = f"LLM command detection failed: {str(e)}"
             self.state.command = Command.HELP
-            self.state.replies.append(f"An error occurred: {str(e)}")
+            self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
         return Status.FAILURE
 
 
@@ -290,6 +308,15 @@ class LLMCommandClassifier2(ReleaseAction):
         Conversation messages are used only to help to clarify the command if it is not clear from the user message. Like if user asks to repeat the process.
 
         If it's likely that user comments on the results or his message is a part of conversation with another user then detect command as {Command.SKIP_MESSAGE.value}
+
+        If the message is dedicated to you (as a bot), but there is no meaningful answer, react with emoji from the list.
+
+        Output using the provided JSON schema fields:
+        - command: required command name (release, status, help)
+        - reply: optional natural language text to send back
+        - emoji: optional emoji to react with
+
+        List of available emojis: {self.state.emojis if self.state.emojis else "none"}
         """
         return instructions
 
@@ -320,7 +347,9 @@ class LLMCommandClassifier2(ReleaseAction):
                         )
             logger.debug(f"LLM input: " + pformat(input))
             response = self.llm.responses.parse(
-                model="gpt-4o-2024-08-06",
+                # model="gpt-4o-2024-08-06",
+                # model="gpt-5-mini-2025-08-07",
+                model="gpt-4.1-2025-04-14",
                 input=input,
                 text_format=CommandDetectionResult2,
             )
@@ -332,15 +361,17 @@ class LLMCommandClassifier2(ReleaseAction):
                 self.feedback_message = "LLM returned empty response"
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    "I couldn't process your request. Please try again."
+                    BotReply(text="I couldn't process your request. Please try again.")
                 )
                 return Status.FAILURE
 
-            self.state.replies.append(pformat(result))
+            self.state.replies.append(BotReply(text=pformat(result)))
+            if result.emoji:
+                self.state.replies.append(BotReaction(emoji=result.emoji))
         except Exception as e:
             self.feedback_message = f"LLM command detection failed: {str(e)}"
             self.state.command = Command.HELP
-            self.state.replies.append(f"An error occurred: {str(e)}")
+            self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
 
         return Status.FAILURE
 
@@ -433,7 +464,7 @@ Output using the provided JSON schema fields:
                 self.feedback_message = "LLM returned empty response"
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    "I couldn't process your request. Please try again."
+                    BotReply(text="I couldn't process your request. Please try again.")
                 )
                 return Status.FAILURE
 
@@ -451,8 +482,10 @@ Output using the provided JSON schema fields:
                 )
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    reply
-                    or f"I'm not confident enough (confidence: {confidence:.2f}). Please clarify your request."
+                    BotReply(
+                        text=reply
+                        or f"I'm not confident enough (confidence: {confidence:.2f}). Please clarify your request."
+                    )
                 )
                 return Status.FAILURE
 
@@ -461,7 +494,10 @@ Output using the provided JSON schema fields:
 
                 if command == Command.HELP:
                     self.state.replies.append(
-                        reply or "How can I help you with Redis release automation?"
+                        BotReply(
+                            text=reply
+                            or "How can I help you with Redis release automation?"
+                        )
                     )
                     return Status.SUCCESS
                 elif command == Command.STATUS:
@@ -475,7 +511,10 @@ Output using the provided JSON schema fields:
                         return Status.SUCCESS
                     else:
                         self.state.replies.append(
-                            reply or "Please provide release tag to check status."
+                            BotReply(
+                                text=reply
+                                or "Please provide release tag to check status."
+                            )
                         )
                         return Status.FAILURE
                 elif command == Command.RELEASE:
@@ -497,30 +536,34 @@ Output using the provided JSON schema fields:
                         return Status.SUCCESS
                     else:
                         self.state.replies.append(
-                            reply
-                            or "Please provide release tag and other required information."
+                            BotReply(
+                                text=reply
+                                or "Please provide release tag and other required information."
+                            )
                         )
                         return Status.FAILURE
                 elif command == Command.IGNORE_THREAD:
                     self.state.command = Command.IGNORE_THREAD
-                    self.state.replies.append(IGNORE_THREAD_MESSAGE)
+                    self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
                     return Status.SUCCESS
                 else:
                     self.state.replies.append(
-                        reply or "I'm not sure what you want me to do."
+                        BotReply(text=reply or "I'm not sure what you want me to do.")
                     )
                     return Status.FAILURE
             except ValueError as e:
                 self.feedback_message = f"Failed to parse command: {e}"
                 self.state.command = Command.HELP
                 self.state.replies.append(
-                    reply or f"Failed to handle command: {command}, error: {e}"
+                    BotReply(
+                        text=reply or f"Failed to handle command: {command}, error: {e}"
+                    )
                 )
                 return Status.FAILURE
         except Exception as e:
             self.feedback_message = f"LLM command detection failed: {str(e)}"
             self.state.command = Command.HELP
-            self.state.replies.append(f"An error occurred: {str(e)}")
+            self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
         return Status.FAILURE
 
 
@@ -570,8 +613,10 @@ class RunStatusCommand(ReleaseAction):
                         f"No release state found for tag {release_args.release_tag}"
                     )
                     self.state.replies.append(
-                        f"No release state found for tag `{release_args.release_tag}`. "
-                        "This release may not have been started yet."
+                        BotReply(
+                            text=f"No release state found for tag `{release_args.release_tag}`. "
+                            "This release may not have been started yet."
+                        )
                     )
                     return Status.SUCCESS
 
@@ -587,13 +632,17 @@ class RunStatusCommand(ReleaseAction):
                     )
                     printer.update_message(state_manager.state)
                     self.state.replies.append(
-                        f"Status for tag `{release_args.release_tag}` posted to Slack."
+                        BotReply(
+                            text=f"Status for tag `{release_args.release_tag}` posted to Slack."
+                        )
                     )
                 else:
                     self.logger.info("No Slack args available, skipping Slack post")
                     self.state.replies.append(
-                        f"Status for tag `{release_args.release_tag}` loaded successfully. "
-                        "(Slack posting not configured)"
+                        BotReply(
+                            text=f"Status for tag `{release_args.release_tag}` loaded successfully. "
+                            "(Slack posting not configured)"
+                        )
                     )
 
                 return Status.SUCCESS
@@ -604,7 +653,9 @@ class RunStatusCommand(ReleaseAction):
                 exc_info=True,
             )
             self.state.replies.append(
-                f"Failed to load status for tag `{release_args.release_tag}`: {str(e)}"
+                BotReply(
+                    text=f"Failed to load status for tag `{release_args.release_tag}`: {str(e)}"
+                )
             )
             return Status.FAILURE
 
@@ -647,7 +698,9 @@ class RunReleaseCommand(ReleaseAction):
                 f"Unauthorized attempt by user {self.state.message.user}. Authorized users: {self.state.authorized_users}"
             )
             self.state.replies.append(
-                "Sorry, you are not authorized to run releases. Please contact an administrator."
+                BotReply(
+                    text="Sorry, you are not authorized to run releases. Please contact an administrator."
+                )
             )
             return Status.FAILURE
 
@@ -704,8 +757,10 @@ class RunReleaseCommand(ReleaseAction):
         self.logger.info(f"Started release thread for tag {release_args.release_tag}")
 
         self.state.replies.append(
-            f"Starting release for tag `{release_args.release_tag}`... "
-            "I'll post updates as the release progresses."
+            BotReply(
+                text=f"Starting release for tag `{release_args.release_tag}`... "
+                "I'll post updates as the release progresses."
+            )
         )
 
         return Status.SUCCESS
@@ -750,11 +805,13 @@ class ShowConfirmationMessage(ReleaseAction):
 
                 message_parts.append("\nReply 'yes' or 'confirm' to proceed.")
 
-                self.state.replies.append("\n".join(message_parts))
+                self.state.replies.append(BotReply(text="\n".join(message_parts)))
             else:
                 self.state.replies.append(
-                    "Release command detected but no release arguments available. "
-                    "Please provide release details."
+                    BotReply(
+                        text="Release command detected but no release arguments available. "
+                        "Please provide release details."
+                    )
                 )
 
             return Status.SUCCESS
@@ -836,3 +893,319 @@ class NeedConfirmation(ReleaseAction):
         ):
             return Status.SUCCESS
         return Status.FAILURE
+
+
+class HasIntent(ReleaseAction):
+    """Check if user intent has been detected."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent is not None:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsQuestion(ReleaseAction):
+    """Check if user intent is a question."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent == UserIntent.QUESTION:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsAction(ReleaseAction):
+    """Check if user intent is an action."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent == UserIntent.ACTION:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsNoAction(ReleaseAction):
+    """Check if user intent is no action."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent == UserIntent.NO_ACTION:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class LLMIntentDetector(ReleaseAction):
+    """Detect user intent using LLM. Only detects intent, nothing else."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.llm = cockpit.llm
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def instructions(self) -> str:
+        instructions = """You are analyzing a user message to detect their intent.
+
+        First of all understand whether the message is intended for you as a bot, or maybe it is a message for another user in the thread.
+
+        Use only user message to detect the intent, the context is provided only to understand
+        - whether there is ongoing unrelated conversation
+        - to help clarify the intent if it is not clear from the message alone.
+
+        Classify the user's intent into one of the following categories:
+        - question: The user is asking a question that needs an answer
+        - action: The user wants to perform an action (like running a release, checking status, etc.)
+        - no_action: The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)
+
+        Only detect the intent, do not provide any other information.
+        """
+        return instructions
+
+    def update(self) -> Status:
+        try:
+            assert self.llm is not None
+            instructions = self.instructions()
+            logger.debug(f"LLM Intent instructions: {instructions}")
+            input: ResponseInputParam = []
+            input.append(EasyInputMessageParam(role="system", content=instructions))
+            if self.state.context:
+                for msg in self.state.context:
+                    if msg.is_bot:
+                        input.append(
+                            EasyInputMessageParam(
+                                role="assistant", content=f"{msg.message}"
+                            )
+                        )
+                    else:
+                        input.append(
+                            EasyInputMessageParam(role="user", content=f"{msg.message}")
+                        )
+            if self.state.message is not None:
+                input.append(
+                    EasyInputMessageParam(
+                        role="user", content=f"{self.state.message.message}"
+                    )
+                )
+            logger.debug(f"LLM Intent input: " + pformat(input))
+            response = self.llm.responses.parse(
+                model="gpt-4.1-2025-04-14",
+                input=input,
+                text_format=UserIntentDetectionResult,
+            )
+
+            self.logger.debug(f"LLM Intent response: {response}")
+
+            result = cast(UserIntentDetectionResult, response.output_parsed)
+            if not result or result.intent is None:
+                self.feedback_message = "LLM returned empty intent"
+                return Status.FAILURE
+
+            self.state.user_intent = result.intent
+            self.feedback_message = f"Detected intent: {result.intent.value}"
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.feedback_message = f"LLM intent detection failed: {str(e)}"
+            return Status.FAILURE
+
+
+class LLMQuestionHandler(ReleaseAction):
+    """Handle question intent using LLM."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.llm = cockpit.llm
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def instructions(self) -> str:
+        instructions = f"""You are a helpful bot that assists with Redis release automation.
+
+        The user has asked a question. Provide a helpful and concise answer.
+
+        If you cannot answer the question, suggest what the user should do instead.
+
+        You can also react with an emoji from the available list if appropriate.
+
+        List of available emojis: {self.state.emojis if self.state.emojis else "none"}
+        """
+        return instructions
+
+    def update(self) -> Status:
+        try:
+            assert self.llm is not None
+            instructions = self.instructions()
+            logger.debug(f"LLM Question instructions: {instructions}")
+            input: ResponseInputParam = []
+            input.append(EasyInputMessageParam(role="system", content=instructions))
+            if self.state.message is not None:
+                input.append(
+                    EasyInputMessageParam(
+                        role="user", content=f"{self.state.message.message}"
+                    )
+                )
+            if self.state.context:
+                for msg in self.state.context:
+                    if msg.is_bot:
+                        input.append(
+                            EasyInputMessageParam(
+                                role="assistant", content=f"{msg.message}"
+                            )
+                        )
+                    else:
+                        input.append(
+                            EasyInputMessageParam(role="user", content=f"{msg.message}")
+                        )
+            logger.debug(f"LLM Question input: " + pformat(input))
+            response = self.llm.responses.parse(
+                model="gpt-4.1-2025-04-14",
+                input=input,
+                text_format=QuestionResolutionResult,
+            )
+
+            self.logger.debug(f"LLM Question response: {response}")
+
+            result = cast(QuestionResolutionResult, response.output_parsed)
+            if not result:
+                self.feedback_message = "LLM returned empty response"
+                self.state.replies.append(
+                    BotReply(text="I couldn't process your question. Please try again.")
+                )
+                return Status.FAILURE
+
+            if result.reply:
+                self.state.replies.append(BotReply(text=result.reply))
+            if result.emoji:
+                self.state.replies.append(BotReaction(emoji=result.emoji))
+
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.feedback_message = f"LLM question handling failed: {str(e)}"
+            self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
+            return Status.FAILURE
+
+
+class LLMActionHandler(ReleaseAction):
+    """Handle action intent. Stub for now - does not call LLM."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.llm = cockpit.llm
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        # Stub implementation - just return success for now
+        self.feedback_message = "Action handler stub - not implemented yet"
+        return Status.SUCCESS
+
+
+class LLMNoActionHandler(ReleaseAction):
+    """Handle no-action intent using LLM. Detects if we need a reaction."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.llm = cockpit.llm
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def instructions(self) -> str:
+        instructions = f"""You are analyzing a message that doesn't require a direct response.
+
+        Decide if you should react with an emoji to acknowledge the message.
+
+        Only react if it makes sense (e.g., the user said something positive, acknowledged something, etc.)
+
+        List of available emojis: {self.state.emojis if self.state.emojis else "none"}
+        """
+        return instructions
+
+    def update(self) -> Status:
+        try:
+            assert self.llm is not None
+            instructions = self.instructions()
+            logger.debug(f"LLM NoAction instructions: {instructions}")
+            input: ResponseInputParam = []
+            input.append(EasyInputMessageParam(role="system", content=instructions))
+            if self.state.message is not None:
+                input.append(
+                    EasyInputMessageParam(
+                        role="user", content=f"{self.state.message.message}"
+                    )
+                )
+            logger.debug(f"LLM NoAction input: " + pformat(input))
+            response = self.llm.responses.parse(
+                model="gpt-4.1-2025-04-14",
+                input=input,
+                text_format=NoActionResolutionResult,
+            )
+
+            self.logger.debug(f"LLM NoAction response: {response}")
+
+            result = cast(NoActionResolutionResult, response.output_parsed)
+            if result and result.emoji:
+                self.state.replies.append(BotReaction(emoji=result.emoji))
+
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.feedback_message = f"LLM no-action handling failed: {str(e)}"
+            return Status.FAILURE

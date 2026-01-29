@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from janus import SyncQueue
 from openai import OpenAI
@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 from .models import SlackArgs
 
 IGNORE_THREAD_MESSAGE = "I will ignore this thread."
+
+
+class UserIntent(str, Enum):
+    QUESTION = "question"
+    ACTION = "action"
+    NO_ACTION = "no_action"
 
 
 class Command(str, Enum):
@@ -38,6 +44,23 @@ class InboxMessage(BaseModel):
     message: str
     user: Optional[str] = None
     is_bot: bool = False
+    slack_ts: Optional[str] = None
+
+
+class BotReply(BaseModel):
+    """A text reply from the bot to be sent to Slack."""
+
+    text: str
+
+
+class BotReaction(BaseModel):
+    """A reaction (emoji) from the bot to be added to a message."""
+
+    emoji: str
+    message_ts: Optional[str] = None  # If None, react to the inbox message
+
+
+BotQueueItem = Union[BotReply, BotReaction]
 
 
 class ConversationArgs(BaseModel):
@@ -47,6 +70,7 @@ class ConversationArgs(BaseModel):
     slack_args: Optional[SlackArgs] = None
     openai_api_key: Optional[str] = None
     authorized_users: Optional[List[str]] = None
+    emojis: List[str] = Field(default_factory=list)
 
 
 class ConversationCockpit:
@@ -104,3 +128,19 @@ class CommandDetectionResult2(BaseModel):
     reply: Optional[str] = Field(
         None, description="Natural language reply to send back to user"
     )
+    emoji: Optional[str] = Field(None, description="Emoji to react with")
+
+
+class UserIntentDetectionResult(BaseModel):
+    intent: Optional[UserIntent] = Field(None, description="Detected user intent")
+
+
+class QuestionResolutionResult(BaseModel):
+    reply: Optional[str] = Field(
+        None, description="Natural language reply to send back to user"
+    )
+    emoji: Optional[str] = Field(None, description="Emoji to react with")
+
+
+class NoActionResolutionResult(BaseModel):
+    emoji: Optional[str] = Field(None, description="Emoji to react with")
