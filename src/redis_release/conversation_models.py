@@ -13,7 +13,16 @@ IGNORE_THREAD_MESSAGE = "I will ignore this thread."
 class UserIntent(str, Enum):
     QUESTION = "question"
     ACTION = "action"
+    CONFIRMATION = "confirmation"
     NO_ACTION = "no_action"
+
+
+INTENT_DESCRIPTIONS = {
+    UserIntent.QUESTION: "The user is asking a question that needs an answer",
+    UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, etc.)",
+    UserIntent.CONFIRMATION: "The user is confirming or rejecting a previous action request from the bot (e.g., 'yes', 'no', 'proceed', 'cancel'). Use this when the previous bot message was a confirmation request with detected arguments.",
+    UserIntent.NO_ACTION: "The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)",
+}
 
 
 class Command(str, Enum):

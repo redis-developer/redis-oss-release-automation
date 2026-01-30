@@ -17,6 +17,7 @@ from ..config import Config
 from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
     IGNORE_THREAD_MESSAGE,
+    INTENT_DESCRIPTIONS,
     BotReaction,
     BotReply,
     Command,
@@ -986,7 +987,11 @@ class LLMIntentDetector(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def instructions(self) -> str:
-        instructions = """You are analyzing a user message to detect their intent.
+        intent_list = "\n".join(
+            f"        - {intent.value}: {desc}"
+            for intent, desc in INTENT_DESCRIPTIONS.items()
+        )
+        instructions = f"""You are analyzing a user message to detect their intent.
 
         First of all understand whether the message is intended for you as a bot, or maybe it is a message for another user in the thread.
 
@@ -995,9 +1000,7 @@ class LLMIntentDetector(ReleaseAction):
         - to help clarify the intent if it is not clear from the message alone.
 
         Classify the user's intent into one of the following categories:
-        - question: The user is asking a question that needs an answer
-        - action: The user wants to perform an action (like running a release, checking status, etc.)
-        - no_action: The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)
+{intent_list}
 
         Only detect the intent, do not provide any other information.
         """
