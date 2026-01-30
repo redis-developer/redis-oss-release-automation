@@ -1,8 +1,10 @@
 """Behaviours specific to client image packages."""
 
+from typing import Optional
+
 from py_trees.common import Status
 
-from ..models import ReleaseType
+from ..models import RedisVersion, ReleaseType
 from .behaviours import LoggingAction
 from .state import ClientImageMeta, PackageMeta, ReleaseMeta, Workflow
 
@@ -110,13 +112,26 @@ class LocateDockerImage(LoggingAction):
     def __init__(
         self,
         name: str,
+        release_meta: ReleaseMeta,
         package_meta: ClientImageMeta,
         docker_build_workflow: Workflow,
         log_prefix: str = "",
     ) -> None:
+        self.release_meta = release_meta
         self.package_meta = package_meta
         self.docker_build_workflow = docker_build_workflow
+        self.release_version: Optional[RedisVersion] = None
         super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        if self.release_meta.tag is None:
+            self.logger.error("Release tag is not set")
+            return
+        try:
+            self.release_version = RedisVersion.parse(self.release_meta.tag)
+        except ValueError as e:
+            self.logger.debug(f"Failed to parse release tag: {e}")
+            return
 
     def update(self) -> Status:
         try:
@@ -150,13 +165,30 @@ class LocateDockerImage(LoggingAction):
 
             self.package_meta.base_image = image
             self.package_meta.base_image_tag = tag
-            self.package_meta.output_image_tag = tag
+            # For custom builds and unstable releases, we use the same tag as the base image
+            # For regular releases, we use the release tag for clients tests to
+            # be able to deterministically test clients against specific redis
+            # version without any prior knowledge about the image tag
+            if (
+                not self.release_meta.is_custom_build
+                and self.release_version is not None
+            ):
+                self.package_meta.output_image_tag = self.release_meta.tag
+            else:
+                self.package_meta.output_image_tag = tag
 
             self.feedback_message = f"Located Docker image: {image}:{tag}"
             if self.log_once(
                 "docker_image_located", self.package_meta.ephemeral.log_once_flags
             ):
                 self.logger.info(self.feedback_message)
+
+            if self.log_once(
+                "output_image_tag_set", self.package_meta.ephemeral.log_once_flags
+            ):
+                self.logger.info(
+                    f"Set output image tag to: {self.package_meta.output_image_tag}"
+                )
             return_status = Status.SUCCESS
 
         except ValueError as e:
