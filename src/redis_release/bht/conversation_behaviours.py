@@ -17,6 +17,7 @@ from ..config import Config
 from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
     IGNORE_THREAD_MESSAGE,
+    INSTRUCTION_SNIPPETS,
     INTENT_DESCRIPTIONS,
     REDIS_MODULE_DESCRIPTIONS,
     ActionResolutionResult,
@@ -74,7 +75,7 @@ class LLMInputMixin:
         """Add context messages to input if include_context is True."""
         if include_context and self.state.context:
             for msg in self.state.context:
-                if msg.is_bot:
+                if msg.is_from_bot:
                     input.append(
                         EasyInputMessageParam(
                             role="assistant", content=f"{msg.message}"
@@ -93,6 +94,10 @@ class LLMInputMixin:
                     role="user", content=f"{self.state.message.message}"
                 )
             )
+
+    def is_direct_mention(self) -> bool:
+        """Check if the inbox message is a direct mention of the bot."""
+        return self.state.message is not None and self.state.message.is_mention
 
 
 class SimpleCommandClassifier(ReleaseAction):
@@ -393,7 +398,7 @@ class LLMCommandClassifier2(ReleaseAction):
                 )
             if self.state.context:
                 for msg in self.state.context:
-                    if msg.is_bot:
+                    if msg.is_from_bot:
                         input.append(
                             EasyInputMessageParam(
                                 role="assistant", content=f"{msg.message}"
@@ -1037,16 +1042,21 @@ class LLMIntentDetector(ReleaseAction, LLMInputMixin):
         name: str,
         state: ConversationState,
         cockpit: ConversationCockpit,
+        config: Config,
         log_prefix: str = "",
     ) -> None:
         self.llm = cockpit.llm
         self.state = state
+        self.config = config
         super().__init__(name=name, log_prefix=log_prefix)
 
     def instructions(self) -> str:
+        # Exclude NO_ACTION if this is a direct mention - user explicitly addressed the bot
+        is_mention = self.is_direct_mention()
         intent_list = "\n".join(
             f"        - {intent.value}: {desc}"
             for intent, desc in INTENT_DESCRIPTIONS.items()
+            if not is_mention or intent != UserIntent.NO_ACTION
         )
         instructions = f"""You are analyzing a user message to detect their intent.
 
@@ -1062,13 +1072,7 @@ class LLMIntentDetector(ReleaseAction, LLMInputMixin):
         Only detect the intent, do not provide any other information.
 
         More context that could help identify the intent:
-        The bot is intended to support release process for Redis by running builds or releases.
-
-        Running builds implies making custom builds of Redis and modules and running tests for them.
-
-        Running tests is primarily running tests suites of different redis clients against the build. That way the regression is detected early.
-
-        That way by running client tests we ensure that there are no breaking changes or regression in redis itself.
+        {INSTRUCTION_SNIPPETS["bot_purpose"]}
         """
         return instructions
 
@@ -1111,18 +1115,47 @@ class LLMQuestionHandler(ReleaseAction, LLMInputMixin):
         name: str,
         state: ConversationState,
         cockpit: ConversationCockpit,
+        config: Config,
         log_prefix: str = "",
     ) -> None:
         self.llm = cockpit.llm
         self.state = state
+        self.config = config
         super().__init__(name=name, log_prefix=log_prefix)
 
     def instructions(self) -> str:
-        instructions = f"""You are a helpful bot that assists with Redis release automation.
+        # Include config structure for context about available packages and settings
+        commands_list = "\n".join(
+            f"        - {cmd.value}: {desc}"
+            for cmd, desc in COMMAND_DESCRIPTIONS.items()
+        )
+        modules_list = "\n".join(
+            f"        - {module.value}: {desc}"
+            for module, desc in REDIS_MODULE_DESCRIPTIONS.items()
+        )
+        config_json = self.config.model_dump_json(indent=2)
+        instructions = f"""You are a bot that supports release process for Redis by running builds or releases.
 
         The user has asked a question. Provide a helpful and concise answer.
+        STRICTLY FOCUS ON ANSWERING THE QUESTION ITSELF, CONTEXT IS PROVIDED ONLY TO UNDERSTAND THE CONVERSATION.
 
-        If you cannot answer the question, suggest what the user should do instead.
+        The following information may help to understand the question and provide a better answer:
+
+        {INSTRUCTION_SNIPPETS["bot_purpose"]}
+
+        The following command descriptions are used when it's clear from the question that user wants to perform a specific action: {commands_list}
+
+        Available Redis modules: {modules_list}
+
+        Release tags information: {INSTRUCTION_SNIPPETS["release_tags"]}
+
+        Module versions information: {INSTRUCTION_SNIPPETS["module_versions"]}
+
+
+        Here is the current configuration that defines available packages and their settings:
+        ```json
+{config_json}
+        ```
 
         You can also react with an emoji from the available list if appropriate.
 
@@ -1176,10 +1209,12 @@ class LLMActionHandler(ReleaseAction, LLMInputMixin):
         name: str,
         state: ConversationState,
         cockpit: ConversationCockpit,
+        config: Config,
         log_prefix: str = "",
     ) -> None:
         self.llm = cockpit.llm
         self.state = state
+        self.config = config
         super().__init__(name=name, log_prefix=log_prefix)
 
     def instructions(self) -> str:
@@ -1191,7 +1226,11 @@ class LLMActionHandler(ReleaseAction, LLMInputMixin):
             f"        - {module.value}: {desc}"
             for module, desc in REDIS_MODULE_DESCRIPTIONS.items()
         )
+        # Get available packages from config
+        packages_list = ", ".join(self.config.packages.keys())
         instructions = f"""You are a Redis release and custom build automation assistant.
+
+        {INSTRUCTION_SNIPPETS["bot_purpose"]}
 
         The user wants to perform an action. Detect the command and extract the arguments.
 
@@ -1199,9 +1238,10 @@ class LLMActionHandler(ReleaseAction, LLMInputMixin):
 {commands_list}
 
         For release/build command, extract the following information:
-        - release_tag: The release tag (e.g., "8.4-m01", "7.2.5")
+        - release_tag: {INSTRUCTION_SNIPPETS["release_tags"]}
         - custom_build: Whether this is a custom build (True) or a release (False). Assume custom build unless release is explicitly mentioned.
         - module_versions: List of module versions if specified (e.g., [{{"module_name": "redisjson", "version": "2.4.0"}}])
+            {INSTRUCTION_SNIPPETS["module_versions"]}
         - only_packages: List of specific packages to process (e.g., ["docker", "debian"])
         - force_rebuild: List of package names to force rebuild, or ["all"] to rebuild all
 
@@ -1213,7 +1253,7 @@ class LLMActionHandler(ReleaseAction, LLMInputMixin):
 
         For ignore_thread command, just set the command to ignore_thread.
 
-        Available package types: docker, debian, rpm, homebrew, snap
+        Available packages: {packages_list}
 
         Provide a reply message to confirm the detected action with the user.
         You can also react with an emoji from the available list if appropriate.
@@ -1294,10 +1334,12 @@ class LLMNoActionHandler(ReleaseAction, LLMInputMixin):
         name: str,
         state: ConversationState,
         cockpit: ConversationCockpit,
+        config: Config,
         log_prefix: str = "",
     ) -> None:
         self.llm = cockpit.llm
         self.state = state
+        self.config = config
         super().__init__(name=name, log_prefix=log_prefix)
 
     def instructions(self) -> str:

@@ -13,7 +13,6 @@ IGNORE_THREAD_MESSAGE = "I will ignore this thread."
 class UserIntent(str, Enum):
     QUESTION = "question"
     ACTION = "action"
-    CONFIRMATION = "confirmation"
     NO_ACTION = "no_action"
 
 
@@ -53,11 +52,31 @@ REDIS_MODULE_DESCRIPTIONS = {
     RedisModule.BLOOM: "RedisBloom is a module that adds bloom filters to Redis, could be referred as bloom filter or just bloom",
 }
 
+INSTRUCTION_SNIPPETS = {
+    "bot_purpose": """The bot is intended to support release process for Redis by running builds or releases.
+        Running builds implies making custom builds of Redis and modules and running tests for them.
+        Running tests is primarily running tests suites of different redis clients against the build.
+        That way by running client tests we ensure that there are no breaking changes or regression in redis itself.
+    """,
+    "release_tags": """Release tags are either in version format or branch name format.and
+    Examples: 8.4-m01, 8.6-rc1, 8.4-int3, 8.2-rc2-int1, 8.0.2
+    Versions without patch number and suffix, like 8.2 or 8.6 are inicating a branch and implies custom build.
+    unstable is the default redis branch, could be also referred as nightly
+    git sha could also be used as release tag, that would imply custom build as well.
+    """,
+    "module_versions": """Module versions are either git tag names or branch names
+    Note that module version COULD NOT BE A GIT SHA
+    Module versions could have same names corresponding to redis branches or versions like 8.2 or 8.4.1
+    """,
+}
+
 
 class InboxMessage(BaseModel):
     message: str
     user: Optional[str] = None
-    is_bot: bool = False
+    is_from_bot: bool = False
+    # Whether this message is a mention of the bot
+    is_mention: bool = False
     slack_ts: Optional[str] = None
 
 

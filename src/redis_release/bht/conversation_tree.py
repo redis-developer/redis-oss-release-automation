@@ -67,7 +67,7 @@ def create_conversation_root_node(
                 memory=False,
                 children=[
                     IsQuestion("Is Question", state, cockpit),
-                    LLMQuestionHandler("Handle Question", state, cockpit),
+                    LLMQuestionHandler("Handle Question", state, cockpit, config),
                 ],
             ),
             Sequence(
@@ -75,7 +75,7 @@ def create_conversation_root_node(
                 memory=False,
                 children=[
                     IsAction("Is Action", state, cockpit),
-                    LLMActionHandler("Handle Action", state, cockpit),
+                    LLMActionHandler("Handle Action", state, cockpit, config),
                 ],
             ),
             Sequence(
@@ -83,7 +83,7 @@ def create_conversation_root_node(
                 memory=False,
                 children=[
                     IsNoAction("Is No Action", state, cockpit),
-                    LLMNoActionHandler("Handle NoAction", state, cockpit),
+                    LLMNoActionHandler("Handle NoAction", state, cockpit, config),
                 ],
             ),
         ],
@@ -94,7 +94,7 @@ def create_conversation_root_node(
         memory=False,
         children=[
             HasIntent("Has Intent", state, cockpit),
-            LLMIntentDetector("Detect Intent", state, cockpit),
+            LLMIntentDetector("Detect Intent", state, cockpit, config),
         ],
     )
 

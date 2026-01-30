@@ -107,8 +107,15 @@ class ReleaseBot:
         # Initialize async Slack app
         self.app = AsyncApp(token=self.bot_token)
 
+        # Bot identity (populated on start via auth.test)
+        self.bot_user_id: Optional[str] = None
+        self.bot_id: Optional[str] = None
+
         # Workspace emojis (populated on start)
         self.emojis: Dict[str, str] = {}
+
+        # Track handled messages to avoid duplicate processing
+        self.handled_messages_ts: set[str] = set()
 
         # Register event handlers
         self._register_handlers()
@@ -187,6 +194,12 @@ class ReleaseBot:
                 assert isinstance(channel, str)
                 assert isinstance(user, str)
                 assert isinstance(thread_ts, str)
+                assert isinstance(ts, str)
+
+                # Check for duplicate messages (mentions in threads trigger both events)
+                if self.check_message_handled(ts):
+                    logger.debug(f"Skipping already handled message: {ts}")
+                    return
 
                 # Channel filtering
                 if self.only_channels and channel not in self.only_channels:
@@ -212,7 +225,9 @@ class ReleaseBot:
 
                 # Extract text from the event (including blocks)
                 inbox_text = self._extract_text_from_message(event)
-                inbox_message = InboxMessage(message=inbox_text, user=user, slack_ts=ts)
+                inbox_message = InboxMessage(
+                    message=inbox_text, user=user, slack_ts=ts, is_mention=is_mention
+                )
                 args = ConversationArgs(
                     inbox=inbox_message,
                     context=context,
@@ -441,7 +456,7 @@ class ReleaseBot:
                 InboxMessage(
                     message=self._extract_text_from_message(msg),
                     user=msg.get("user"),
-                    is_bot=msg.get("bot_id") is not None,
+                    is_from_bot=msg.get("bot_id") is not None,
                     slack_ts=msg.get("ts"),
                 )
                 for msg in messages
@@ -464,15 +479,10 @@ class ReleaseBot:
             True if bot has sent messages or been mentioned in the thread, False otherwise
         """
         try:
-            # Get bot's user ID
-            auth_result = await self.app.client.auth_test()
-            bot_user_id = auth_result.get("user_id")
-
-            if not bot_user_id:
-                logger.warning("Could not get bot user ID")
+            # Use prefetched bot user ID
+            if not self.bot_user_id:
+                logger.warning("Bot user ID not available")
                 return False
-
-            logger.debug(f"Bot user ID: {bot_user_id}")
 
             # Get thread messages
             result = await self.app.client.conversations_replies(
@@ -483,7 +493,7 @@ class ReleaseBot:
             logger.debug(f"Found {len(messages)} messages in thread {thread_ts}")
 
             # Bot mention pattern: <@USER_ID>
-            bot_mention = f"<@{bot_user_id}>"
+            bot_mention = f"<@{self.bot_user_id}>"
 
             # Check if any message is from the bot or mentions the bot
             is_participating = False
@@ -495,7 +505,7 @@ class ReleaseBot:
                 logger.debug(f"Message from user={msg_user}, bot_id={msg_bot_id}")
 
                 # Check if message is from the bot
-                if msg_user == bot_user_id or msg_bot_id:
+                if msg_user == self.bot_user_id or msg_bot_id:
                     logger.debug(f"Found bot message in thread")
                     if "I will ignore this thread" in msg_text:
                         logger.debug(f"Found ignore message in thread")
@@ -637,6 +647,21 @@ class ReleaseBot:
         except Exception as e:
             logger.error(f"Error fetching emojis: {e}", exc_info=True)
 
+    async def _fetch_bot_info(self) -> None:
+        """Fetch bot identity info (user_id, bot_id) via auth.test API."""
+        try:
+            result = await self.app.client.auth_test()
+            if result.get("ok"):
+                self.bot_user_id = result.get("user_id")
+                self.bot_id = result.get("bot_id")
+                logger.info(
+                    f"Bot identity: user_id={self.bot_user_id}, bot_id={self.bot_id}"
+                )
+            else:
+                logger.warning(f"Failed to fetch bot info: {result.get('error')}")
+        except Exception as e:
+            logger.error(f"Error fetching bot info: {e}", exc_info=True)
+
     def _limit_emojis(self) -> List[str]:
         """Shuffle and return 10% of available emojis.
 
@@ -648,11 +673,35 @@ class ReleaseBot:
         count = max(1, len(keys) // 10)
         return keys[:count]
 
+    def check_message_handled(self, message_ts: str) -> bool:
+        """Check if a message has already been handled.
+
+        If the message was already handled, returns True.
+        If not, adds it to the set and returns False.
+        Clears the set before adding if it exceeds 100 entries.
+
+        Args:
+            message_ts: The message timestamp to check
+
+        Returns:
+            True if message was already handled, False otherwise
+        """
+        if message_ts in self.handled_messages_ts:
+            return True
+
+        # Clear set before adding if it exceeds 100 entries
+        if len(self.handled_messages_ts) > 100:
+            self.handled_messages_ts.clear()
+
+        self.handled_messages_ts.add(message_ts)
+        return False
+
     async def start(self) -> None:
         """Start the bot using Socket Mode."""
         logger.info("Starting Slack bot in Socket Mode...")
 
-        # Fetch workspace emojis before starting
+        # Fetch bot identity and workspace emojis before starting
+        await self._fetch_bot_info()
         await self._fetch_emojis()
 
         handler = AsyncSocketModeHandler(self.app, self.app_token)
