@@ -69,6 +69,7 @@ class ClientImageFactory(GenericPackageFactory, PackageWithValidation):
                 ),
                 LocateDockerImage(
                     "Locate Docker Image",
+                    release_meta,
                     cast(ClientImageMeta, package.meta),
                     packages["docker"].build,
                     log_prefix=package_name,
