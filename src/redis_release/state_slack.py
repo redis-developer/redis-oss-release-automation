@@ -11,7 +11,13 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from redis_release.models import SlackFormat
-from redis_release.state_display import Section, Step, StepStatus, get_display_model
+from redis_release.state_display import (
+    DisplayModelGeneric,
+    Section,
+    Step,
+    StepStatus,
+    get_display_model,
+)
 
 from .bht.state import Package, ReleaseState, Workflow
 
@@ -40,6 +46,7 @@ def init_slack_printer(
     reply_broadcast: bool = False,
     slack_format: SlackFormat = SlackFormat.DEFAULT,
     state: Optional[ReleaseState] = None,
+    state_name: Optional[str] = None,
 ) -> "SlackStatePrinter":
     """Initialize SlackStatePrinter with validation.
 
@@ -72,7 +79,7 @@ def init_slack_printer(
         )
 
     slack_printer = SlackStatePrinter(
-        token, slack_channel_id, thread_ts, reply_broadcast, slack_format
+        token, slack_channel_id, thread_ts, reply_broadcast, slack_format, state_name
     )
 
     # If thread_ts is not provided, post initial message to create the thread
@@ -101,6 +108,7 @@ class SlackStatePrinter:
         thread_ts: Optional[str] = None,
         reply_broadcast: bool = False,
         slack_format: SlackFormat = SlackFormat.DEFAULT,
+        state_name: Optional[str] = None,
     ):
         """Initialize the Slack printer.
 
@@ -119,6 +127,7 @@ class SlackStatePrinter:
         self.message_ts: Optional[str] = None
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
+        self.state_name = state_name
 
     def format_package_name(self, package_name: str, package: Package) -> str:
         """Format package name with capital letter and release type.
@@ -139,6 +148,119 @@ class SlackStatePrinter:
             formatted = f"{formatted} ({release_type_str})"
 
         return formatted
+
+    def _blocks_append(
+        self,
+        blocks: List[Dict[str, Any]],
+        block: Optional[List[Union[Dict[str, Any], None]]],
+    ) -> None:
+        """Append block to blocks list if block is not None.
+
+        Args:
+            blocks: The list to append to
+            block: The block to append (if not None)
+        """
+        if block is not None:
+            for b in block:
+                if isinstance(b, dict):
+                    blocks.append(b)
+
+    def _make_header_blocks(self, state: ReleaseState) -> List[Dict[str, Any]]:
+        """Create header blocks for Slack message.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of header block dictionaries
+        """
+        blocks: List[Dict[str, Any]] = []
+
+        # Header - use "Custom Build" if is_custom_build, otherwise "Release"
+        header_prefix = "Custom Build" if state.meta.is_custom_build else "Release"
+        blocks.append(
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"{header_prefix} {state.meta.tag or 'N/A'} — Status",
+                },
+            }
+        )
+
+        # State name (if provided)
+        state_name_block = None
+        if self.state_name:
+            state_name_block = {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": f"state-name: {self.state_name}"}
+                ],
+            }
+        self._blocks_append(blocks, [state_name_block])
+
+        # Dates
+        started_str = ""
+        ended_str = ""
+        if state.meta.ephemeral.last_started_at:
+            started_str = "*Started:* " + state.meta.ephemeral.last_started_at.strftime(
+                "%Y-%m-%d %H:%M:%S %Z"
+            )
+        if state.meta.ephemeral.last_ended_at:
+            ended_str = "*Ended:* " + state.meta.ephemeral.last_ended_at.strftime(
+                "%Y-%m-%d %H:%M:%S %Z"
+            )
+        dates_str = " | ".join(x for x in [started_str, ended_str] if x)
+
+        dates_block = None
+        if dates_str:
+            dates_block = {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": dates_str}],
+            }
+        self._blocks_append(blocks, [dates_block])
+
+        return blocks
+
+    def _make_custom_build_blocks(
+        self, state: ReleaseState
+    ) -> List[Union[Dict[str, Any], None]]:
+        """Create custom build info blocks for Slack message.
+
+        Uses display model to get custom build info and creates a block
+        if there are custom versions to display.
+
+        Args:
+            state: The ReleaseState to display
+
+        Returns:
+            List of custom build block dictionaries (empty if not a custom build)
+        """
+        blocks: List[Dict[str, Any]] = []
+
+        display_model = DisplayModelGeneric()
+        custom_versions = display_model.get_custom_versions(state)
+
+        if not custom_versions:
+            return blocks
+
+        # Format custom versions as a list
+        version_lines = [
+            f"• *{name}:* {version}" for name, version in custom_versions.items()
+        ]
+        versions_text = "\n".join(version_lines)
+
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Custom Versions*\n{versions_text}",
+                },
+            }
+        )
+
+        return blocks
 
     def update_message(self, state: ReleaseState) -> bool:
         """Post or update Slack message with release state.
@@ -213,61 +335,10 @@ class SlackStatePrinter:
         Returns:
             List of Slack block dictionaries
         """
-        blocks: List[Dict[str, Any]] = []
+        blocks: List[Dict[str, Any]] = self._make_header_blocks(state)
 
-        # Header
-        blocks.append(
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"Release {state.meta.tag or 'N/A'} — Status",
-                },
-            }
-        )
-
-        dates_str = ""
-        started_str = ""
-        ended_str = ""
-        if state.meta.ephemeral.last_started_at:
-            started_str = "*Started:* " + state.meta.ephemeral.last_started_at.strftime(
-                "%Y-%m-%d %H:%M:%S %Z"
-            )
-        if state.meta.ephemeral.last_ended_at:
-            ended_str = "*Ended:* " + state.meta.ephemeral.last_ended_at.strftime(
-                "%Y-%m-%d %H:%M:%S %Z"
-            )
-        dates_str = " | ".join(x for x in [started_str, ended_str] if x)
-        if dates_str:
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": dates_str,
-                        }
-                    ],
-                }
-            )
-
-        # Legend with two columns (skip to reduce visual noise)
-        if False:
-            blocks.append(
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": "✅ Success\n❌ Failed",
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": "⏳ In progress\n⚪ Not started",
-                        },
-                    ],
-                }
-            )
+        # Add custom build info if applicable
+        self._blocks_append(blocks, self._make_custom_build_blocks(state))
 
         blocks.append({"type": "divider"})
 

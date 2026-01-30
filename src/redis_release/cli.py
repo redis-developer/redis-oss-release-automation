@@ -101,9 +101,7 @@ def conversation_print() -> None:
     """Print and render (using graphviz) the conversation behaviour tree."""
     setup_logging()
     tree, _ = initialize_conversation_tree(
-        ConversationArgs(
-            inbox=InboxMessage(message="test", context=[]), openai_api_key="dummy"
-        )
+        ConversationArgs(inbox=InboxMessage(message="test"), openai_api_key="dummy")
     )
     render_dot_tree(tree.root)
     print(unicode_tree(tree.root))
