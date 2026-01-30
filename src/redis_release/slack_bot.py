@@ -205,10 +205,14 @@ class ReleaseBot:
                     f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}: {text}"
                 )
 
-                # Get slack thread messages
-                context = await self._get_thread_messages(channel, thread_ts)
+                # Get slack thread messages (excluding the current message)
+                all_messages = await self._get_thread_messages(channel, thread_ts)
+                # Filter out the current message from context to avoid duplication
+                context = [msg for msg in all_messages if msg.slack_ts != ts]
 
-                inbox_message = InboxMessage(message=text, user=user, slack_ts=ts)
+                # Extract text from the event (including blocks)
+                inbox_text = self._extract_text_from_message(event)
+                inbox_message = InboxMessage(message=inbox_text, user=user, slack_ts=ts)
                 args = ConversationArgs(
                     inbox=inbox_message,
                     context=context,

@@ -1,11 +1,11 @@
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from janus import SyncQueue
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from .models import SlackArgs
+from .models import RedisModule, SlackArgs
 
 IGNORE_THREAD_MESSAGE = "I will ignore this thread."
 
@@ -20,7 +20,6 @@ class UserIntent(str, Enum):
 INTENT_DESCRIPTIONS = {
     UserIntent.QUESTION: "The user is asking a question that needs an answer",
     UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, etc.)",
-    UserIntent.CONFIRMATION: "The user is confirming or rejecting a previous action request from the bot (e.g., 'yes', 'no', 'proceed', 'cancel'). Use this when the previous bot message was a confirmation request with detected arguments.",
     UserIntent.NO_ACTION: "The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)",
 }
 
@@ -28,24 +27,30 @@ INTENT_DESCRIPTIONS = {
 class Command(str, Enum):
 
     RELEASE = "release"
-    CUSTOM_BUILD = "custom_build"
     STATUS = "status"
-    HELP = "help"
     IGNORE_THREAD = "ignore_thread"
-    SKIP_MESSAGE = "skip_message"
+    INSUFFICIENT_DETAILS = "insufficient_details"
 
 
 COMMAND_DESCRIPTIONS = {
-    Command.RELEASE: "Start or restart a release process using provided version tag and parameters.",
-    Command.CUSTOM_BUILD: """Start or restart a custom build process using provided version tag and parameters.
+    Command.RELEASE: """Start or restart a  build process using provided version tag and parameters.
+    Build process could be either custom build or release.
+    Assume custom build unless release is explicitly mentioned.
     Custom build allows to build Redis using arbitrary tag for redis and for all the modules.
     It is intended to run tests for custom in development versions of Redis and modules before creating actual release.
     Custom build may be referred as run tests for Redis or run tests for modules.
+    At least one module version mentioned in the message is a strong indicator for custom build.
     """,
     Command.STATUS: "Check the status of a release: run status command for existing release state",
-    Command.HELP: "Get help",
     Command.IGNORE_THREAD: "Ignore this thread, do not answer any more messages in this thread without explicit mention",
-    Command.SKIP_MESSAGE: "Skip this message, it's not relevant to the conversation or is intended for other user.",
+    Command.INSUFFICIENT_DETAILS: "Not enough details provided to perform the action",
+}
+
+REDIS_MODULE_DESCRIPTIONS = {
+    RedisModule.JSON: "RedisJSON is a module that adds JSON data type to Redis, could be referred as rejson or just json",
+    RedisModule.SEARCH: "RediSearch is a module that adds search capabilities to Redis, could be referred as search module",
+    RedisModule.TIMESERIES: "RedisTimeSeries is a module that adds time series capabilities to Redis, could be referred as timeseries or just ts",
+    RedisModule.BLOOM: "RedisBloom is a module that adds bloom filters to Redis, could be referred as bloom filter or just bloom",
 }
 
 
@@ -87,6 +92,15 @@ class ConversationCockpit:
     reply_queue: Optional[SyncQueue] = None
 
 
+class ModuleVersion(BaseModel):
+    """A single module version specification."""
+
+    module_name: str = Field(
+        description="The module name (e.g., 'redisjson', 'redisearch')"
+    )
+    version: str = Field(description="The version tag (e.g., '2.4.0', 'v2.4.0')")
+
+
 class LLMReleaseArgs(BaseModel):
     """Simplified release arguments for LLM structured output."""
 
@@ -98,6 +112,13 @@ class LLMReleaseArgs(BaseModel):
     only_packages: List[str] = Field(
         default_factory=list,
         description="List of specific packages to process (e.g., ['docker', 'debian'])",
+    )
+    custom_build: bool = Field(
+        False, description="Whether this is a custom build (True) or a release (False)"
+    )
+    module_versions: List[ModuleVersion] = Field(
+        default_factory=list,
+        description="List of module versions to use (e.g., [{'module_name': 'redisjson', 'version': '2.4.0'}])",
     )
 
 
@@ -145,6 +166,24 @@ class UserIntentDetectionResult(BaseModel):
 
 
 class QuestionResolutionResult(BaseModel):
+    reply: Optional[str] = Field(
+        None, description="Natural language reply to send back to user"
+    )
+    emoji: Optional[str] = Field(None, description="Emoji to react with")
+
+
+class ActionResolutionResult(BaseModel):
+    """Structured output for action resolution."""
+
+    command: Optional[Command] = Field(
+        None, description="Detected command (release, status, ignore_thread)"
+    )
+    release_args: Optional[LLMReleaseArgs] = Field(
+        None, description="Release/build arguments for command execution"
+    )
+    status_args: Optional[LLMStatusArgs] = Field(
+        None, description="Status arguments for status command execution"
+    )
     reply: Optional[str] = Field(
         None, description="Natural language reply to send back to user"
     )

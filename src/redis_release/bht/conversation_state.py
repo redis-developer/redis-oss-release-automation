@@ -7,6 +7,7 @@ from ..conversation_models import (
     Command,
     InboxMessage,
     LLMReleaseArgs,
+    LLMStatusArgs,
     UserIntent,
 )
 from ..models import ReleaseArgs, SlackArgs, SlackFormat
@@ -21,6 +22,7 @@ class ConversationState(BaseModel):
     command_started: bool = False
     is_confirmed: bool = False
     llm_release_args: Optional[LLMReleaseArgs] = None
+    llm_status_args: Optional[LLMStatusArgs] = None
     release_args: Optional[ReleaseArgs] = None
     replies: List[BotQueueItem] = Field(default_factory=list)
 

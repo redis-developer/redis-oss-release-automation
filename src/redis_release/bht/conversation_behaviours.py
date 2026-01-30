@@ -18,6 +18,8 @@ from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
     IGNORE_THREAD_MESSAGE,
     INTENT_DESCRIPTIONS,
+    REDIS_MODULE_DESCRIPTIONS,
+    ActionResolutionResult,
     BotReaction,
     BotReply,
     Command,
@@ -28,7 +30,7 @@ from ..conversation_models import (
     UserIntent,
     UserIntentDetectionResult,
 )
-from ..models import ReleaseArgs, ReleaseType
+from ..models import RedisModule, ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
@@ -36,6 +38,61 @@ from .conversation_state import ConversationState
 from .tree import async_tick_tock, initialize_tree_and_state
 
 logger = logging.getLogger(__name__)
+
+
+class LLMInputMixin:
+    """Mixin class for building LLM input messages from conversation state.
+
+    Classes using this mixin must have a `state: ConversationState` attribute.
+    """
+
+    state: ConversationState  # Expected to be provided by the class using this mixin
+
+    def add_inbox_and_context(
+        self,
+        input: ResponseInputParam,
+        include_context: bool = True,
+        context_first: bool = True,
+    ) -> None:
+        """Add inbox message and context to LLM input.
+
+        Args:
+            input: The LLM input list to append messages to
+            include_context: Whether to include context messages
+            context_first: If True, add context before current message; if False, add current message first
+        """
+        if context_first:
+            self.add_context_messages(input, include_context)
+            self.add_current_message(input)
+        else:
+            self.add_current_message(input)
+            self.add_context_messages(input, include_context)
+
+    def add_context_messages(
+        self, input: ResponseInputParam, include_context: bool = True
+    ) -> None:
+        """Add context messages to input if include_context is True."""
+        if include_context and self.state.context:
+            for msg in self.state.context:
+                if msg.is_bot:
+                    input.append(
+                        EasyInputMessageParam(
+                            role="assistant", content=f"{msg.message}"
+                        )
+                    )
+                else:
+                    input.append(
+                        EasyInputMessageParam(role="user", content=f"{msg.message}")
+                    )
+
+    def add_current_message(self, input: ResponseInputParam) -> None:
+        """Add the current user message to input."""
+        if self.state.message is not None:
+            input.append(
+                EasyInputMessageParam(
+                    role="user", content=f"{self.state.message.message}"
+                )
+            )
 
 
 class SimpleCommandClassifier(ReleaseAction):
@@ -972,7 +1029,7 @@ class IsNoAction(ReleaseAction):
         return Status.FAILURE
 
 
-class LLMIntentDetector(ReleaseAction):
+class LLMIntentDetector(ReleaseAction, LLMInputMixin):
     """Detect user intent using LLM. Only detects intent, nothing else."""
 
     def __init__(
@@ -1003,6 +1060,15 @@ class LLMIntentDetector(ReleaseAction):
 {intent_list}
 
         Only detect the intent, do not provide any other information.
+
+        More context that could help identify the intent:
+        The bot is intended to support release process for Redis by running builds or releases.
+
+        Running builds implies making custom builds of Redis and modules and running tests for them.
+
+        Running tests is primarily running tests suites of different redis clients against the build. That way the regression is detected early.
+
+        That way by running client tests we ensure that there are no breaking changes or regression in redis itself.
         """
         return instructions
 
@@ -1013,24 +1079,7 @@ class LLMIntentDetector(ReleaseAction):
             logger.debug(f"LLM Intent instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
-            if self.state.context:
-                for msg in self.state.context:
-                    if msg.is_bot:
-                        input.append(
-                            EasyInputMessageParam(
-                                role="assistant", content=f"{msg.message}"
-                            )
-                        )
-                    else:
-                        input.append(
-                            EasyInputMessageParam(role="user", content=f"{msg.message}")
-                        )
-            if self.state.message is not None:
-                input.append(
-                    EasyInputMessageParam(
-                        role="user", content=f"{self.state.message.message}"
-                    )
-                )
+            self.add_inbox_and_context(input, include_context=True, context_first=True)
             logger.debug(f"LLM Intent input: " + pformat(input))
             response = self.llm.responses.parse(
                 model="gpt-4.1-2025-04-14",
@@ -1054,7 +1103,7 @@ class LLMIntentDetector(ReleaseAction):
             return Status.FAILURE
 
 
-class LLMQuestionHandler(ReleaseAction):
+class LLMQuestionHandler(ReleaseAction, LLMInputMixin):
     """Handle question intent using LLM."""
 
     def __init__(
@@ -1088,24 +1137,7 @@ class LLMQuestionHandler(ReleaseAction):
             logger.debug(f"LLM Question instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
-            if self.state.message is not None:
-                input.append(
-                    EasyInputMessageParam(
-                        role="user", content=f"{self.state.message.message}"
-                    )
-                )
-            if self.state.context:
-                for msg in self.state.context:
-                    if msg.is_bot:
-                        input.append(
-                            EasyInputMessageParam(
-                                role="assistant", content=f"{msg.message}"
-                            )
-                        )
-                    else:
-                        input.append(
-                            EasyInputMessageParam(role="user", content=f"{msg.message}")
-                        )
+            self.add_inbox_and_context(input, include_context=True, context_first=False)
             logger.debug(f"LLM Question input: " + pformat(input))
             response = self.llm.responses.parse(
                 model="gpt-4.1-2025-04-14",
@@ -1136,8 +1168,8 @@ class LLMQuestionHandler(ReleaseAction):
             return Status.FAILURE
 
 
-class LLMActionHandler(ReleaseAction):
-    """Handle action intent. Stub for now - does not call LLM."""
+class LLMActionHandler(ReleaseAction, LLMInputMixin):
+    """Handle action intent using LLM. Detects command and extracts arguments."""
 
     def __init__(
         self,
@@ -1150,13 +1182,111 @@ class LLMActionHandler(ReleaseAction):
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)
 
+    def instructions(self) -> str:
+        commands_list = "\n".join(
+            f"        - {cmd.value}: {desc}"
+            for cmd, desc in COMMAND_DESCRIPTIONS.items()
+        )
+        modules_list = "\n".join(
+            f"        - {module.value}: {desc}"
+            for module, desc in REDIS_MODULE_DESCRIPTIONS.items()
+        )
+        instructions = f"""You are a Redis release and custom build automation assistant.
+
+        The user wants to perform an action. Detect the command and extract the arguments.
+
+        Available commands:
+{commands_list}
+
+        For release/build command, extract the following information:
+        - release_tag: The release tag (e.g., "8.4-m01", "7.2.5")
+        - custom_build: Whether this is a custom build (True) or a release (False). Assume custom build unless release is explicitly mentioned.
+        - module_versions: List of module versions if specified (e.g., [{{"module_name": "redisjson", "version": "2.4.0"}}])
+        - only_packages: List of specific packages to process (e.g., ["docker", "debian"])
+        - force_rebuild: List of package names to force rebuild, or ["all"] to rebuild all
+
+        Available Redis modules:
+{modules_list}
+
+        For status command, extract:
+        - release_tag: The release tag to check status for
+
+        For ignore_thread command, just set the command to ignore_thread.
+
+        Available package types: docker, debian, rpm, homebrew, snap
+
+        Provide a reply message to confirm the detected action with the user.
+        You can also react with an emoji from the available list if appropriate.
+
+        List of available emojis: {self.state.emojis if self.state.emojis else "none"}
+        """
+        return instructions
+
     def update(self) -> Status:
-        # Stub implementation - just return success for now
-        self.feedback_message = "Action handler stub - not implemented yet"
-        return Status.SUCCESS
+        try:
+            assert self.llm is not None
+            instructions = self.instructions()
+            logger.debug(f"LLM Action instructions: {instructions}")
+
+            input: ResponseInputParam = []
+            input.append(EasyInputMessageParam(role="system", content=instructions))
+            self.add_inbox_and_context(input, include_context=True, context_first=True)
+
+            logger.debug(f"LLM Action input: " + pformat(input))
+            response = self.llm.responses.parse(
+                model="gpt-4.1-2025-04-14",
+                input=input,
+                text_format=ActionResolutionResult,
+            )
+
+            self.logger.debug(f"LLM Action response: {response}")
+
+            result = cast(ActionResolutionResult, response.output_parsed)
+            if not result:
+                self.feedback_message = "LLM returned empty response"
+                self.state.replies.append(
+                    BotReply(text="I couldn't understand your action request.")
+                )
+                return Status.FAILURE
+
+            # Set command
+            if result.command:
+                self.state.command = result.command
+                self.feedback_message = f"Detected command: {result.command.value}"
+                self.state.replies.append(
+                    BotReply(text=f"Command: {result.command.value}")
+                )
+
+            # Set release args
+            if result.release_args:
+                self.state.llm_release_args = result.release_args
+                self.state.replies.append(
+                    BotReply(
+                        text=f"Release args: {result.release_args.model_dump_json()}"
+                    )
+                )
+
+            # Set status args
+            if result.status_args:
+                self.state.llm_status_args = result.status_args
+
+            # Add reply if provided
+            if result.reply:
+                self.state.replies.append(BotReply(text=result.reply))
+
+            # Add reaction if provided
+            if result.emoji:
+                self.state.replies.append(BotReaction(emoji=result.emoji))
+
+            return Status.SUCCESS
+
+        except Exception as e:
+            self.feedback_message = f"LLM action handling failed: {str(e)}"
+            self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
+            return Status.FAILURE
 
 
-class LLMNoActionHandler(ReleaseAction):
+class LLMNoActionHandler(ReleaseAction, LLMInputMixin):
     """Handle no-action intent using LLM. Detects if we need a reaction."""
 
     def __init__(
@@ -1188,12 +1318,7 @@ class LLMNoActionHandler(ReleaseAction):
             logger.debug(f"LLM NoAction instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
-            if self.state.message is not None:
-                input.append(
-                    EasyInputMessageParam(
-                        role="user", content=f"{self.state.message.message}"
-                    )
-                )
+            self.add_inbox_and_context(input, include_context=True, context_first=True)
             logger.debug(f"LLM NoAction input: " + pformat(input))
             response = self.llm.responses.parse(
                 model="gpt-4.1-2025-04-14",
