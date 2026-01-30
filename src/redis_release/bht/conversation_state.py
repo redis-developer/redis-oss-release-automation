@@ -21,8 +21,7 @@ class ConversationState(BaseModel):
     command: Optional[Command] = None
     command_started: bool = False
     is_confirmed: bool = False
-    llm_release_args: Optional[LLMReleaseArgs] = None
-    llm_status_args: Optional[LLMStatusArgs] = None
+    user_release_args: Optional[LLMReleaseArgs] = None
     release_args: Optional[ReleaseArgs] = None
     replies: List[BotQueueItem] = Field(default_factory=list)
 

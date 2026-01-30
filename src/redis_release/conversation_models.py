@@ -54,15 +54,17 @@ REDIS_MODULE_DESCRIPTIONS = {
 
 INSTRUCTION_SNIPPETS = {
     "bot_purpose": """The bot is intended to support release process for Redis by running builds or releases.
-        Running builds implies making custom builds of Redis and modules and running tests for them.
+        Running builds implies making custom builds of Redis optionally using other than default versions of embedded modules and running tests for them.
         Running tests is primarily running tests suites of different redis clients against the build.
-        That way by running client tests we ensure that there are no breaking changes or regression in redis itself.
+        That way by running client tests we ensure that there are no breaking changes or regression in redis itself or in the modules.
+        Modules are always built together with redis since version 8, so it is not possible to build just a module or redis without building all the modules as well or to exclude certain module.
     """,
     "release_tags": """Release tags are either in version format or branch name format.and
     Examples: 8.4-m01, 8.6-rc1, 8.4-int3, 8.2-rc2-int1, 8.0.2
     Versions without patch number and suffix, like 8.2 or 8.6 are inicating a branch and implies custom build.
     unstable is the default redis branch, could be also referred as nightly
     git sha could also be used as release tag, that would imply custom build as well.
+    Redis versions starting from 8 major versions are supported, other series cannot be built.
     """,
     "module_versions": """Module versions are either git tag names or branch names
     Note that module version COULD NOT BE A GIT SHA
@@ -211,3 +213,11 @@ class ActionResolutionResult(BaseModel):
 
 class NoActionResolutionResult(BaseModel):
     emoji: Optional[str] = Field(None, description="Emoji to react with")
+
+
+class ConfirmationResult(BaseModel):
+    """Structured output for confirmation detection."""
+
+    is_confirmed: bool = Field(
+        description="Whether the user is confirming (yes) or rejecting (no) the action"
+    )

@@ -13,16 +13,18 @@ from ..config import Config, load_config
 from ..conversation_models import ConversationArgs, ConversationCockpit, InboxMessage
 from ..models import SlackArgs
 from .conversation_behaviours import (
+    ExtractArgsFromConfirmation,
+    HasConfirmationRequest,
     HasIntent,
     HasReleaseArgs,
+    HasUserReleaseArgs,
     IsAction,
     IsCommandStarted,
     IsLLMAvailable,
     IsNoAction,
     IsQuestion,
     LLMActionHandler,
-    LLMCommandClassifier,
-    LLMCommandClassifier2,
+    LLMHandleConfirmation,
     LLMIntentDetector,
     LLMNoActionHandler,
     LLMQuestionHandler,
@@ -30,7 +32,6 @@ from .conversation_behaviours import (
     RunReleaseCommand,
     RunStatusCommand,
     ShowConfirmationMessage,
-    SimpleCommandClassifier,
 )
 from .conversation_state import ConversationState
 from .tree import log_tree_state_with_markup
@@ -58,8 +59,8 @@ def create_conversation_root_node(
     )
     state.message = input
 
-    LLMStage2 = Selector(
-        "LLM Stage 2",
+    LLMResolve = Selector(
+        "LLM Resolve",
         memory=False,
         children=[
             Sequence(
@@ -99,7 +100,7 @@ def create_conversation_root_node(
     )
 
     LLMClass = Sequence(
-        "LLM Classification", memory=False, children=[LLMIntent, LLMStage2]
+        "LLM Classification", memory=False, children=[LLMIntent, LLMResolve]
     )
 
     command_detector = Selector(
@@ -107,17 +108,6 @@ def create_conversation_root_node(
         memory=False,
         children=[
             HasReleaseArgs("Has Release Args", state, cockpit),
-            Sequence(
-                "Simple Classification",
-                memory=False,
-                children=[
-                    Inverter("Not", IsLLMAvailable("Is LLM Available", state, cockpit)),
-                    SimpleCommandClassifier(
-                        "Simple Command Classifier", state, cockpit
-                    ),
-                ],
-            ),
-            # LLMCommandClassifier2("LLM Classification", state, cockpit),
             LLMClass,
         ],
     )
@@ -140,6 +130,39 @@ def create_conversation_root_node(
         ],
     )
 
+    # Handle confirmation flow - check if previous message was a confirmation request
+    handle_confirmation = Selector(
+        "Handle Confirmation",
+        memory=False,
+        children=[
+            HasUserReleaseArgs("Has User Release Args", state, cockpit),
+            Selector(
+                "Check Confirmation Request",
+                memory=False,
+                children=[
+                    Inverter(
+                        name="Not Confirmation Request",
+                        child=HasConfirmationRequest(
+                            "Has Confirmation Request", state, cockpit
+                        ),
+                    ),
+                    Sequence(
+                        "Process Confirmation",
+                        memory=False,
+                        children=[
+                            ExtractArgsFromConfirmation(
+                                "Extract Args From Confirmation", state, cockpit
+                            ),
+                            LLMHandleConfirmation(
+                                "LLM Handle Confirmation", state, cockpit, config
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
     conversation_root = Selector(
         "Conversation",
         memory=False,
@@ -149,6 +172,7 @@ def create_conversation_root_node(
                 "Conversation Sequence",
                 memory=False,
                 children=[
+                    handle_confirmation,
                     command_detector,
                     Selector(
                         name="Command Router",

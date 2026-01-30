@@ -337,13 +337,19 @@ class ReleaseBot:
         # Container elements with nested elements
         elif element_type in (
             "rich_text_section",
-            "rich_text_preformatted",
             "rich_text_quote",
         ):
             parts = []
             for sub_element in element.get("elements", []):
                 parts.append(self._extract_rich_text_element(sub_element))
             return "".join(parts)
+        elif element_type == "rich_text_preformatted":
+            # Preformatted text should be wrapped in backticks to preserve code block formatting
+            parts = []
+            for sub_element in element.get("elements", []):
+                parts.append(self._extract_rich_text_element(sub_element))
+            content = "".join(parts)
+            return f"```\n{content}```"
         elif element_type == "rich_text_list":
             parts = []
             style = element.get("style", "bullet")
