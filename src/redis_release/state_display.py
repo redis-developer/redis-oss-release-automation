@@ -11,6 +11,7 @@ from redis_release.models import WorkflowConclusion, WorkflowType
 
 from .bht.state import (
     ClientImageMeta,
+    ClientTestMeta,
     HomebrewMeta,
     Package,
     PackageMeta,
@@ -243,6 +244,42 @@ class DisplayModelClientImage(DisplayModelGeneric):
         return result
 
 
+class DisplayModelClientTest(DisplayModelGeneric):
+    """DisplayModel for client test packages."""
+
+    def get_workflow_section(self, workflow: Workflow) -> Section:
+        """Override to return 'Test Workflow' instead of 'Build Workflow'."""
+        return Section(name="Test Workflow", is_workflow=True)
+
+    def get_workflow_steps(
+        self, package: Package, workflow: Workflow
+    ) -> List[Union[Step, Section]]:
+        """Get the list of workflow steps with client test specific steps prepended."""
+        assert isinstance(
+            package.meta, ClientTestMeta
+        ), f"DisplayModelClientTest requires ClientTestMeta, got {type(package.meta).__name__}"
+
+        result: List[Union[Step, Section]] = []
+        base_steps = super().get_workflow_steps(package, workflow)
+
+        prerequisites_section = Section(name="Prerequisites")
+        await_client_image_step = Step(
+            name="Await client image",
+            has_result=package.meta.client_test_image is not None,
+            ephemeral_status=package.meta.ephemeral.await_client_image,
+        )
+        locate_client_image_step = Step(
+            name="Locate client image",
+            has_result=package.meta.client_test_image is not None,
+            ephemeral_status=package.meta.ephemeral.validate_client_image,
+            message=package.meta.ephemeral.validate_client_image_message,
+        )
+        result.extend([prerequisites_section, await_client_image_step, locate_client_image_step])
+
+        result.extend(base_steps)
+        return result
+
+
 def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
     """Factory function to get the appropriate DisplayModel for a package.
 
@@ -258,6 +295,9 @@ def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
 
     if package_meta.package_type == PackageType.CLIENTIMAGE:
         return DisplayModelClientImage()
+
+    if package_meta.package_type == PackageType.CLIENTTEST:
+        return DisplayModelClientTest()
 
     # Default DisplayModel for all other package types
     return DisplayModelGeneric()

@@ -51,7 +51,7 @@ jobs:
           echo "redis_version=${REDIS_VERSION}" >> $GITHUB_OUTPUT
 
       - name: Run tests
-        uses: dariaguy/redis-py/.github/actions/run-tests@callable-run-tests
+        uses: redis/redis-py/.github/actions/run-tests@callable-run-tests
         with:
             python-version: 3.14
             parser-backend: plain
