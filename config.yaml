@@ -74,7 +74,7 @@ packages:
     build_timeout_minutes: 20
   redis-py:
     repo: redis-developer/redis-oss-release-automation
-    ref: redis-py-package
+    ref: main
     package_type: clienttest
     build_workflow: redis-py.yml
-    build_timeout_minutes: 45
+    build_timeout_minutes: 50
