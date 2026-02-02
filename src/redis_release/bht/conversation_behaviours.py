@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import threading
+import uuid
 from typing import Optional
 
 import yaml
@@ -15,9 +16,9 @@ from redis_release.conversation_models import CommandDetectionResult
 from ..config import Config
 from ..conversation_models import (
     IGNORE_THREAD_MESSAGE,
+    BotQueueItem,
     BotReply,
     Command,
-    CommandDetectionResult2,
     ConversationCockpit,
     UserIntent,
 )
@@ -162,6 +163,12 @@ class RunReleaseCommand(ReleaseAction):
         self.config = config
         super().__init__(name, log_prefix)
 
+    def generate_state_name(self) -> str:
+        """Generate a state name using slack_ts if available, otherwise a random ID."""
+        if self.state.message and self.state.message.slack_ts:
+            return f"custom-slack-{self.state.message.slack_ts}"
+        return f"custom-{uuid.uuid4().hex[:8]}"
+
     def update(self) -> Status:
         self.logger.debug("RunCommand - starting release execution")
 
@@ -180,6 +187,7 @@ class RunReleaseCommand(ReleaseAction):
         # Check authorization
         if (
             self.state.authorized_users
+            and release_args.custom_build is False
             and self.state.message
             and self.state.message.user not in self.state.authorized_users
         ):
@@ -192,6 +200,12 @@ class RunReleaseCommand(ReleaseAction):
                 )
             )
             return Status.FAILURE
+
+        if release_args.custom_build:
+            self.logger.debug(
+                f"Custom build requested, generating state name for {release_args.release_tag}"
+            )
+            release_args.override_state_name = self.generate_state_name()
 
         self.logger.info(
             f"Starting release for tag {release_args.release_tag} in background thread"
@@ -300,6 +314,23 @@ class ShowConfirmationMessage(ReleaseAction):
             return Status.SUCCESS
 
         return Status.FAILURE
+
+
+class IgnoreThread(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.cockpit = cockpit
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
+        return Status.SUCCESS
 
 
 # Conditions
@@ -471,5 +502,23 @@ class HasConfirmationRequest(ReleaseAction, ConfirmationHelper):
 
     def update(self) -> Status:
         if self.is_confirmation_request():
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsCommand(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        command: Command,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        self.command = command
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.command == self.command:
             return Status.SUCCESS
         return Status.FAILURE

@@ -41,7 +41,8 @@ COMMAND_DESCRIPTIONS = {
     At least one module version mentioned in the message is a strong indicator for custom build.
     """,
     Command.STATUS: "Check the status of a release: run status command for existing release state",
-    Command.IGNORE_THREAD: "Ignore this thread, do not answer any more messages in this thread without explicit mention",
+    Command.IGNORE_THREAD: """This action is raised when user asks you to ignore this thread,
+    to not answer any more messages, to do not reply or to stop replying.""",
     Command.INSUFFICIENT_DETAILS: "Not enough details provided to perform the action",
 }
 
@@ -175,16 +176,6 @@ class CommandDetectionResult(BaseModel):
     reply: Optional[str] = Field(
         None, description="Natural language reply to send back to user"
     )
-
-
-class CommandDetectionResult2(BaseModel):
-    command: Optional[Command] = Field(
-        None, description="Detected command name (release, status, custom_build, etc.)"
-    )
-    reply: Optional[str] = Field(
-        None, description="Natural language reply to send back to user"
-    )
-    emoji: Optional[str] = Field(None, description="Emoji to react with")
 
 
 class UserIntentDetectionResult(BaseModel):

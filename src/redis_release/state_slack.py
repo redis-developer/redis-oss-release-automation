@@ -10,7 +10,7 @@ from click import Option
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from redis_release.models import SlackFormat
+from redis_release.models import PackageType, SlackFormat
 from redis_release.state_display import (
     DisplayModelGeneric,
     Section,
@@ -18,8 +18,6 @@ from redis_release.state_display import (
     StepStatus,
     get_display_model,
 )
-from redis_release.models import PackageType, SlackFormat
-from redis_release.state_display import Section, Step, StepStatus, get_display_model
 
 from .bht.state import Package, ReleaseState, Workflow, WorkflowConclusion
 
@@ -238,7 +236,7 @@ class SlackStatePrinter:
         Returns:
             List of custom build block dictionaries (empty if not a custom build)
         """
-        blocks: List[Dict[str, Any]] = []
+        blocks: List[Union[Dict[str, Any], None]] = []
 
         display_model = DisplayModelGeneric()
         custom_versions = display_model.get_custom_versions(state)
@@ -369,7 +367,11 @@ class SlackStatePrinter:
 
             # Package section
             # Use "Test" label for clienttest package types instead of "Build"
-            build_label = "Test" if package.meta.package_type == PackageType.CLIENTTEST else "Build"
+            build_label = (
+                "Test"
+                if package.meta.package_type == PackageType.CLIENTTEST
+                else "Build"
+            )
             build_with_emoji = f"*{build_label}:* {build_status_emoji}"
             publish_with_emoji = ""
             if package.publish is not None:
@@ -474,8 +476,13 @@ class SlackStatePrinter:
                     }
                 )
             # Show error message if workflow failed
-            elif workflow.conclusion == WorkflowConclusion.FAILURE and workflow.run_id is not None:
-                workflow_url = get_workflow_link(redispy_package.meta.repo, workflow.run_id)
+            elif (
+                workflow.conclusion == WorkflowConclusion.FAILURE
+                and workflow.run_id is not None
+            ):
+                workflow_url = get_workflow_link(
+                    redispy_package.meta.repo, workflow.run_id
+                )
                 if workflow_url:
                     blocks.append(
                         {

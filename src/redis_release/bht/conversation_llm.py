@@ -297,10 +297,10 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
 class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
     """Handle action intent using LLM. Detects command and extracts arguments."""
 
-    # model = "gpt-4.1-2025-04-14"
+    model = "gpt-4.1-2025-04-14"
     # model = "gpt-5-nano"
     # model = "gpt-4.1-mini"
-    model = "gpt-4o"
+    # model = "gpt-4o"
 
     def __init__(
         self,
@@ -401,26 +401,18 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
             if result.command:
                 self.state.command = result.command
                 self.feedback_message = f"Detected command: {result.command.value}"
-                self.state.replies.append(
-                    BotReply(text=f"Command: {result.command.value}")
-                )
 
             # Set release args
             if result.release_args:
                 self.set_release_args_from_llm(result.release_args)
                 self.state.user_release_args = result.release_args
-                self.state.replies.append(
-                    BotReply(
-                        text=f"Release args: {result.release_args.model_dump_json()}"
-                    )
-                )
 
             # Set status args
             if result.status_args:
                 self.set_release_args_from_status(result.status_args)
 
             # Add reply if provided
-            if result.reply:
+            if result.reply and self.state.command != Command.IGNORE_THREAD:
                 self.state.replies.append(BotReply(text=result.reply))
 
             # Add reaction if provided

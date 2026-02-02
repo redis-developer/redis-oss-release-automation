@@ -10,7 +10,12 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 
 from ..config import Config, load_config
-from ..conversation_models import ConversationArgs, ConversationCockpit, InboxMessage
+from ..conversation_models import (
+    Command,
+    ConversationArgs,
+    ConversationCockpit,
+    InboxMessage,
+)
 from ..models import SlackArgs
 from .conversation_behaviours import (
     ExtractArgsFromConfirmation,
@@ -18,7 +23,9 @@ from .conversation_behaviours import (
     HasIntent,
     HasReleaseArgs,
     HasUserReleaseArgs,
+    IgnoreThread,
     IsAction,
+    IsCommand,
     IsCommandStarted,
     IsNoAction,
     IsQuestion,
@@ -125,12 +132,28 @@ def create_conversation_root_node(
         ],
     )
 
-    run_release = Selector(
-        "Run Release",
+    run_release = Sequence(
+        "Release",
         memory=False,
         children=[
-            show_confirmation,
-            RunReleaseCommand("Run Release Command", state, cockpit, config),
+            IsCommand("Is Release Command", state, Command.RELEASE),
+            Selector(
+                "Run Release",
+                memory=False,
+                children=[
+                    show_confirmation,
+                    RunReleaseCommand("Run Release Command", state, cockpit, config),
+                ],
+            ),
+        ],
+    )
+
+    run_status = Sequence(
+        "Status",
+        memory=False,
+        children=[
+            IsCommand("Is Status Command", state, Command.STATUS),
+            RunStatusCommand("Run Status Command", state, cockpit, config),
         ],
     )
 
@@ -167,6 +190,15 @@ def create_conversation_root_node(
         ],
     )
 
+    ignore_thread = Sequence(
+        "Ignore Thread",
+        memory=False,
+        children=[
+            IsCommand("Is Ignore Thread Command", state, Command.IGNORE_THREAD),
+            IgnoreThread("Ignore Thread", state, cockpit),
+        ],
+    )
+
     conversation_root = Selector(
         "Conversation",
         memory=False,
@@ -182,10 +214,9 @@ def create_conversation_root_node(
                         name="Command Router",
                         memory=False,
                         children=[
-                            RunStatusCommand(
-                                "Run Status Command", state, cockpit, config
-                            ),
+                            run_status,
                             run_release,
+                            ignore_thread,
                         ],
                     ),
                 ],
