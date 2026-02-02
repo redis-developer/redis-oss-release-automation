@@ -77,7 +77,7 @@ class RedisModule(str, Enum):
 
     JSON = "redisjson"
     SEARCH = "redisearch"
-    TIMESERIES = "reduistimeseries"
+    TIMESERIES = "redistimeseries"
     BLOOM = "redisbloom"
 
 

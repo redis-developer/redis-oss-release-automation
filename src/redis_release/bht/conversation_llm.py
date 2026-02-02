@@ -34,6 +34,10 @@ class LLMHandleConfirmation(ReleaseAction, LLMInputHelper, LLMConvertHelper):
     On rejection: sets user_intent to ACTION to allow re-processing.
     """
 
+    # model = "gpt-4.1-2025-04-14"
+    # model = "gpt-5-nano"
+    model = "gpt-4.1-nano"
+
     def __init__(
         self,
         name: str,
@@ -45,7 +49,7 @@ class LLMHandleConfirmation(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         self.llm = cockpit.llm
         self.state = state
         self.config = config
-        super().__init__(name=name, log_prefix=log_prefix)
+        super().__init__(name=f"{name}\n({self.model})", log_prefix=log_prefix)
 
     def instructions(self) -> str:
         return """You are checking if the user is confirming or rejecting an action.
@@ -70,7 +74,7 @@ Determine if the user's response is:
 
             logger.debug(f"LLM Confirmation input: {pformat(input)}")
             response = self.llm.responses.parse(
-                model="gpt-4.1-2025-04-14",
+                model=self.model,
                 input=input,
                 text_format=ConfirmationResult,
             )
@@ -116,6 +120,10 @@ Determine if the user's response is:
 class LLMIntentDetector(ReleaseAction, LLMInputHelper):
     """Detect user intent using LLM. Only detects intent, nothing else."""
 
+    # model = "gpt-4.1-2025-04-14"
+    # model = "gpt-5-nano"
+    model = "gpt-4.1-mini"
+
     def __init__(
         self,
         name: str,
@@ -127,7 +135,7 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
         self.llm = cockpit.llm
         self.state = state
         self.config = config
-        super().__init__(name=name, log_prefix=log_prefix)
+        super().__init__(name=f"{name}\n({self.model})", log_prefix=log_prefix)
 
     def instructions(self) -> str:
         # Exclude NO_ACTION if this is a direct mention - user explicitly addressed the bot
@@ -171,7 +179,7 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
             self.add_inbox_and_context(input, include_context=True, context_first=True)
             logger.debug(f"LLM Intent input: " + pformat(input))
             response = self.llm.responses.parse(
-                model="gpt-4.1-2025-04-14",
+                model=self.model,
                 input=input,
                 text_format=UserIntentDetectionResult,
             )
@@ -179,7 +187,7 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
             self.logger.debug(f"LLM Intent response: {response}")
 
             result = cast(UserIntentDetectionResult, response.output_parsed)
-            if not result or result.intent is None:
+            if not result:
                 self.feedback_message = "LLM returned empty intent"
                 return Status.FAILURE
 
@@ -195,6 +203,10 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
 class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
     """Handle question intent using LLM."""
 
+    model = "gpt-4.1-2025-04-14"
+    # model = "gpt-5-nano"
+    # model = "gpt-5-mini"
+
     def __init__(
         self,
         name: str,
@@ -206,7 +218,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
         self.llm = cockpit.llm
         self.state = state
         self.config = config
-        super().__init__(name=name, log_prefix=log_prefix)
+        super().__init__(name=f"{name}\n({self.model})", log_prefix=log_prefix)
 
     def instructions(self) -> str:
         # Include config structure for context about available packages and settings
@@ -239,6 +251,8 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
         You can also react with an emoji from the available list if appropriate.
 
         List of available emojis: {self.state.emojis if self.state.emojis else "none"}
+
+        {INSTRUCTION_SNIPPETS["slack_format"] if self.state.slack_format_is_available else ""}
         """
         return instructions
 
@@ -252,7 +266,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
             self.add_inbox_and_context(input, include_context=True, context_first=False)
             logger.debug(f"LLM Question input: " + pformat(input))
             response = self.llm.responses.parse(
-                model="gpt-4.1-2025-04-14",
+                model=self.model,
                 input=input,
                 text_format=QuestionResolutionResult,
             )
@@ -283,6 +297,11 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
 class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
     """Handle action intent using LLM. Detects command and extracts arguments."""
 
+    # model = "gpt-4.1-2025-04-14"
+    # model = "gpt-5-nano"
+    # model = "gpt-4.1-mini"
+    model = "gpt-4o"
+
     def __init__(
         self,
         name: str,
@@ -294,7 +313,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         self.llm = cockpit.llm
         self.state = state
         self.config = config
-        super().__init__(name=name, log_prefix=log_prefix)
+        super().__init__(name=f"{name}\n({self.model})", log_prefix=log_prefix)
 
     def instructions(self) -> str:
         commands_list = self.get_commands_list()
@@ -304,9 +323,11 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         confirmation_instructions = ""
         if self.state.llm_confirmation_required:
             confirmation_instructions = """
-                WARNING:  user confirmation *is required for release command*.
-                Please formulate your response in a way that considers that after the reply release details are shown to the user.
-                Detected arguments would be output in YAML format after your reply automatically.
+                ALWAYS FORMULATE YOUR RESPONSE IN A WAY THAT CONSIDERS THAT USER HAS NOT CONFIRMED THE ACTION YET.
+                The conversation handling works in a way that guarantees if we reach this prompt, user has not confirmed the action yet.
+                Detected arguments would be IN ANYWAY output in YAML format
+                after your reply automatically and any reply implying that the
+                action is confirmed or would be started is invalid.
         """
         instructions = f"""You are a Redis release and custom build automation assistant.
 
@@ -344,6 +365,8 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         You can also react with an emoji from the available list if appropriate.
 
         List of available emojis: {self.state.emojis if self.state.emojis else "none"}
+
+        {INSTRUCTION_SNIPPETS["slack_format"] if self.state.slack_format_is_available else ""}
         """
         return instructions
 
@@ -359,7 +382,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
 
             logger.debug(f"LLM Action input: " + pformat(input))
             response = self.llm.responses.parse(
-                model="gpt-4.1-2025-04-14",
+                model=self.model,
                 input=input,
                 text_format=ActionResolutionResult,
             )
@@ -415,6 +438,10 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
 class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
     """Handle no-action intent using LLM. Detects if we need a reaction."""
 
+    # model = "gpt-4.1-2025-04-14"
+    # model = "gpt-5-nano"
+    model = "gpt-4.1-nano"
+
     def __init__(
         self,
         name: str,
@@ -426,7 +453,7 @@ class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
         self.llm = cockpit.llm
         self.state = state
         self.config = config
-        super().__init__(name=name, log_prefix=log_prefix)
+        super().__init__(name=f"{name}\n({self.model})", log_prefix=log_prefix)
 
     def instructions(self) -> str:
         is_mention = self.is_direct_mention()
@@ -456,7 +483,7 @@ class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
             self.add_inbox_and_context(input, include_context=True, context_first=True)
             logger.debug(f"LLM NoAction input: " + pformat(input))
             response = self.llm.responses.parse(
-                model="gpt-4.1-2025-04-14",
+                model=self.model,
                 input=input,
                 text_format=NoActionResolutionResult,
             )

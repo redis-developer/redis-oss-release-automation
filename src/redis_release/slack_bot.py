@@ -12,6 +12,7 @@ from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
 from redis_release.models import SlackArgs
+from redis_release.slack_emojis import FALLBACK_REACTION_EMOJI, STANDARD_EMOJIS
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
 from .conversation_models import (
@@ -241,6 +242,7 @@ class ReleaseBot:
                     openai_api_key=self.openai_api_key,
                     authorized_users=self.authorized_users,
                     emojis=self._limit_emojis(),
+                    slack_format_is_available=True,
                 )
 
                 self.start_conversation(args)
@@ -614,6 +616,13 @@ class ReleaseBot:
             timestamp: Message timestamp to react to
             emoji: Emoji name (without colons)
         """
+        # Use fallback emoji if the provided emoji doesn't exist in workspace or standard emojis
+        if emoji not in self.emojis and emoji not in STANDARD_EMOJIS:
+            logger.warning(
+                f"Emoji '{emoji}' not found in workspace or standard emojis, using fallback '{FALLBACK_REACTION_EMOJI}'"
+            )
+            emoji = FALLBACK_REACTION_EMOJI
+
         await self.app.client.reactions_add(
             channel=channel,
             timestamp=timestamp,
@@ -648,6 +657,7 @@ class ReleaseBot:
             if result.get("ok"):
                 self.emojis = result.get("emoji", {})
                 logger.info(f"Fetched {len(self.emojis)} workspace emojis")
+                # logger.debug(f"Emojis: " + pformat(self.emojis))
             else:
                 logger.warning(f"Failed to fetch emojis: {result.get('error')}")
         except Exception as e:

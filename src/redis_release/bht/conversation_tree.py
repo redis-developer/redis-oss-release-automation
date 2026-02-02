@@ -50,6 +50,7 @@ def create_conversation_root_node(
     slack_args: Optional[SlackArgs] = None,
     authorized_users: Optional[List[str]] = None,
     emojis: Optional[List[str]] = None,
+    slack_format_is_available: bool = False,
 ) -> Tuple[Behaviour, ConversationState]:
     state = ConversationState(
         llm_available=cockpit.llm is not None,
@@ -58,6 +59,7 @@ def create_conversation_root_node(
         slack_args=slack_args,
         authorized_users=authorized_users,
         emojis=emojis or [],
+        slack_format_is_available=slack_format_is_available,
     )
     state.message = input
 
@@ -222,6 +224,7 @@ def initialize_conversation_tree(
         slack_args=args.slack_args,
         authorized_users=args.authorized_users,
         emojis=args.emojis,
+        slack_format_is_available=args.slack_format_is_available,
     )
     tree = BehaviourTree(root)
     snapshot_visitor = SnapshotVisitor()

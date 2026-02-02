@@ -1,6 +1,7 @@
 import logging
 from typing import Dict, Optional
 
+import yaml
 from openai.types.responses.easy_input_message_param import EasyInputMessageParam
 from openai.types.responses.response_input_param import ResponseInputParam
 

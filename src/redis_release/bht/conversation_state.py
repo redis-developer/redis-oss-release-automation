@@ -30,3 +30,4 @@ class ConversationState(BaseModel):
     emojis: List[str] = Field(default_factory=list)
 
     user_intent: Optional[UserIntent] = None
+    slack_format_is_available: bool = False

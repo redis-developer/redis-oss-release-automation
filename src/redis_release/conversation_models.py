@@ -70,6 +70,10 @@ INSTRUCTION_SNIPPETS = {
     Note that module version COULD NOT BE A GIT SHA
     Module versions could have same names corresponding to redis branches or versions like 8.2 or 8.4.1
     """,
+    "slack_format": """Please format messages using slack markup where appropriate.
+    For example use code blocks for code samples, make links clickable, emphasize important words.
+    Use markdown formatting for lists
+    """,
 }
 
 
@@ -106,6 +110,7 @@ class ConversationArgs(BaseModel):
     openai_api_key: Optional[str] = None
     authorized_users: Optional[List[str]] = None
     emojis: List[str] = Field(default_factory=list)
+    slack_format_is_available: bool = False
 
 
 class ConversationCockpit:
@@ -183,7 +188,7 @@ class CommandDetectionResult2(BaseModel):
 
 
 class UserIntentDetectionResult(BaseModel):
-    intent: Optional[UserIntent] = Field(None, description="Detected user intent")
+    intent: UserIntent = Field(description="Detected user intent")
 
 
 class QuestionResolutionResult(BaseModel):
