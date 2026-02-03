@@ -411,59 +411,22 @@ class HasIntent(ReleaseAction):
         return Status.FAILURE
 
 
-class IsQuestion(ReleaseAction):
-    """Check if user intent is a question."""
+class IsIntent(ReleaseAction):
+    """Check if user intent matches the specified intent."""
 
     def __init__(
         self,
         name: str,
         state: ConversationState,
-        cockpit: ConversationCockpit,
+        intent: UserIntent,
         log_prefix: str = "",
     ) -> None:
         self.state = state
+        self.intent = intent
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        if self.state.user_intent == UserIntent.QUESTION:
-            return Status.SUCCESS
-        return Status.FAILURE
-
-
-class IsAction(ReleaseAction):
-    """Check if user intent is an action."""
-
-    def __init__(
-        self,
-        name: str,
-        state: ConversationState,
-        cockpit: ConversationCockpit,
-        log_prefix: str = "",
-    ) -> None:
-        self.state = state
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def update(self) -> Status:
-        if self.state.user_intent == UserIntent.ACTION:
-            return Status.SUCCESS
-        return Status.FAILURE
-
-
-class IsNoAction(ReleaseAction):
-    """Check if user intent is no action."""
-
-    def __init__(
-        self,
-        name: str,
-        state: ConversationState,
-        cockpit: ConversationCockpit,
-        log_prefix: str = "",
-    ) -> None:
-        self.state = state
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def update(self) -> Status:
-        if self.state.user_intent == UserIntent.NO_ACTION:
+        if self.state.user_intent == self.intent:
             return Status.SUCCESS
         return Status.FAILURE
 

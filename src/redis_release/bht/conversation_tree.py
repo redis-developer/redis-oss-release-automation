@@ -15,6 +15,7 @@ from ..conversation_models import (
     ConversationArgs,
     ConversationCockpit,
     InboxMessage,
+    UserIntent,
 )
 from ..models import SlackArgs
 from .conversation_behaviours import (
@@ -24,11 +25,9 @@ from .conversation_behaviours import (
     HasReleaseArgs,
     HasUserReleaseArgs,
     IgnoreThread,
-    IsAction,
     IsCommand,
     IsCommandStarted,
-    IsNoAction,
-    IsQuestion,
+    IsIntent,
     NeedConfirmation,
     RunReleaseCommand,
     RunStatusCommand,
@@ -78,7 +77,7 @@ def create_conversation_root_node(
                 "Question",
                 memory=False,
                 children=[
-                    IsQuestion("Is Question", state, cockpit),
+                    IsIntent("Is Question", state, UserIntent.QUESTION),
                     LLMQuestionHandler("Handle Question", state, cockpit, config),
                 ],
             ),
@@ -86,7 +85,7 @@ def create_conversation_root_node(
                 "Action",
                 memory=False,
                 children=[
-                    IsAction("Is Action", state, cockpit),
+                    IsIntent("Is Action", state, UserIntent.ACTION),
                     LLMActionHandler("Handle Action", state, cockpit, config),
                 ],
             ),
@@ -94,7 +93,7 @@ def create_conversation_root_node(
                 "NoAction",
                 memory=False,
                 children=[
-                    IsNoAction("Is No Action", state, cockpit),
+                    IsIntent("Is No Action", state, UserIntent.NO_ACTION),
                     LLMNoActionHandler("Handle NoAction", state, cockpit, config),
                 ],
             ),

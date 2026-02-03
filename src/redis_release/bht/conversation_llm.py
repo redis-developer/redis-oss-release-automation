@@ -249,6 +249,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
         ```
 
         You can also react with an emoji from the available list if appropriate.
+        Always use emoji NAMES and not unicode characters.
 
         List of available emojis: {self.state.emojis if self.state.emojis else "none"}
 
@@ -363,6 +364,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         ***
 
         You can also react with an emoji from the available list if appropriate.
+        Always use emoji NAMES and not unicode characters.
 
         List of available emojis: {self.state.emojis if self.state.emojis else "none"}
 
