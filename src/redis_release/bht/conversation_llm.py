@@ -9,7 +9,7 @@ from redis_release.bht.behaviours import ReleaseAction
 from redis_release.bht.conversation_behaviours import logger
 from redis_release.bht.conversation_helpers import LLMConvertHelper, LLMInputHelper
 from redis_release.bht.conversation_state import ConversationState
-from redis_release.config import Config
+from redis_release.config import Config, LLMInstructions
 from redis_release.conversation_models import (
     INSTRUCTION_SNIPPETS,
     INTENT_DESCRIPTIONS,
@@ -319,8 +319,8 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
     def instructions(self) -> str:
         commands_list = self.get_commands_list()
         modules_list = self.get_modules_list()
-        # Get available packages from config
-        packages_list = ", ".join(self.config.packages.keys())
+        # Get available packages from config with descriptions
+        packages_list = LLMInstructions.packages_list_with_descriptions(self.config)
         confirmation_instructions = ""
         if self.state.llm_confirmation_required:
             confirmation_instructions = """
@@ -356,7 +356,8 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
 
         For ignore_thread command, just set the command to ignore_thread.
 
-        Available packages: {packages_list}
+        Available packages:
+{packages_list}
 
         ***
         Provide a reply message to confirm the detected action with the user.

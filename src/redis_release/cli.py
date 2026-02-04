@@ -325,6 +325,11 @@ def slack_bot(
         "--only-channel",
         help="Only process messages from these channel IDs (can be specified multiple times)",
     ),
+    slack_format: str = typer.Option(
+        "default",
+        "--slack-format",
+        help="Slack message format: 'default' or 'compact'",
+    ),
     log_file: Optional[str] = typer.Option(
         None,
         "--log-file",
@@ -359,6 +364,7 @@ def slack_bot(
             config_path=config,
             ignore_channels=ignore_channels,
             only_channels=only_channels,
+            slack_format=parse_slack_format(slack_format),
         )
     )
 

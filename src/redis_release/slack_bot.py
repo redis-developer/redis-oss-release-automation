@@ -11,7 +11,7 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.context.say.async_say import AsyncSay
 
-from redis_release.models import SlackArgs
+from redis_release.models import SlackArgs, SlackFormat
 from redis_release.slack_emojis import FALLBACK_REACTION_EMOJI, STANDARD_EMOJIS
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
@@ -66,6 +66,7 @@ class ReleaseBot:
         config_path: Optional[str] = None,
         ignore_channels: Optional[List[str]] = None,
         only_channels: Optional[List[str]] = None,
+        slack_format: SlackFormat = SlackFormat.DEFAULT,
     ) -> None:
         """Initialize the bot.
 
@@ -78,12 +79,14 @@ class ReleaseBot:
             openai_api_key: OpenAI API key for LLM-based command detection
             ignore_channels: List of channel IDs to ignore messages from
             only_channels: List of channel IDs to only process messages from
+            slack_format: Slack message format (DEFAULT or COMPACT)
         """
         self.reply_in_thread = reply_in_thread
         self.broadcast_to_channel = broadcast_to_channel
         self.authorized_users = authorized_users or []
         self.ignore_channels = ignore_channels or []
         self.only_channels = only_channels or []
+        self.slack_format = slack_format
 
         self.config_path = config_path
 
@@ -238,6 +241,7 @@ class ReleaseBot:
                         channel_id=channel,
                         thread_ts=thread_ts,
                         reply_broadcast=self.broadcast_to_channel,
+                        format=self.slack_format,
                     ),
                     openai_api_key=self.openai_api_key,
                     authorized_users=self.authorized_users,
@@ -734,6 +738,7 @@ async def run_bot(
     config_path: Optional[str] = None,
     ignore_channels: Optional[List[str]] = None,
     only_channels: Optional[List[str]] = None,
+    slack_format: SlackFormat = SlackFormat.DEFAULT,
 ) -> None:
     """Run the Slack bot.
 
@@ -746,6 +751,7 @@ async def run_bot(
         openai_api_key: OpenAI API key for LLM-based command detection. If None, uses OPENAI_API_KEY env var
         ignore_channels: List of channel IDs to ignore messages from
         only_channels: List of channel IDs to only process messages from
+        slack_format: Slack message format (DEFAULT or COMPACT)
     """
 
     # Create and start bot
@@ -759,6 +765,7 @@ async def run_bot(
         config_path=config_path,
         ignore_channels=ignore_channels,
         only_channels=only_channels,
+        slack_format=slack_format,
     )
 
     await bot.start()
