@@ -324,11 +324,13 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         confirmation_instructions = ""
         if self.state.llm_confirmation_required:
             confirmation_instructions = """
-                ALWAYS FORMULATE YOUR RESPONSE IN A WAY THAT CONSIDERS THAT USER HAS NOT CONFIRMED THE ACTION YET.
-                The conversation handling works in a way that guarantees if we reach this prompt, user has not confirmed the action yet.
-                Detected arguments would be IN ANYWAY output in YAML format
-                after your reply automatically and any reply implying that the
-                action is confirmed or would be started is invalid.
+                For release and custom_build commands, you MUST ask the user to confirm the action.
+                Your reply should:
+                1. Summarize what you understood (release tag, custom build vs release, any module versions)
+                2. End with a clear confirmation question like "Should I proceed?" or "Please confirm to start."
+
+                IMPORTANT: The user has NOT confirmed yet. Do NOT say the action is starting or will be executed.
+                The detected arguments will be shown in YAML format after your reply automatically.
         """
         instructions = f"""You are a Redis release and custom build automation assistant.
 
