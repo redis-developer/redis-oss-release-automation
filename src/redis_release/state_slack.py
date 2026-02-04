@@ -202,12 +202,14 @@ class SlackStatePrinter:
         header_prefix = "Custom Build" if state.meta.is_custom_build else "Release"
 
         aggregated_status = self.aggregate_status(all_workflow_statuses)
-        status_emoji = self.get_step_status_emoji(aggregated_status)
+        status_emoji = self.get_step_status_emoji_with_name(aggregated_status)
         if (
             state.meta.ephemeral.last_ended_at is not None
             and aggregated_status == StepStatus.RUNNING
         ):
-            status_emoji = f"{self.get_status_icon(StepStatus.INCORRECT)} Aborted?"
+            status_emoji = (
+                f"{self.get_step_status_emoji(StepStatus.INCORRECT)} Aborted?"
+            )
 
         blocks.append(
             {
@@ -293,6 +295,64 @@ class SlackStatePrinter:
 
         return blocks
 
+    def make_package_subheader_blocks(
+        self,
+        package: Package,
+        formatted_name: str,
+        build_status_emoji: str,
+        publish_status_emoji: str,
+    ) -> List[Optional[Dict[str, Any]]]:
+        """Create package subheader blocks for Slack message.
+
+        Args:
+            package: The package to display
+            formatted_name: The formatted package name
+            build_status_emoji: The build status emoji
+            publish_status_emoji: The publish status emoji
+
+        Returns:
+            List of package subheader block dictionaries (empty if not DEFAULT format)
+        """
+
+        subheader_with_emojis = ""
+        if self.slack_format == SlackFormat.DEFAULT:
+            # Use "Test" label for clienttest package types instead of "Build"
+            build_label = (
+                "Test"
+                if package.meta.package_type == PackageType.CLIENTTEST
+                else "Build"
+            )
+            build_with_emoji = f"*{build_label}:* {build_status_emoji}"
+            publish_with_emoji = ""
+            if package.publish is not None:
+                publish_with_emoji = f"*Publish:* {publish_status_emoji}"
+            subheader_with_emojis = "  |  ".join(
+                filter(bool, [build_with_emoji, publish_with_emoji])
+            )
+
+        build_status, _ = self.get_workflow_status_emoji(package, package.build)
+        publish_status = StepStatus.NOT_STARTED
+        if package.publish is not None:
+            publish_status, _ = self.get_workflow_status_emoji(package, package.publish)
+
+        package_status = self.aggregate_status({build_status, publish_status})
+        package_status_emoji = self.get_step_status_emoji(package_status)
+
+        return [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "\n".join(
+                        [
+                            f"{package_status_emoji} {formatted_name}",
+                            subheader_with_emojis,
+                        ]
+                    ),
+                },
+            }
+        ]
+
     def update_message(self, state: ReleaseState) -> bool:
         """Post or update Slack message with release state.
 
@@ -357,7 +417,7 @@ class SlackStatePrinter:
             logger.error(f"Slack API error: {error_msg}")
             raise
 
-    def make_blocks(self, state: ReleaseState) -> List[Dict[str, Any]]:
+    def make_blocks(self, state: ReleaseState) -> List[Optional[Dict[str, Any]]]:
         """Create Slack blocks for the release state.
 
         Args:
@@ -366,7 +426,7 @@ class SlackStatePrinter:
         Returns:
             List of Slack block dictionaries
         """
-        blocks: List[Union[Dict[str, Any], None]] = []
+        blocks: List[Optional[Dict[str, Any]]] = []
 
         # Add custom build info if applicable
         self.blocks_append(blocks, self.make_custom_build_blocks(state))
@@ -382,13 +442,13 @@ class SlackStatePrinter:
             formatted_name = self.format_package_name(package_name, package)
 
             # Get workflow statuses
-            build_status, build_status_emoji = self.get_status_emoji(
+            build_status, build_status_emoji = self.get_workflow_status_emoji(
                 package, package.build
             )
             publish_status = StepStatus.NOT_STARTED
             publish_status_emoji = ""
             if package.publish is not None:
-                publish_status, publish_status_emoji = self.get_status_emoji(
+                publish_status, publish_status_emoji = self.get_workflow_status_emoji(
                     package, package.publish
                 )
 
@@ -401,61 +461,23 @@ class SlackStatePrinter:
             ):
                 continue
 
-            # Package section
-            # Use "Test" label for clienttest package types instead of "Build"
-            build_label = (
-                "Test"
-                if package.meta.package_type == PackageType.CLIENTTEST
-                else "Build"
-            )
-            build_with_emoji = f"*{build_label}:* {build_status_emoji}"
-            publish_with_emoji = ""
-            if package.publish is not None:
-                publish_with_emoji = f"*Publish:* {publish_status_emoji}"
-            header_with_emojis = "  |  ".join(
-                filter(bool, [build_with_emoji, publish_with_emoji])
-            )
-            package_status = self.aggregate_status({build_status, publish_status})
-            package_status_emoji = self.get_status_icon(package_status)
-            if self.slack_format == SlackFormat.DEFAULT:
-                blocks.append(
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"{package_status_emoji} {formatted_name}\n{header_with_emojis}",
-                        },
-                    }
-                )
-
             is_sucess = {build_status, publish_status}.issubset(
                 {StepStatus.SUCCEEDED, StepStatus.NOT_STARTED}
             )
 
-            # Workflow details in context
-            build_link = get_workflow_link(package.meta.repo, package.build.run_id)
-            build_details = self.collect_workflow_details_slack(
-                package, package.build, build_link, show_only_workflow_link=is_sucess
+            self.blocks_append(
+                blocks,
+                self.make_package_subheader_blocks(
+                    package, formatted_name, build_status_emoji, publish_status_emoji
+                ),
             )
-            publish_details = ""
-            if package.publish is not None:
-                publish_link = get_workflow_link(
-                    package.meta.repo, package.publish.run_id
-                )
-                publish_details = self.collect_workflow_details_slack(
-                    package,
-                    package.publish,
-                    publish_link,
-                    show_only_workflow_link=is_sucess,
-                )
 
-            if build_details or publish_details:
-                elements = []
-                if build_details:
-                    elements.append({"type": "mrkdwn", "text": build_details})
-                if package.publish is not None and publish_details:
-                    elements.append({"type": "mrkdwn", "text": publish_details})
-                blocks.append({"type": "context", "elements": elements})
+            if self.slack_format == SlackFormat.DEFAULT:
+                self.blocks_append(blocks, self.make_package_details_blocks(package))
+            elif self.slack_format == SlackFormat.ONE_STEP:
+                self.blocks_append(
+                    blocks, self.make_package_details_blocks_one_step(package)
+                )
 
             # Add package result blocks if package is successful
             if is_sucess:
@@ -468,6 +490,102 @@ class SlackStatePrinter:
         self.blocks_prepend(
             blocks, self.make_header_blocks(state, all_workflow_statuses)
         )
+
+        return blocks
+
+    def make_package_details_blocks(
+        self, package: Package
+    ) -> List[Optional[Dict[str, Any]]]:
+        blocks: List[Optional[Dict[str, Any]]] = []
+
+        build_link = get_workflow_link(package.meta.repo, package.build.run_id)
+        build_details = self.collect_workflow_details_slack(
+            package, package.build, build_link, show_only_workflow_link=False
+        )
+        publish_details = ""
+        if package.publish is not None:
+            publish_link = get_workflow_link(package.meta.repo, package.publish.run_id)
+            publish_details = self.collect_workflow_details_slack(
+                package,
+                package.publish,
+                publish_link,
+                show_only_workflow_link=False,
+            )
+
+        if build_details or publish_details:
+            elements = []
+            if build_details:
+                elements.append({"type": "mrkdwn", "text": build_details})
+            if package.publish is not None and publish_details:
+                elements.append({"type": "mrkdwn", "text": publish_details})
+            blocks.append({"type": "context", "elements": elements})
+
+        return blocks
+
+    def make_package_details_blocks_one_step(
+        self, package: Package
+    ) -> List[Optional[Dict[str, Any]]]:
+        """Create package details blocks for one-step format.
+
+        Uses format_steps_one_step_format to get (SectionName, CurrentStep) tuples
+        and puts them into two separate section elements.
+
+        Args:
+            package: The package to display
+
+        Returns:
+            List of Slack block dictionaries
+        """
+        blocks: List[Optional[Dict[str, Any]]] = []
+        display_model = get_display_model(package.meta)
+
+        # Collect build workflow details
+        build_link = get_workflow_link(package.meta.repo, package.build.run_id)
+        build_workflow_status = display_model.get_workflow_status(
+            package, package.build
+        )
+
+        build_section = ""
+        build_step = ""
+        if build_workflow_status[0] != StepStatus.NOT_STARTED:
+            build_section, build_step = self.format_steps_one_step_format(
+                build_workflow_status[1], build_link
+            )
+
+        # Collect publish workflow details
+        publish_section = ""
+        publish_step = ""
+        if package.publish is not None:
+            publish_link = get_workflow_link(package.meta.repo, package.publish.run_id)
+            publish_workflow_status = display_model.get_workflow_status(
+                package, package.publish
+            )
+            if publish_workflow_status[0] != StepStatus.NOT_STARTED:
+                publish_section, publish_step = self.format_steps_one_step_format(
+                    publish_workflow_status[1], publish_link
+                )
+
+        # Collect section names (left) and current steps (right), newline separated
+        left_texts = []
+        right_texts = []
+
+        if build_section:
+            left_texts.append(build_section)
+        if build_step:
+            right_texts.append(build_step)
+
+        if publish_section:
+            left_texts.append(publish_section)
+        if publish_step:
+            right_texts.append(publish_step)
+
+        if left_texts or right_texts:
+            elements = []
+            if left_texts:
+                elements.append({"type": "mrkdwn", "text": "\n".join(left_texts)})
+            if right_texts:
+                elements.append({"type": "mrkdwn", "text": "\n".join(right_texts)})
+            blocks.append({"type": "context", "elements": elements})
 
         return blocks
 
@@ -564,7 +682,7 @@ class SlackStatePrinter:
 
         return blocks
 
-    def get_status_emoji(
+    def get_workflow_status_emoji(
         self, package: Package, workflow: Workflow
     ) -> Tuple[StepStatus, str]:
         """Get emoji status for a workflow.
@@ -582,9 +700,12 @@ class SlackStatePrinter:
 
         # Check workflow status
         workflow_status = display_model.get_workflow_status(package, workflow)
-        return (workflow_status[0], self.get_step_status_emoji(workflow_status[0]))
+        return (
+            workflow_status[0],
+            self.get_step_status_emoji_with_name(workflow_status[0]),
+        )
 
-    def get_status_icon(self, status: StepStatus) -> str:
+    def get_step_status_emoji(self, status: StepStatus) -> str:
         if status == StepStatus.SUCCEEDED:
             return "✅"
         elif status == StepStatus.RUNNING:
@@ -596,7 +717,7 @@ class SlackStatePrinter:
         else:
             return "⚠️"
 
-    def get_step_status_emoji(self, status: StepStatus) -> str:
+    def get_step_status_emoji_with_name(self, status: StepStatus) -> str:
         """Convert step status to emoji string.
 
         Args:
@@ -606,15 +727,15 @@ class SlackStatePrinter:
             Emoji status string
         """
         if status == StepStatus.SUCCEEDED:
-            return f"{self.get_status_icon(status)} Success"
+            return f"{self.get_step_status_emoji(status)} Success"
         elif status == StepStatus.RUNNING:
-            return f"{self.get_status_icon(status)} In progress"
+            return f"{self.get_step_status_emoji(status)} In progress"
         elif status == StepStatus.NOT_STARTED:
-            return f"{self.get_status_icon(status)} Not started"
+            return f"{self.get_step_status_emoji(status)} Not started"
         elif status == StepStatus.INCORRECT:
-            return f"️{self.get_status_icon(status)} Invalid state"
+            return f"️{self.get_step_status_emoji(status)} Invalid state"
         else:  # FAILED
-            return f"{self.get_status_icon(status)} Failed"
+            return f"{self.get_step_status_emoji(status)} Failed"
 
     def collect_workflow_details_slack(
         self,
@@ -641,18 +762,11 @@ class SlackStatePrinter:
         workflow_status = display_model.get_workflow_status(package, workflow)
         # Add workflow details
         if workflow_status[0] != StepStatus.NOT_STARTED:
-            if self.slack_format == SlackFormat.ONE_STEP:
-                details.extend(
-                    self.format_steps_one_step_format(
-                        workflow_status[1], workflow_link, show_only_workflow_link
-                    )
+            details.extend(
+                self.format_steps_for_slack(
+                    workflow_status[1], workflow_link, show_only_workflow_link
                 )
-            else:
-                details.extend(
-                    self.format_steps_for_slack(
-                        workflow_status[1], workflow_link, show_only_workflow_link
-                    )
-                )
+            )
 
         return "\n".join(details)
 
@@ -685,15 +799,21 @@ class SlackStatePrinter:
                     details.append(f"*{item.name}*")
             elif isinstance(item, Step):
                 if item.status == StepStatus.SUCCEEDED:
-                    details.append(f"{self.get_status_icon(item.status)} {item.name}")
+                    details.append(
+                        f"{self.get_step_status_emoji(item.status)} {item.name}"
+                    )
                 elif item.status == StepStatus.RUNNING:
-                    details.append(f"{self.get_status_icon(item.status)} {item.name}")
+                    details.append(
+                        f"{self.get_step_status_emoji(item.status)} {item.name}"
+                    )
                 elif item.status == StepStatus.NOT_STARTED:
-                    details.append(f"{self.get_status_icon(item.status)} {item.name}")
+                    details.append(
+                        f"{self.get_step_status_emoji(item.status)} {item.name}"
+                    )
                 else:  # FAILED or INCORRECT
                     msg = f" ({item.message})" if item.message else ""
                     details.append(
-                        f"{self.get_status_icon(item.status)} {item.name}{msg}"
+                        f"{self.get_step_status_emoji(item.status)} {item.name}{msg}"
                     )
                     break
 
@@ -704,10 +824,12 @@ class SlackStatePrinter:
         steps: List[Union[Step, Section]],
         workflow_link: Optional[str],
         show_only_workflow_link: bool = False,
-    ) -> List[str]:
-        """Format step details for Slack display in one-step format."""
-        details: List[str] = []
+    ) -> Tuple[str, str]:
+        """Format step details for Slack display in one-step format.
 
+        Returns:
+            A tuple of (SectionName, CurrentStep)
+        """
         current_section = ""
         current_step = ""
 
@@ -719,14 +841,17 @@ class SlackStatePrinter:
                     current_section = f"*{item.name}*"
             elif isinstance(item, Step):
                 if item.status == StepStatus.SUCCEEDED:
+                    current_step = (
+                        f"{self.get_step_status_emoji_with_name(item.status)}"
+                    )
                     pass
                 else:
-                    current_step = f"{self.get_status_icon(item.status)} {item.name}"
+                    current_step = (
+                        f"{self.get_step_status_emoji(item.status)} {item.name}"
+                    )
                     break
 
-        details.append(f"{current_section} {current_step}")
-
-        return details
+        return (current_section, current_step)
 
     def aggregate_status(self, statuses: Set[StepStatus]) -> StepStatus:
         if StepStatus.RUNNING in statuses:
