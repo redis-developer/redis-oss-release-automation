@@ -3,11 +3,17 @@
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
+from queue import Queue
+from time import sleep
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+
+# Max number of slack status messages in queue
+MAX_QUEUE_SIZE = 10
 
 from .bht.state import Package, ReleaseState, Workflow, WorkflowConclusion
 from .models import PackageType, ReleaseType, SlackFormat
@@ -23,15 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_workflow_link(repo: str, run_id: Optional[int]) -> Optional[str]:
-    """Generate GitHub workflow URL from repo and run_id.
-
-    Args:
-        repo: Repository in format "owner/repo"
-        run_id: GitHub workflow run ID
-
-    Returns:
-        GitHub workflow URL or None if run_id is not available
-    """
+    """Generate GitHub workflow URL from repo and run_id."""
     if not run_id or not repo:
         return None
     return f"https://github.com/{repo}/actions/runs/{run_id}"
@@ -55,6 +53,7 @@ def init_slack_printer(
         reply_broadcast: If True and thread_ts is set, also show in main channel
         slack_format: Slack message format (default or compact)
         state: Optional release state to post initial message to create the thread
+        state_name: Optional state name to include in the message
 
     Warning: if state is provided, and thread_ts is not provided, the state will
     be modified in-place by setting the thread_ts and channel_id. Initial message
@@ -87,7 +86,8 @@ def init_slack_printer(
         logger.info(
             "Posting initial slack message to create a thread and save thread_ts to the release state"
         )
-        slack_printer.update_message(state)
+        blocks = slack_printer.make_blocks(state)
+        slack_printer.update_message(blocks)
         if state.meta.ephemeral.slack_channel_id is None:
             state.meta.ephemeral.slack_channel_id = slack_channel_id
         if slack_printer.message_ts is not None:
@@ -116,6 +116,7 @@ class SlackStatePrinter:
             thread_ts: Optional thread timestamp to post messages in a thread
             reply_broadcast: If True and thread_ts is set, also show in main channel
             slack_format: Slack message format (default or compact)
+            state_name: Optional state name to include in the message
         """
         self.client = WebClient(token=slack_token)
         self.channel_id: str = slack_channel_id
@@ -126,6 +127,9 @@ class SlackStatePrinter:
         self.last_blocks_json: Optional[str] = None
         self.started_at = datetime.now(timezone.utc)
         self.state_name = state_name
+        self.message_queue: Queue[Optional[List[Optional[Dict[str, Any]]]]] = Queue()
+        self._queue_thread = threading.Thread(target=self.process_queue, daemon=False)
+        self._queue_thread.start()
 
     def format_package_name(self, package_name: str, package: Package) -> str:
         formatted = package_name.capitalize()
@@ -296,26 +300,75 @@ class SlackStatePrinter:
             }
         ]
 
-    def update_message(self, state: ReleaseState) -> bool:
-        """Post or update Slack message with release state.
-
-        Only updates if the blocks have changed since last update.
+    def add_status(self, state: ReleaseState) -> None:
+        """Build blocks from state and add to message queue.
 
         Args:
             state: The ReleaseState to display
+        """
+        logger.warning(f"lats_ended_at: {state.meta.ephemeral.last_ended_at}")
+        blocks = self.make_blocks(state)
+        self.message_queue.put(blocks)
+
+    def stop(self, timeout: Optional[float] = None) -> None:
+        """Stop the queue processing thread and wait for it to finish.
+
+        Args:
+            timeout: Maximum time to wait for the thread to finish (None = wait forever)
+        """
+        logger.warning("Stopping SlackStatePrinter")
+        self.message_queue.put(None)  # Unblock the queue.get()
+        self._queue_thread.join(timeout=timeout)
+
+    def process_queue(self) -> None:
+        """Process message queue in a background thread.
+
+        This is to make updates look smoother.
+
+        Gets blocks from queue in blocking mode and calls update_message.
+        Skips updates if blocks haven't changed or queue size exceeds MAX_QUEUE_SIZE.
+        """
+        while True:
+            blocks = self.message_queue.get(block=True)
+            logger.warning(f"Processing queue message")
+
+            # Check for stop signal
+            if blocks is None:
+                break
+
+            blocks_json = json.dumps(blocks, sort_keys=True)
+
+            # Skip if blocks haven't changed
+            if blocks_json == self.last_blocks_json:
+                logger.debug("Slack message unchanged, skipping update")
+                continue
+
+            if self.message_queue.qsize() > MAX_QUEUE_SIZE:
+                logger.debug(
+                    f"Queue size {self.message_queue.qsize()} exceeds {MAX_QUEUE_SIZE}, skipping update"
+                )
+                continue
+            try:
+                self.update_message(blocks)
+                self.last_blocks_json = blocks_json
+                sleep(1)
+            except Exception as e:
+                logger.error(f"Error processing queue message: {e}")
+
+    def update_message(
+        self, blocks: List[Optional[Dict[str, Any]]], text: Optional[str] = None
+    ) -> bool:
+        """Post or update Slack message with blocks.
+
+        Args:
+            blocks: The blocks to display
+            text: Optional fallback text for the message
 
         Returns:
-            True if message was posted/updated, False if no change
+            True if message was posted/updated, False otherwise
         """
-        blocks = self.make_blocks(state)
-        blocks_json = json.dumps(blocks, sort_keys=True)
-
-        # Check if blocks have changed
-        if blocks_json == self.last_blocks_json:
-            logger.debug("Slack message unchanged, skipping update")
-            return False
-
-        text = f"Release {state.meta.tag or 'N/A'} — Status"
+        if text is None:
+            text = "Release Status"
 
         try:
             if self.message_ts is None:
@@ -344,15 +397,16 @@ class SlackStatePrinter:
                 )
             else:
                 # Update existing message
+                # Filter out None values for Slack API compatibility
+                filtered_blocks = [b for b in blocks if b is not None]
                 self.client.chat_update(
                     channel=self.channel_id,
                     ts=self.message_ts,
                     text=text,
-                    blocks=blocks,
+                    blocks=filtered_blocks,
                 )
                 logger.debug(f"Updated Slack message ts={self.message_ts}")
 
-            self.last_blocks_json = blocks_json
             return True
 
         except SlackApiError as e:
@@ -371,7 +425,7 @@ class SlackStatePrinter:
         all_workflow_statuses: Set[StepStatus] = set()
 
         # Process each package
-        for package_name, package in sorted(state.packages.items()):
+        for package_name, package in state.packages.items():
             formatted_name = self.format_package_name(package_name, package)
 
             build_status, build_status_emoji = self.get_workflow_status_emoji(
@@ -432,7 +486,7 @@ class SlackStatePrinter:
 
         build_link = get_workflow_link(package.meta.repo, package.build.run_id)
         build_details = self.collect_workflow_details_slack(
-            package, package.build, build_link, show_only_workflow_link=False
+            package, package.build, build_link
         )
         publish_details = ""
         if package.publish is not None:
@@ -441,7 +495,6 @@ class SlackStatePrinter:
                 package,
                 package.publish,
                 publish_link,
-                show_only_workflow_link=False,
             )
 
         if build_details or publish_details:
@@ -469,7 +522,7 @@ class SlackStatePrinter:
         build_section = ""
         build_step = ""
         if build_workflow_status[0] != StepStatus.NOT_STARTED:
-            build_section, build_step = self.format_steps_compact_format(
+            build_section, build_step = self.format_steps_compact(
                 build_workflow_status[1], build_link
             )
 
@@ -482,7 +535,7 @@ class SlackStatePrinter:
                 package, package.publish
             )
             if publish_workflow_status[0] != StepStatus.NOT_STARTED:
-                publish_section, publish_step = self.format_steps_compact_format(
+                publish_section, publish_step = self.format_steps_compact(
                     publish_workflow_status[1], publish_link
                 )
 
@@ -550,15 +603,16 @@ class SlackStatePrinter:
     ) -> Optional[List[Union[Dict[str, Any], None]]]:
         blocks: List[Union[Dict[str, Any], None]] = []
 
+        if self.slack_format == SlackFormat.COMPACT:
+            return blocks
+
         # Redis-py test results
         redispy_package = state.packages.get("redis-py")
         if redispy_package is not None:
             result = redispy_package.build.result
-            workflow = redispy_package.build
 
             # Show result if workflow succeeded and we have results
             if result is not None:
-                status = result.get("status", "unknown")
                 redis_version = result.get("redis_version", "N/A")
                 image_tag = result.get("client_test_image_tag", "N/A")
                 python_version = result.get("python_version", "N/A")
@@ -573,24 +627,6 @@ class SlackStatePrinter:
                         },
                     }
                 )
-            # Show error message if workflow failed
-            elif (
-                workflow.conclusion == WorkflowConclusion.FAILURE
-                and workflow.run_id is not None
-            ):
-                workflow_url = get_workflow_link(
-                    redispy_package.meta.repo, workflow.run_id
-                )
-                if workflow_url:
-                    blocks.append(
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"*Redis-py Tests*\n:x: Test failed - <{workflow_url}|view logs>",
-                            },
-                        }
-                    )
 
         return blocks
 
@@ -635,7 +671,6 @@ class SlackStatePrinter:
         package: Package,
         workflow: Workflow,
         workflow_link: Optional[str],
-        show_only_workflow_link: bool = False,
     ) -> str:
         details: List[str] = []
         display_model = get_display_model(package.meta)
@@ -644,9 +679,7 @@ class SlackStatePrinter:
         # Add workflow details
         if workflow_status[0] != StepStatus.NOT_STARTED:
             details.extend(
-                self.format_steps_for_slack(
-                    workflow_status[1], workflow_link, show_only_workflow_link
-                )
+                self.format_steps_for_slack(workflow_status[1], workflow_link)
             )
 
         return "\n".join(details)
@@ -655,15 +688,12 @@ class SlackStatePrinter:
         self,
         steps: List[Union[Step, Section]],
         workflow_link: Optional[str],
-        show_only_workflow_link: bool = False,
     ) -> List[str]:
         details: List[str] = []
 
         for item in steps:
             if isinstance(item, Section):
                 if item.is_workflow and workflow_link:
-                    if show_only_workflow_link:
-                        return [f"<{workflow_link}|*{item.name}*>"]
                     details.append(f"<{workflow_link}|*{item.name}*>")
                 else:
                     details.append(f"*{item.name}*")
@@ -689,11 +719,10 @@ class SlackStatePrinter:
 
         return details
 
-    def format_steps_compact_format(
+    def format_steps_compact(
         self,
         steps: List[Union[Step, Section]],
         workflow_link: Optional[str],
-        show_only_workflow_link: bool = False,
     ) -> Tuple[str, str]:
         """Format step details for Slack display in compact format.
 
@@ -716,14 +745,16 @@ class SlackStatePrinter:
                     )
                     pass
                 else:
+                    msg = f" ({item.message})" if item.message else ""
                     current_step = (
-                        f"{self.get_step_status_emoji(item.status)} {item.name}"
+                        f"{self.get_step_status_emoji(item.status)} {item.name}{msg}"
                     )
                     break
 
         return (current_section, current_step)
 
     def aggregate_status(self, statuses: Set[StepStatus]) -> StepStatus:
+        """Return the most relevant status from a set of statuses of all workflow steps."""
         if StepStatus.RUNNING in statuses:
             return StepStatus.RUNNING
         elif StepStatus.FAILED in statuses:

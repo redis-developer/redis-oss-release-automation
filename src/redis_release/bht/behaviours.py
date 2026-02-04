@@ -446,15 +446,18 @@ class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
                     f"Workflow {self.workflow.workflow_file}({self.workflow.run_id}) conclusion changed: {self.workflow.conclusion} -> {result.conclusion}"
                 )
             self.workflow.conclusion = result.conclusion
-            self.feedback_message = (
-                f" {self.workflow.status}, {self.workflow.conclusion}"
-            )
 
             if self.workflow.conclusion is not None:
                 if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
                     return Status.SUCCESS
                 self.feedback_message = f"Workflow failed"
                 return Status.FAILURE
+
+            feedback_elements = []
+            if self.workflow.status:
+                feedback_elements.append(self.workflow.status.value)
+            if self.workflow.conclusion:
+                feedback_elements.append(self.workflow.conclusion.value)
 
             # Check cutoff (0 means no limit)
             if self.cutoff > 0 and self.tick_count >= self.cutoff:
@@ -465,17 +468,22 @@ class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
             # Check timeout (0 means no limit)
             if self.timeout_seconds > 0 and self.start_time is not None:
                 elapsed = asyncio.get_event_loop().time() - self.start_time
-                self.feedback_message = (
-                    f"{self.feedback_message}, elapsed: {elapsed:.1f}s"
-                )
+                elapsed_rounded = int(elapsed // 60)
+                if elapsed_rounded > 0:
+                    feedback_elements.append(
+                        f"{elapsed_rounded}m of {self.timeout_seconds // 60}m max"
+                    )
                 if elapsed >= self.timeout_seconds:
-                    self.logger.debug(f"Timeout reached: {elapsed:.1f}s")
+                    self.logger.debug(
+                        f"Timeout reached: {elapsed:.1f}s of {self.timeout_seconds}s"
+                    )
                     self.feedback_message = (
                         f"Timed out: {elapsed:.1f}s of {self.timeout_seconds}s"
                     )
                     self.workflow.ephemeral.wait_for_completion_timed_out = True
                     return Status.FAILURE
 
+            self.feedback_message = ", ".join(feedback_elements)
             # Switch to sleep task
             self._initialise_sleep_task()
             return Status.RUNNING

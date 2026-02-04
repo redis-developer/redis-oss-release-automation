@@ -272,7 +272,9 @@ def status(
                 slack_channel_id,
                 slack_format=parse_slack_format(slack_format),
             )
-            printer.update_message(state_syncer.state)
+            blocks = printer.make_blocks(state_syncer.state)
+            printer.update_message(blocks)
+            printer.stop()
 
 
 @app.command()

@@ -195,7 +195,7 @@ def initialize_tree_and_state(
                 printer = slack_printer
 
                 def slack_tick_handler(_: BehaviourTree) -> None:
-                    printer.update_message(state_syncer.state)
+                    printer.add_status(state_syncer.state)
 
                 tree.add_post_tick_handler(slack_tick_handler)
             except ValueError as e:
@@ -210,7 +210,8 @@ def initialize_tree_and_state(
                     tz=timezone.utc
                 )
             if slack_printer:
-                slack_printer.update_message(state_syncer.state)
+                slack_printer.add_status(state_syncer.state)
+                slack_printer.stop()
             print_state_table(state_syncer.state)
             state_syncer.sync()
 

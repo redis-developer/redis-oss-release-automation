@@ -120,7 +120,9 @@ class RunStatusCommand(ReleaseAction):
                         reply_broadcast=self.state.slack_args.reply_broadcast,
                         slack_format=self.state.slack_args.format,
                     )
-                    printer.update_message(state_manager.state)
+                    blocks = printer.make_blocks(state_manager.state)
+                    printer.update_message(blocks)
+                    printer.stop()
                     self.state.replies.append(
                         BotReply(
                             text=f"Status for tag `{release_args.release_tag}` posted to Slack."
