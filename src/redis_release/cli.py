@@ -9,7 +9,11 @@ import typer
 from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
 
-from redis_release.cli_util import parse_force_release_type, parse_module_versions
+from redis_release.cli_util import (
+    parse_force_release_type,
+    parse_module_versions,
+    parse_slack_format,
+)
 
 from .bht.conversation_state import InboxMessage
 from .bht.conversation_tree import initialize_conversation_tree
@@ -161,6 +165,11 @@ def release(
         "--slack-thread-ts",
         help="Slack thread timestamp to post status updates to",
     ),
+    slack_format: Optional[str] = typer.Option(
+        None,
+        "--slack-format",
+        help="Slack message format to use. Available: default, one_step",
+    ),
     log_file: Optional[str] = typer.Option(
         None,
         "--log-file",
@@ -190,6 +199,7 @@ def release(
             bot_token=slack_token,
             channel_id=slack_channel_id,
             thread_ts=slack_thread_ts,
+            format=parse_slack_format(slack_format),
         ),
     )
 
@@ -219,6 +229,11 @@ def status(
         None,
         "--slack-token",
         help="Slack bot token (if not provided, uses SLACK_BOT_TOKEN env var)",
+    ),
+    slack_format: Optional[str] = typer.Option(
+        None,
+        "--slack-format",
+        help="Slack message format to use. Available: default, one_step",
     ),
     log_file: Optional[str] = typer.Option(
         None,
@@ -252,7 +267,11 @@ def status(
         print_state_table(state_syncer.state)
 
         if slack:
-            printer = init_slack_printer(slack_token, slack_channel_id)
+            printer = init_slack_printer(
+                slack_token,
+                slack_channel_id,
+                slack_format=parse_slack_format(slack_format),
+            )
             printer.update_message(state_syncer.state)
 
 

@@ -19,7 +19,7 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 from rich.text import Text
 
-from ..config import Config, PackageConfig
+from ..config import Config, PackageConfig, custom_build_package_names
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType, ReleaseArgs
 from ..state_console import print_state_table
@@ -38,10 +38,6 @@ from .state import SUPPORTED_STATE_VERSION, Package, ReleaseState
 from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
-
-
-# Packages that support custom builds
-CUSTOM_BUILD_PACKAGES = ["docker", "clientimage", "redis-py"]
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
@@ -86,9 +82,11 @@ def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
 
 
 def arrange_packages_list(
+    config: Config,
     packages: Dict[str, Package],
     only_packages: List[str],
     custom_build: bool,
+    available_packages: List[str] = [],
 ) -> List[str]:
     """Arrange and filter the list of packages to process.
 
@@ -101,10 +99,15 @@ def arrange_packages_list(
         Filtered list of package names to process
     """
     # Define available packages based on custom_build mode
-    available_packages: List[str] = []
     result: List[str] = []
-    if custom_build:
-        available_packages = CUSTOM_BUILD_PACKAGES
+    if not custom_build:
+        available_packages = []
+    else:
+        available_packages = custom_build_package_names(config)
+        if not available_packages:
+            raise ValueError(
+                "No available packages found in config for custom build, provide allow_custom_build: true for at least one package"
+            )
 
     if available_packages:
         if only_packages:
@@ -148,6 +151,7 @@ def initialize_tree_and_state(
         read_only=read_only,
     ) as state_syncer:
         packages_list = arrange_packages_list(
+            config=config,
             packages=state_syncer.state.packages,
             only_packages=args.only_packages,
             custom_build=args.custom_build,
@@ -208,6 +212,7 @@ def initialize_tree_and_state(
             if slack_printer:
                 slack_printer.update_message(state_syncer.state)
             print_state_table(state_syncer.state)
+            state_syncer.sync()
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:

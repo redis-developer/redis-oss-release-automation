@@ -7,7 +7,7 @@ from openai.types.responses.response_input_param import ResponseInputParam
 
 from redis_release.models import RedisModule, ReleaseArgs
 
-from ..config import Config
+from ..config import Config, custom_build_package_names
 from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
     REDIS_MODULE_DESCRIPTIONS,
@@ -15,7 +15,6 @@ from ..conversation_models import (
     LLMStatusArgs,
 )
 from .conversation_state import ConversationState
-from .tree import CUSTOM_BUILD_PACKAGES
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ class LLMConvertHelper:
         """
         # Determine valid packages based on custom_build mode
         if llm_args.custom_build:
-            valid_packages = set(CUSTOM_BUILD_PACKAGES)
+            valid_packages = set(custom_build_package_names(self.config))
         else:
             valid_packages = set(self.config.packages.keys())
 

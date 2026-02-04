@@ -1,7 +1,7 @@
 """Configuration management for Redis release automation."""
 
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field
@@ -23,6 +23,8 @@ class PackageConfig(BaseModel):
     publish_workflow: Union[str, bool] = Field(default=False)
     publish_timeout_minutes: int = Field(default=10)
     publish_inputs: Dict[str, str] = Field(default_factory=dict)
+    package_display_name: Optional[str] = None
+    allow_custom_build: bool = False
 
 
 class Config(BaseModel):
@@ -63,3 +65,8 @@ def load_config(path: Optional[Union[str, Path]] = None) -> Config:
     if path is None:
         path = "config.yaml"
     return Config.from_yaml(path)
+
+
+def custom_build_package_names(config: Config) -> List[str]:
+    """Get packages that support custom builds."""
+    return [name for name, pkg in config.packages.items() if pkg.allow_custom_build]
