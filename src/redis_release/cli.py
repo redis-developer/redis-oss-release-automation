@@ -168,7 +168,7 @@ def release(
     slack_format: Optional[str] = typer.Option(
         None,
         "--slack-format",
-        help="Slack message format to use. Available: default, one_step",
+        help="Slack message format to use. Available: default, compact",
     ),
     log_file: Optional[str] = typer.Option(
         None,
@@ -233,7 +233,7 @@ def status(
     slack_format: Optional[str] = typer.Option(
         None,
         "--slack-format",
-        help="Slack message format to use. Available: default, one_step",
+        help="Slack message format to use. Available: default, compact",
     ),
     log_file: Optional[str] = typer.Option(
         None,
