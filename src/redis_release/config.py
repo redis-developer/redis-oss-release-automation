@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 
 from .models import HomebrewChannel, PackageType, SnapRiskLevel
 
+# Size for nanoid-based workflow identifiers
+NANOID_SIZE = 8
+
 
 class PackageConfig(BaseModel):
     """Configuration for a package type."""

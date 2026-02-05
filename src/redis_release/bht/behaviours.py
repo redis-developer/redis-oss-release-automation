@@ -15,15 +15,16 @@ import asyncio
 import json
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from nanoid import generate as nanoid_generate
 from py import log
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 
 from redis_release.bht.state import reset_model_to_defaults
+from redis_release.config import NANOID_SIZE
 
 from ..github_client_async import GitHubClientAsync
 from ..logging_config import log_once
@@ -247,8 +248,10 @@ class TriggerWorkflow(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def initialise(self) -> None:
-        self.workflow.uuid = str(uuid.uuid4())
-        self.workflow.inputs["workflow_uuid"] = self.workflow.uuid
+        workflow_id = nanoid_generate(size=NANOID_SIZE)
+        assert workflow_id is not None
+        self.workflow.uuid = workflow_id
+        self.workflow.inputs["workflow_uuid"] = workflow_id
         if self.release_meta.tag is None:
             self.logger.error(
                 "[red]Release tag is None - cannot trigger workflow[/red]"
