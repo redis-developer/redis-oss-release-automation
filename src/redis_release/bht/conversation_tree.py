@@ -10,18 +10,37 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 
 from ..config import Config, load_config
-from ..conversation_models import ConversationArgs, ConversationCockpit, InboxMessage
+from ..conversation_models import (
+    Command,
+    ConversationArgs,
+    ConversationCockpit,
+    InboxMessage,
+    UserIntent,
+)
 from ..models import SlackArgs
 from .conversation_behaviours import (
+    ExtractArgsFromConfirmation,
+    ExtractDetailsFromContext,
+    HasConfirmationRequest,
+    HasIntent,
     HasReleaseArgs,
+    HasUserReleaseArgs,
+    IgnoreThread,
+    IsCommand,
     IsCommandStarted,
-    IsLLMAvailable,
-    LLMCommandClassifier,
+    IsIntent,
     NeedConfirmation,
     RunReleaseCommand,
     RunStatusCommand,
     ShowConfirmationMessage,
-    SimpleCommandClassifier,
+)
+from .conversation_llm import (
+    IsLLMAvailable,
+    LLMActionHandler,
+    LLMHandleConfirmation,
+    LLMIntentDetector,
+    LLMNoActionHandler,
+    LLMQuestionHandler,
 )
 from .conversation_state import ConversationState
 from .tree import log_tree_state_with_markup
@@ -34,33 +53,73 @@ def create_conversation_root_node(
     input: InboxMessage,
     config: Config,
     cockpit: ConversationCockpit,
+    context: Optional[List[InboxMessage]] = None,
     slack_args: Optional[SlackArgs] = None,
     authorized_users: Optional[List[str]] = None,
+    emojis: Optional[List[str]] = None,
+    slack_format_is_available: bool = False,
 ) -> Tuple[Behaviour, ConversationState]:
     state = ConversationState(
         llm_available=cockpit.llm is not None,
         message=input,
+        context=context,
         slack_args=slack_args,
         authorized_users=authorized_users,
+        emojis=emojis or [],
+        slack_format_is_available=slack_format_is_available,
     )
     state.message = input
+
+    LLMResolve = Selector(
+        "LLM Resolve",
+        memory=False,
+        children=[
+            Sequence(
+                "Question",
+                memory=False,
+                children=[
+                    IsIntent("Is Question", state, UserIntent.QUESTION),
+                    LLMQuestionHandler("Handle Question", state, cockpit, config),
+                ],
+            ),
+            Sequence(
+                "Action",
+                memory=False,
+                children=[
+                    IsIntent("Is Action", state, UserIntent.ACTION),
+                    LLMActionHandler("Handle Action", state, cockpit, config),
+                ],
+            ),
+            Sequence(
+                "NoAction",
+                memory=False,
+                children=[
+                    IsIntent("Is No Action", state, UserIntent.NO_ACTION),
+                    LLMNoActionHandler("Handle NoAction", state, cockpit, config),
+                ],
+            ),
+        ],
+    )
+
+    LLMIntent = Selector(
+        "LLM Intent",
+        memory=False,
+        children=[
+            HasIntent("Has Intent", state, cockpit),
+            LLMIntentDetector("Detect Intent", state, cockpit, config),
+        ],
+    )
+
+    LLMClass = Sequence(
+        "LLM Classification", memory=False, children=[LLMIntent, LLMResolve]
+    )
 
     command_detector = Selector(
         "Classify Command",
         memory=False,
         children=[
             HasReleaseArgs("Has Release Args", state, cockpit),
-            Sequence(
-                "Simple Classification",
-                memory=False,
-                children=[
-                    Inverter("Not", IsLLMAvailable("Is LLM Available", state, cockpit)),
-                    SimpleCommandClassifier(
-                        "Simple Command Classifier", state, cockpit
-                    ),
-                ],
-            ),
-            LLMCommandClassifier("LLM Classification", state, cockpit),
+            LLMClass,
         ],
     )
 
@@ -73,12 +132,70 @@ def create_conversation_root_node(
         ],
     )
 
-    run_release = Selector(
-        "Run Release",
+    run_release = Sequence(
+        "Release",
         memory=False,
         children=[
-            show_confirmation,
-            RunReleaseCommand("Run Release Command", state, cockpit, config),
+            IsCommand("Is Release Command", state, Command.RELEASE),
+            Selector(
+                "Run Release",
+                memory=False,
+                children=[
+                    show_confirmation,
+                    RunReleaseCommand("Run Release Command", state, cockpit, config),
+                ],
+            ),
+        ],
+    )
+
+    run_status = Sequence(
+        "Status",
+        memory=False,
+        children=[
+            IsCommand("Is Status Command", state, Command.STATUS),
+            RunStatusCommand("Run Status Command", state, cockpit, config),
+        ],
+    )
+
+    # Handle confirmation flow - check if previous message was a confirmation request
+    handle_confirmation = Selector(
+        "Handle Confirmation",
+        memory=False,
+        children=[
+            HasUserReleaseArgs("Has User Release Args", state, cockpit),
+            Selector(
+                "Check Confirmation Request",
+                memory=False,
+                children=[
+                    Inverter(
+                        name="Not Confirmation Request",
+                        child=HasConfirmationRequest(
+                            "Has Confirmation Request", state, cockpit
+                        ),
+                    ),
+                    Sequence(
+                        "Process Confirmation",
+                        memory=False,
+                        children=[
+                            ExtractArgsFromConfirmation(
+                                "Extract Args From Confirmation", state, cockpit
+                            ),
+                            LLMHandleConfirmation(
+                                "LLM Handle Confirmation", state, cockpit, config
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    ignore_thread = Sequence(
+        "Ignore Thread",
+        memory=False,
+        children=[
+            IsCommand("Is Ignore Thread Command", state, Command.IGNORE_THREAD),
+            IgnoreThread("Ignore Thread", state, cockpit),
         ],
     )
 
@@ -91,15 +208,18 @@ def create_conversation_root_node(
                 "Conversation Sequence",
                 memory=False,
                 children=[
+                    ExtractDetailsFromContext(
+                        "Extract Details From Context", state, config
+                    ),
+                    handle_confirmation,
                     command_detector,
                     Selector(
                         name="Command Router",
                         memory=False,
                         children=[
-                            RunStatusCommand(
-                                "Run Status Command", state, cockpit, config
-                            ),
+                            run_status,
                             run_release,
+                            ignore_thread,
                         ],
                     ),
                 ],
@@ -134,8 +254,11 @@ def initialize_conversation_tree(
         args.inbox,
         config=config,
         cockpit=cockpit,
+        context=args.context,
         slack_args=args.slack_args,
         authorized_users=args.authorized_users,
+        emojis=args.emojis,
+        slack_format_is_available=args.slack_format_is_available,
     )
     tree = BehaviourTree(root)
     snapshot_visitor = SnapshotVisitor()
@@ -150,6 +273,8 @@ def run_conversation_tree(
     """Abstacting away tree run
     Currently it's just a single tick, but it may change in future
     """
+    from ..conversation_models import BotReply
+
     try:
         tree.tick()
         try:
@@ -160,7 +285,7 @@ def run_conversation_tree(
             logger.error(f"Error putting reply to queue: {e}", exc_info=True)
     except Exception as e:
         try:
-            reply_queue.put(f"Error running conversation tree: {str(e)}")
+            reply_queue.put(BotReply(text=f"Error running conversation tree: {str(e)}"))
         except Exception as e:
             logger.error(f"Error putting error reply to queue: {e}", exc_info=True)
     finally:

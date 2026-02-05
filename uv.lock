@@ -1524,6 +1524,15 @@ wheels = [
 ]
 
 [[package]]
+name = "nanoid"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/9d/0250bf5935d88e214df469d35eccc0f6ff7e9db046fc8a9aeb4b2a192775/nanoid-2.0.0.tar.gz", hash = "sha256:5a80cad5e9c6e9ae3a41fa2fb34ae189f7cb420b2a5d8f82bd9d23466e4efa68", size = 3290, upload-time = "2018-11-20T14:45:51.578Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/0d/8630f13998638dc01e187fadd2e5c6d42d127d08aeb4943d231664d6e539/nanoid-2.0.0-py3-none-any.whl", hash = "sha256:90aefa650e328cffb0893bbd4c236cfd44c48bc1f2d0b525ecc53c3187b653bb", size = 5844, upload-time = "2018-11-20T14:45:50.165Z" },
+]
+
+[[package]]
 name = "nodeenv"
 version = "1.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2101,6 +2110,7 @@ dependencies = [
     { name = "boto3" },
     { name = "cryptography" },
     { name = "janus" },
+    { name = "nanoid" },
     { name = "openai" },
     { name = "py-trees" },
     { name = "pydantic" },
@@ -2124,6 +2134,11 @@ dev = [
     { name = "pytest-cov" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "types-pyyaml" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.8.0" },
@@ -2133,6 +2148,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
     { name = "janus", specifier = ">=2.0,<2.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "nanoid", specifier = ">=2.0.0" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "py-trees", specifier = ">=2.2,<3.0" },
@@ -2148,6 +2164,9 @@ requires-dist = [
     { name = "typer", extras = ["all"], specifier = ">=0.9.0" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "types-pyyaml", specifier = ">=6.0.12.20250915" }]
 
 [[package]]
 name = "requests"
@@ -2314,6 +2333,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8f/28/7c85c8032b91dbe79725b6f17d2fffc595dff06a35c7a30a37bef73a1ab4/typer-0.20.0.tar.gz", hash = "sha256:1aaf6494031793e4876fb0bacfa6a912b551cf43c1e63c800df8b1a866720c37", size = 106492, upload-time = "2025-10-20T17:03:49.445Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/64/7713ffe4b5983314e9d436a90d5bd4f63b6054e2aca783a3cfc44cb95bbf/typer-0.20.0-py3-none-any.whl", hash = "sha256:5b463df6793ec1dca6213a3cf4c0f03bc6e322ac5e16e13ddd622a889489784a", size = 47028, upload-time = "2025-10-20T17:03:47.617Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20250915"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/69/3c51b36d04da19b92f9e815be12753125bd8bc247ba0470a982e6979e71c/types_pyyaml-6.0.12.20250915.tar.gz", hash = "sha256:0f8b54a528c303f0e6f7165687dd33fafa81c807fcac23f632b63aa624ced1d3", size = 17522, upload-time = "2025-09-15T03:01:00.728Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/e0/1eed384f02555dde685fff1a1ac805c1c7dcb6dd019c916fe659b1c1f9ec/types_pyyaml-6.0.12.20250915-py3-none-any.whl", hash = "sha256:e7d4d9e064e89a3b3cae120b4990cd370874d2bf12fa5f46c97018dd5d3c9ab6", size = 20338, upload-time = "2025-09-15T03:00:59.218Z" },
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ from typing import Dict, List, Optional
 
 from typer import BadParameter
 
-from redis_release.models import RedisModule, ReleaseType
+from .models import RedisModule, ReleaseType, SlackFormat
 
 
 def parse_force_release_type(
@@ -90,3 +90,27 @@ def parse_module_versions(
         result[module_enum] = version
 
     return result
+
+
+def parse_slack_format(slack_format: Optional[str]) -> SlackFormat:
+    """Parse slack_format argument.
+
+    Args:
+        slack_format: Slack format string
+
+    Returns:
+        SlackFormat enum value
+
+    Raises:
+        BadParameter: If format is unknown
+    """
+    if not slack_format:
+        return SlackFormat.DEFAULT
+
+    try:
+        return SlackFormat(slack_format.lower())
+    except ValueError:
+        valid_formats = ", ".join([f.value for f in SlackFormat])
+        raise BadParameter(
+            f"Invalid slack format '{slack_format}'. Valid formats: {valid_formats}"
+        )

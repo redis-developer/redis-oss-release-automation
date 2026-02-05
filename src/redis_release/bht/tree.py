@@ -19,7 +19,7 @@ from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 from rich.text import Text
 
-from ..config import Config, PackageConfig
+from ..config import Config, PackageConfig, custom_build_package_names
 from ..github_client_async import GitHubClientAsync
 from ..models import PackageType, ReleaseArgs
 from ..state_console import print_state_table
@@ -38,10 +38,6 @@ from .state import SUPPORTED_STATE_VERSION, Package, ReleaseState
 from .tree_factory import get_factory
 
 logger = logging.getLogger(__name__)
-
-
-# Packages that support custom builds
-CUSTOM_BUILD_PACKAGES = ["docker", "clientimage", "redis-py"]
 
 
 async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
@@ -85,10 +81,47 @@ def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
         logger.debug(f"Active task: {task_name} - {coro_name}")
 
 
+def resolve_package_deps(packages: List[str], config: Config) -> List[str]:
+    """Resolve package dependencies using the needs field from config.
+
+    Args:
+        packages: List of package names to resolve dependencies for
+        config: Configuration containing package definitions
+
+    Returns:
+        List of all packages including their dependencies, ordered as in config
+    """
+    resolved: Set[str] = set()
+    to_process: List[str] = list(packages)
+
+    while to_process:
+        package = to_process.pop(0)
+        if package in resolved:
+            continue
+
+        resolved.add(package)
+
+        package_config = config.packages.get(package)
+        if package_config:
+            for dep in package_config.needs:
+                if dep not in resolved:
+                    logger.debug(f"Adding package as dependency: {dep}")
+                    to_process.append(dep)
+
+    # Return packages in the order they appear in config
+    config_order = list(config.packages.keys())
+    return sorted(
+        resolved,
+        key=lambda p: config_order.index(p) if p in config_order else len(config_order),
+    )
+
+
 def arrange_packages_list(
+    config: Config,
     packages: Dict[str, Package],
     only_packages: List[str],
     custom_build: bool,
+    available_packages: List[str] = [],
 ) -> List[str]:
     """Arrange and filter the list of packages to process.
 
@@ -101,10 +134,15 @@ def arrange_packages_list(
         Filtered list of package names to process
     """
     # Define available packages based on custom_build mode
-    available_packages: List[str] = []
     result: List[str] = []
-    if custom_build:
-        available_packages = CUSTOM_BUILD_PACKAGES
+    if not custom_build:
+        available_packages = []
+    else:
+        available_packages = custom_build_package_names(config)
+        if not available_packages:
+            raise ValueError(
+                "No available packages found in config for custom build, provide allow_custom_build: true for at least one package"
+            )
 
     if available_packages:
         if only_packages:
@@ -124,6 +162,8 @@ def arrange_packages_list(
 
     if not result:
         raise ValueError("No packages left after filtering")
+
+    result = resolve_package_deps(result, config)
 
     return result
 
@@ -148,6 +188,7 @@ def initialize_tree_and_state(
         read_only=read_only,
     ) as state_syncer:
         packages_list = arrange_packages_list(
+            config=config,
             packages=state_syncer.state.packages,
             only_packages=args.only_packages,
             custom_build=args.custom_build,
@@ -184,13 +225,14 @@ def initialize_tree_and_state(
                     args.slack_args.thread_ts,
                     args.slack_args.reply_broadcast,
                     args.slack_args.format,
-                    state_syncer.state if not read_only else None,
+                    state=state_syncer.state if not read_only else None,
+                    state_name=state_syncer.state_name,
                 )
                 # Capture the non-None printer in the closure
                 printer = slack_printer
 
                 def slack_tick_handler(_: BehaviourTree) -> None:
-                    printer.update_message(state_syncer.state)
+                    printer.add_status(state_syncer.state)
 
                 tree.add_post_tick_handler(slack_tick_handler)
             except ValueError as e:
@@ -204,8 +246,10 @@ def initialize_tree_and_state(
                 state_syncer.state.meta.ephemeral.last_ended_at = datetime.now(
                     tz=timezone.utc
                 )
+                state_syncer.sync()
             if slack_printer:
-                slack_printer.update_message(state_syncer.state)
+                slack_printer.add_status(state_syncer.state)
+                slack_printer.stop()
             print_state_table(state_syncer.state)
 
 

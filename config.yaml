@@ -3,6 +3,7 @@ packages:
   docker:
     # available types: docker, debian, homebrew
     package_type: docker
+    allow_custom_build: true
     # repo where the workflow is started
     repo: redis/docker-library-redis
     # ref to use for workflow runs, if not specified it
@@ -70,11 +71,19 @@ packages:
     repo: redis-developer/cae-client-testing
     ref: main
     package_type: clientimage
+    package_display_name: "Client Test Image"
+    description: |
+      Client docker image with specific configuration to test all redis clients.
+      Image is build on base of docker image
+    allow_custom_build: true
     build_workflow: docker-client-libs-test-pre-release.yaml
     build_timeout_minutes: 20
   redis-py:
     repo: redis-developer/redis-oss-release-automation
     ref: main
     package_type: clienttest
+    package_display_name: "Redis-Py Tests"
+    description: "redis-py python client for redis tests"
+    allow_custom_build: true
     build_workflow: redis-py.yml
     build_timeout_minutes: 50

@@ -283,13 +283,11 @@ class GitHubClientAsync:
         logger.debug(f"Found {runs} runs")
 
         for run in runs:
-            extracted_uuid = self._extract_uuid(run.workflow_id)
-            if extracted_uuid and extracted_uuid.lower() == workflow_uuid.lower():
+            if workflow_uuid in run.workflow_id:
                 logger.debug(
                     f"[green]Found matching workflow run:[/green] {run.run_id}"
                 )
                 logger.debug(f"Workflow name: {run.workflow_id}")
-                logger.debug(f"Extracted UUID: {extracted_uuid}")
                 run.workflow_uuid = workflow_uuid
                 return run
         return None
@@ -340,12 +338,10 @@ class GitHubClientAsync:
                 conclusion = WorkflowConclusion.FAILURE
 
             workflow_name = data.get("name", "unknown")
-            workflow_uuid = self._extract_uuid(workflow_name)
 
             return WorkflowRun(
                 repo=repo,
                 workflow_id=workflow_name,
-                workflow_uuid=workflow_uuid,
                 run_id=data.get("id"),
                 status=status,
                 conclusion=conclusion,
@@ -409,13 +405,11 @@ class GitHubClientAsync:
                     conclusion = WorkflowConclusion.FAILURE
 
                 workflow_name = run_data.get("name", workflow_file)
-                workflow_uuid = self._extract_uuid(workflow_name)
 
                 runs.append(
                     WorkflowRun(
                         repo=repo,
                         workflow_id=workflow_name,
-                        workflow_uuid=workflow_uuid,
                         run_id=run_data.get("id"),
                         status=status,
                         conclusion=conclusion,
@@ -588,22 +582,6 @@ class GitHubClientAsync:
         except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
             logger.error(f"[red]Failed to extract {json_file_name}: {e}[/red]")
             return None
-
-    def _extract_uuid(self, text: str) -> Optional[str]:
-        """Extract UUID from a string if present.
-
-        Args:
-            text: String to search for UUID pattern
-
-        Returns:
-            UUID string if found, None otherwise
-        """
-        if not text:
-            return None
-
-        uuid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-        uuid_match = re.search(uuid_pattern, text, re.IGNORECASE)
-        return uuid_match.group() if uuid_match else None
 
     async def download_file(
         self, repo: str, file_path: str, ref: str = "main"

@@ -1,18 +1,29 @@
 import asyncio
 import logging
 import threading
-from typing import Dict, Optional, cast
+import uuid
+from typing import Optional
 
+import yaml
 from click import confirmation_option
 from openai import OpenAI
 from py_trees.common import Status
 from slack_sdk import WebClient
 
+from redis_release.bht.conversation_helpers import ArgsHelper, ConfirmationHelper
 from redis_release.conversation_models import CommandDetectionResult
 
 from ..config import Config
-from ..conversation_models import Command, ConversationCockpit
-from ..models import ReleaseArgs, ReleaseType
+from ..conversation_models import (
+    CONFIRMATION_YAML_MARKER,
+    IGNORE_THREAD_MESSAGE,
+    BotQueueItem,
+    BotReply,
+    Command,
+    ConversationCockpit,
+    UserIntent,
+)
+from ..models import ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
@@ -22,15 +33,8 @@ from .tree import async_tick_tock, initialize_tree_and_state
 logger = logging.getLogger(__name__)
 
 
-class SimpleCommandClassifier(ReleaseAction):
-    """Manual mode for command classification.
-
-    The idea is to take first(after manual) word and map it to command and the rest to interpret as input yaml
-
-    It should be triggered either if LLM is not available or if user message starts with manual.
-
-    TODO: This is not implemented yet.
-    """
+class ExtractArgsFromConfirmation(ReleaseAction, ConfirmationHelper):
+    """Extract LLMReleaseArgs from confirmation yaml and set state.user_release_args."""
 
     def __init__(
         self,
@@ -40,209 +44,17 @@ class SimpleCommandClassifier(ReleaseAction):
         log_prefix: str = "",
     ) -> None:
         self.state = state
+        self.cockpit = cockpit
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        # Extract first word from message if available
-        if self.state.message and self.state.message.message:
-            first_word = self.state.message.message.strip().split()[0].lower()
-
-            # Map first word to Command enum
-            command_map = {
-                "release": Command.RELEASE,
-                "status": Command.STATUS,
-                "help": Command.HELP,
-            }
-
-            # Set command if detected, otherwise leave as is
-            if first_word in command_map:
-                self.state.command = command_map[first_word]
-
-        return Status.SUCCESS
-
-
-class LLMCommandClassifier(ReleaseAction):
-    def __init__(
-        self,
-        name: str,
-        state: ConversationState,
-        cockpit: ConversationCockpit,
-        log_prefix: str = "",
-        confidence_threshold: float = 0.7,
-    ) -> None:
-        self.llm = cockpit.llm
-        self.state = state
-        self.confidence_threshold = confidence_threshold
-        super().__init__(name=name, log_prefix=log_prefix)
-
-    def update(self) -> Status:
-        self.logger.debug(f"state : {self.state.model_dump()}")
-        # Check if message is available
-        if not self.state.message or not self.state.message.message:
-            return Status.FAILURE
-
-        # Prepare prompt with available commands
-        commands_list = "\n".join([f"- {cmd.value}" for cmd in Command])
-
-        confirmation_instructions = ""
-        if self.state.llm_confirmation_required:
-            confirmation_instructions = """
-User confirmation is required for release command.
-This means that actual command arguments may have been printed in the previous response.
-If so use them to create arguments. Set is_confirmed field if user has confirmed.
-
-Set release_args whenever user has provided enough information to execute the command even if not yet confirmed.
-
-"""
-
-        instructions = f"""You are a router for a Redis release automation CLI assistant.
-
-Available commands:
-{commands_list}
-
-Given the user message (and optional history), decide:
-- Does the user want to run a command?
-- If yes, which command and with what args?
-- Otherwise, are they just asking for help/info?
-
-{confirmation_instructions}
-
-For release command, extract the following information from the user's message:
-- release_tag: The release tag (e.g., "8.4-m01-int1", "7.2.5")
-- only_packages: List of specific packages to process (e.g., ["docker", "debian"]), does not have all value
-- force_rebuild: List of package names to force rebuild, or ["all"] to rebuild all packages
-
-Note force_rebuild is unlikely to be used, set it only if user explicitly asked
-to rebuild specific packages. Force rebuild means start package building from
-beginning, or from scratch.
-If any packages are mentioned it's likely for only_packages.
-
-
-For status command, extract the following information from the user's message:
-- release_tag: The release tag (e.g., "8.4-m01-int1", "7.2.5")
-
-Available package types: docker, debian, rpm, homebrew, snap
-
-
-Output using the provided JSON schema fields:
-- confidence: float between 0 and 1
-- command: optional command name (release, status, help)
-- release_args: optional LLMReleaseArgs for release command execution
-- status_args: optional StatusArgs for release command execution
-- reply: optional natural language text to send back"""
-
-        # Build context history
-        history_text = ""
-        if self.state.message.context:
-            history_text = "\n\nPrevious messages:\n" + "\n".join(
-                self.state.message.context[:-1]
-            )
-
-        try:
-            assert self.llm is not None
-            response = self.llm.responses.parse(
-                model="gpt-4o-2024-08-06",
-                input=[
-                    {"role": "system", "content": instructions},
-                    {
-                        "role": "user",
-                        "content": f"{self.state.message.message}{history_text}",
-                    },
-                ],
-                text_format=CommandDetectionResult,
-            )
-
-            self.logger.debug(f"LLM response: {response}")
-
-            result = cast(CommandDetectionResult, response.output_parsed)
-            if not result:
-                self.feedback_message = "LLM returned empty response"
-                self.state.command = Command.HELP
-                self.state.replies.append(
-                    "I couldn't process your request. Please try again."
-                )
-                return Status.FAILURE
-
-            confidence = result.confidence
-            command = result.command
-            reply = result.reply
-
-            self.feedback_message = (
-                f"LLM detected: command={command} (confidence: {confidence:.2f})"
-            )
-
-            if confidence < self.confidence_threshold:
-                self.feedback_message += (
-                    f" [Below threshold {self.confidence_threshold}]"
-                )
-                self.state.command = Command.HELP
-                self.state.replies.append(
-                    reply
-                    or f"I'm not confident enough (confidence: {confidence:.2f}). Please clarify your request."
-                )
-                return Status.FAILURE
-
-            try:
-                self.state.command = command
-
-                if command == Command.HELP:
-                    self.state.replies.append(
-                        reply or "How can I help you with Redis release automation?"
-                    )
-                    return Status.SUCCESS
-                elif command == Command.STATUS:
-                    if result.status_args:
-                        self.state.release_args = ReleaseArgs(
-                            release_tag=result.status_args.release_tag,
-                        )
-                        self.logger.debug(
-                            f"Parsed ReleaseArgs: {self.state.release_args.model_dump_json()}"
-                        )
-                        return Status.SUCCESS
-                    else:
-                        self.state.replies.append(
-                            reply or "Please provide release tag to check status."
-                        )
-                        return Status.FAILURE
-                elif command == Command.RELEASE:
-                    if result.release_args:
-
-                        self.state.release_args = ReleaseArgs(
-                            release_tag=result.release_args.release_tag,
-                            force_rebuild=result.release_args.force_rebuild,
-                            only_packages=result.release_args.only_packages,
-                        )
-                        if self.state.slack_args:
-                            self.state.release_args.slack_args = self.state.slack_args
-
-                        self.state.is_confirmed = result.is_confirmed
-
-                        self.logger.debug(
-                            f"Parsed ReleaseArgs: {self.state.release_args.model_dump_json()}, confirmed: {self.state.is_confirmed}"
-                        )
-                        return Status.SUCCESS
-                    else:
-                        self.state.replies.append(
-                            reply
-                            or "Please provide release tag and other required information."
-                        )
-                        return Status.FAILURE
-                else:
-                    self.state.replies.append(
-                        reply or "I'm not sure what you want me to do."
-                    )
-                    return Status.FAILURE
-            except ValueError as e:
-                self.feedback_message = f"Failed to parse command: {e}"
-                self.state.command = Command.HELP
-                self.state.replies.append(
-                    reply or f"Failed to handle command: {command}, error: {e}"
-                )
-                return Status.FAILURE
-        except Exception as e:
-            self.feedback_message = f"LLM command detection failed: {str(e)}"
-            self.state.command = Command.HELP
-            self.state.replies.append(f"An error occurred: {str(e)}")
+        args = self.extract_confirmation_args()
+        if args is not None:
+            self.state.user_release_args = args
+            self.feedback_message = f"Extracted release args: {args.release_tag}"
+            return Status.SUCCESS
+        self.feedback_message = "Failed to extract confirmation args"
+        self.state.replies.append(BotReply(text=self.feedback_message))
         return Status.FAILURE
 
 
@@ -292,8 +104,10 @@ class RunStatusCommand(ReleaseAction):
                         f"No release state found for tag {release_args.release_tag}"
                     )
                     self.state.replies.append(
-                        f"No release state found for tag `{release_args.release_tag}`. "
-                        "This release may not have been started yet."
+                        BotReply(
+                            text=f"No release state found for tag `{release_args.release_tag}`. "
+                            "This release may not have been started yet."
+                        )
                     )
                     return Status.SUCCESS
 
@@ -307,15 +121,21 @@ class RunStatusCommand(ReleaseAction):
                         reply_broadcast=self.state.slack_args.reply_broadcast,
                         slack_format=self.state.slack_args.format,
                     )
-                    printer.update_message(state_manager.state)
+                    blocks = printer.make_blocks(state_manager.state)
+                    printer.update_message(blocks)
+                    printer.stop()
                     self.state.replies.append(
-                        f"Status for tag `{release_args.release_tag}` posted to Slack."
+                        BotReply(
+                            text=f"Status for tag `{release_args.release_tag}` posted to Slack."
+                        )
                     )
                 else:
                     self.logger.info("No Slack args available, skipping Slack post")
                     self.state.replies.append(
-                        f"Status for tag `{release_args.release_tag}` loaded successfully. "
-                        "(Slack posting not configured)"
+                        BotReply(
+                            text=f"Status for tag `{release_args.release_tag}` loaded successfully. "
+                            "(Slack posting not configured)"
+                        )
                     )
 
                 return Status.SUCCESS
@@ -326,7 +146,9 @@ class RunStatusCommand(ReleaseAction):
                 exc_info=True,
             )
             self.state.replies.append(
-                f"Failed to load status for tag `{release_args.release_tag}`: {str(e)}"
+                BotReply(
+                    text=f"Failed to load status for tag `{release_args.release_tag}`: {str(e)}"
+                )
             )
             return Status.FAILURE
 
@@ -343,6 +165,12 @@ class RunReleaseCommand(ReleaseAction):
         self.state = state
         self.config = config
         super().__init__(name, log_prefix)
+
+    def generate_state_name(self) -> str:
+        """Generate a state name using slack_ts if available, otherwise a random ID."""
+        if self.state.message and self.state.message.slack_ts:
+            return f"custom-slack-{self.state.message.slack_ts}"
+        return f"custom-{uuid.uuid4().hex[:8]}"
 
     def update(self) -> Status:
         self.logger.debug("RunCommand - starting release execution")
@@ -362,6 +190,7 @@ class RunReleaseCommand(ReleaseAction):
         # Check authorization
         if (
             self.state.authorized_users
+            and release_args.custom_build is False
             and self.state.message
             and self.state.message.user not in self.state.authorized_users
         ):
@@ -369,9 +198,20 @@ class RunReleaseCommand(ReleaseAction):
                 f"Unauthorized attempt by user {self.state.message.user}. Authorized users: {self.state.authorized_users}"
             )
             self.state.replies.append(
-                "Sorry, you are not authorized to run releases. Please contact an administrator."
+                BotReply(
+                    text="Sorry, you are not authorized to run releases. Please contact an administrator."
+                )
             )
             return Status.FAILURE
+
+        if release_args.custom_build:
+            if self.state.state_name:
+                release_args.override_state_name = self.state.state_name
+            else:
+                self.logger.debug(
+                    f"Custom build requested, generating state name for {release_args.release_tag}"
+                )
+                release_args.override_state_name = self.generate_state_name()
 
         self.logger.info(
             f"Starting release for tag {release_args.release_tag} in background thread"
@@ -425,11 +265,6 @@ class RunReleaseCommand(ReleaseAction):
         release_thread.start()
         self.logger.info(f"Started release thread for tag {release_args.release_tag}")
 
-        self.state.replies.append(
-            f"Starting release for tag `{release_args.release_tag}`... "
-            "I'll post updates as the release progresses."
-        )
-
         return Status.SUCCESS
 
 
@@ -450,33 +285,38 @@ class ShowConfirmationMessage(ReleaseAction):
         # Check if command is RELEASE and not confirmed
         if self.state.command == Command.RELEASE and not self.state.is_confirmed:
             # Build confirmation message with current arguments
-            if self.state.release_args:
-                args = self.state.release_args
-                message_parts = [
-                    f"Please confirm the following release configuration:",
-                    f"• Release tag: `{args.release_tag}`",
-                ]
-
-                if args.only_packages:
-                    message_parts.append(
-                        f"• Only packages: {', '.join(args.only_packages)}"
+            if self.state.user_release_args:
+                args = self.state.user_release_args
+                # Convert to dict and filter out empty fields
+                args_dict = args.model_dump(exclude_none=True)
+                # Filter out empty lists, dicts, and None values
+                filtered_dict = {
+                    k: v
+                    for k, v in args_dict.items()
+                    if v is not None and v != [] and v != {} and v is not False
+                }
+                # Generate YAML output
+                yaml_output = yaml.dump(
+                    filtered_dict, default_flow_style=False, sort_keys=False
+                )
+                message = ""
+                if self.state.state_name and not args.force_rebuild:
+                    action_name = "custom build" if args.custom_build else "release"
+                    message += (
+                        f"> You are starting {action_name} using existing state."
+                        + " Previously completed workflows may not be re-triggered."
+                        + " To re-run, ask to force rebuild specific or all packages."
+                        + "\n>Altertatively start a new thread.\n\n"
                     )
+                message += f"```\n{CONFIRMATION_YAML_MARKER}\n{yaml_output}```\n"
 
-                if args.force_rebuild:
-                    if args.force_rebuild == ["all"]:
-                        message_parts.append(f"• Force rebuild: all packages")
-                    else:
-                        message_parts.append(
-                            f"• Force rebuild: {', '.join(args.force_rebuild)}"
-                        )
-
-                message_parts.append("\nReply 'yes' or 'confirm' to proceed.")
-
-                self.state.replies.append("\n".join(message_parts))
+                self.state.replies.append(BotReply(text=message))
             else:
                 self.state.replies.append(
-                    "Release command detected but no release arguments available. "
-                    "Please provide release details."
+                    BotReply(
+                        text="Release command detected but no release arguments available. "
+                        "Please provide release details."
+                    )
                 )
 
             return Status.SUCCESS
@@ -484,10 +324,7 @@ class ShowConfirmationMessage(ReleaseAction):
         return Status.FAILURE
 
 
-# Conditions
-
-
-class IsLLMAvailable(ReleaseAction):
+class IgnoreThread(ReleaseAction):
     def __init__(
         self,
         name: str,
@@ -495,13 +332,38 @@ class IsLLMAvailable(ReleaseAction):
         cockpit: ConversationCockpit,
         log_prefix: str = "",
     ) -> None:
+        self.cockpit = cockpit
         self.state = state
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
-        if self.state.llm_available:
-            return Status.SUCCESS
-        return Status.FAILURE
+        self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
+        return Status.SUCCESS
+
+
+class ExtractDetailsFromContext(ReleaseAction, ArgsHelper):
+    """Extract details like state_name from context messages."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        config: Config,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        self.config = config
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        state_name = self.extract_state_name_from_context()
+        if state_name:
+            self.state.state_name = state_name
+            self.feedback_message = f"Extracted state name: {state_name}"
+        return Status.SUCCESS
+
+
+# Conditions
 
 
 class HasReleaseArgs(ReleaseAction):
@@ -556,5 +418,100 @@ class NeedConfirmation(ReleaseAction):
             and self.state.release_args
             and not self.state.is_confirmed
         ):
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class HasIntent(ReleaseAction):
+    """Check if user intent has been detected."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent is not None:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsIntent(ReleaseAction):
+    """Check if user intent matches the specified intent."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        intent: UserIntent,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        self.intent = intent
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_intent == self.intent:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class HasUserReleaseArgs(ReleaseAction):
+    """Check if state.user_release_args is not None."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.user_release_args is not None:
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class HasConfirmationRequest(ReleaseAction, ConfirmationHelper):
+    """Check if previous bot message contains a confirmation request."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        cockpit: ConversationCockpit,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.is_confirmation_request():
+            return Status.SUCCESS
+        return Status.FAILURE
+
+
+class IsCommand(ReleaseAction):
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        command: Command,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        self.command = command
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.state.command == self.command:
             return Status.SUCCESS
         return Status.FAILURE

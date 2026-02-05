@@ -175,6 +175,7 @@ class PackageMeta(BaseModel):
 
     serialization_hint: Literal["generic"] = "generic"
     package_type: Optional[PackageType] = None
+    package_display_name: Optional[str] = None
     release_type: Optional[ReleaseType] = None
     repo: str = ""
     ref: Optional[str] = None
@@ -249,7 +250,7 @@ class Package(BaseModel):
 
     meta: Union[
         HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta, ClientTestMeta
-    ] = (Field(default_factory=PackageMeta, discriminator="serialization_hint"))
+    ] = Field(default_factory=PackageMeta, discriminator="serialization_hint")
     build: Workflow = Field(default_factory=Workflow)
     publish: Optional[Workflow] = None
 
@@ -306,6 +307,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type == PackageType.SNAP:
@@ -313,6 +315,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type == PackageType.DOCKER:
@@ -320,6 +323,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type == PackageType.CLIENTIMAGE:
@@ -327,6 +331,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type == PackageType.CLIENTTEST:
@@ -334,6 +339,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type is not None:
@@ -341,6 +347,7 @@ class ReleaseState(BaseModel):
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
             )
         else:

@@ -227,7 +227,11 @@ class StateManager:
 
     def apply_args(self, state: ReleaseState, quiet: bool = False) -> None:
         """Apply arguments to state."""
-        state.meta.tag = self.tag
+        # Prefer state tag if present
+        if not state.meta.tag:
+            state.meta.tag = self.tag
+        else:
+            self.tag = state.meta.tag
 
         if self.args:
             if "all" in self.args.force_rebuild:

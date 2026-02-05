@@ -15,15 +15,16 @@ import asyncio
 import json
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from nanoid import generate as nanoid_generate
 from py import log
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status
 
 from redis_release.bht.state import reset_model_to_defaults
+from redis_release.config import NANOID_SIZE
 
 from ..github_client_async import GitHubClientAsync
 from ..logging_config import log_once
@@ -49,6 +50,7 @@ class LoggingAction(Behaviour):
 
     def log_exception_and_return_failure(self, e: Exception) -> Status:
         self.logger.error(f"[red]failed with exception:[/red] {type(e).__name__}: {e}")
+        self.feedback_message = f"failed with exception: {type(e).__name__}: {e}"
         # use the underlying logger to get the full traceback
         self.logger._logger.error(f"[red]Full traceback:[/red]", exc_info=True)
         return Status.FAILURE
@@ -246,8 +248,10 @@ class TriggerWorkflow(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def initialise(self) -> None:
-        self.workflow.uuid = str(uuid.uuid4())
-        self.workflow.inputs["workflow_uuid"] = self.workflow.uuid
+        workflow_id = nanoid_generate(size=NANOID_SIZE)
+        assert workflow_id is not None
+        self.workflow.uuid = workflow_id
+        self.workflow.inputs["workflow_uuid"] = workflow_id
         if self.release_meta.tag is None:
             self.logger.error(
                 "[red]Release tag is None - cannot trigger workflow[/red]"
@@ -445,15 +449,18 @@ class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
                     f"Workflow {self.workflow.workflow_file}({self.workflow.run_id}) conclusion changed: {self.workflow.conclusion} -> {result.conclusion}"
                 )
             self.workflow.conclusion = result.conclusion
-            self.feedback_message = (
-                f" {self.workflow.status}, {self.workflow.conclusion}"
-            )
 
             if self.workflow.conclusion is not None:
                 if self.workflow.conclusion == WorkflowConclusion.SUCCESS:
                     return Status.SUCCESS
                 self.feedback_message = f"Workflow failed"
                 return Status.FAILURE
+
+            feedback_elements = []
+            if self.workflow.status:
+                feedback_elements.append(self.workflow.status.value)
+            if self.workflow.conclusion:
+                feedback_elements.append(self.workflow.conclusion.value)
 
             # Check cutoff (0 means no limit)
             if self.cutoff > 0 and self.tick_count >= self.cutoff:
@@ -464,17 +471,22 @@ class UpdateWorkflowStatusUntilCompletion(ReleaseAction):
             # Check timeout (0 means no limit)
             if self.timeout_seconds > 0 and self.start_time is not None:
                 elapsed = asyncio.get_event_loop().time() - self.start_time
-                self.feedback_message = (
-                    f"{self.feedback_message}, elapsed: {elapsed:.1f}s"
-                )
+                elapsed_rounded = int(elapsed // 60)
+                if elapsed_rounded > 0:
+                    feedback_elements.append(
+                        f"{elapsed_rounded}m of {self.timeout_seconds // 60}m max"
+                    )
                 if elapsed >= self.timeout_seconds:
-                    self.logger.debug(f"Timeout reached: {elapsed:.1f}s")
+                    self.logger.debug(
+                        f"Timeout reached: {elapsed:.1f}s of {self.timeout_seconds}s"
+                    )
                     self.feedback_message = (
                         f"Timed out: {elapsed:.1f}s of {self.timeout_seconds}s"
                     )
                     self.workflow.ephemeral.wait_for_completion_timed_out = True
                     return Status.FAILURE
 
+            self.feedback_message = ", ".join(feedback_elements)
             # Switch to sleep task
             self._initialise_sleep_task()
             return Status.RUNNING

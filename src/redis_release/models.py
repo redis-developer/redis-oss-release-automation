@@ -54,7 +54,7 @@ class SlackFormat(str, Enum):
     """Slack message format enumeration."""
 
     DEFAULT = "default"
-    ONE_STEP = "one-step"
+    COMPACT = "compact"
 
 
 class WorkflowStatus(str, Enum):
@@ -78,7 +78,7 @@ class RedisModule(str, Enum):
 
     JSON = "redisjson"
     SEARCH = "redisearch"
-    TIMESERIES = "reduistimeseries"
+    TIMESERIES = "redistimeseries"
     BLOOM = "redisbloom"
 
 
