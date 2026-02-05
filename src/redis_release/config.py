@@ -29,6 +29,7 @@ class PackageConfig(BaseModel):
     package_display_name: Optional[str] = None
     description: Optional[str] = None
     allow_custom_build: bool = False
+    needs: List[str] = Field(default_factory=list)
 
 
 class Config(BaseModel):
@@ -95,11 +96,16 @@ class LLMInstructions:
                 pkg.package_display_name if pkg.package_display_name else None
             )
             if display_name and pkg.description:
-                lines.append(f"- {name}: {display_name} - {pkg.description}")
+                line = f"- {name}: {display_name} - {pkg.description}"
             elif display_name:
-                lines.append(f"- {name}: {display_name}")
+                line = f"- {name}: {display_name}"
             elif pkg.description:
-                lines.append(f"- {name}: {pkg.description}")
+                line = f"- {name}: {pkg.description}"
             else:
-                lines.append(f"- {name}")
+                line = f"- {name}"
+
+            if pkg.needs:
+                line += f" (requires: {', '.join(pkg.needs)})"
+
+            lines.append(line)
         return "\n".join(lines)

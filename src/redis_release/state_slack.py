@@ -306,7 +306,6 @@ class SlackStatePrinter:
         Args:
             state: The ReleaseState to display
         """
-        logger.warning(f"lats_ended_at: {state.meta.ephemeral.last_ended_at}")
         blocks = self.make_blocks(state)
         self.message_queue.put(blocks)
 
@@ -316,7 +315,6 @@ class SlackStatePrinter:
         Args:
             timeout: Maximum time to wait for the thread to finish (None = wait forever)
         """
-        logger.warning("Stopping SlackStatePrinter")
         self.message_queue.put(None)  # Unblock the queue.get()
         self._queue_thread.join(timeout=timeout)
 
@@ -330,7 +328,6 @@ class SlackStatePrinter:
         """
         while True:
             blocks = self.message_queue.get(block=True)
-            logger.warning(f"Processing queue message")
 
             # Check for stop signal
             if blocks is None:

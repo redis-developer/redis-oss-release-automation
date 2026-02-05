@@ -81,6 +81,36 @@ def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
         logger.debug(f"Active task: {task_name} - {coro_name}")
 
 
+def resolve_package_deps(packages: List[str], config: Config) -> List[str]:
+    """Resolve package dependencies using the needs field from config.
+
+    Args:
+        packages: List of package names to resolve dependencies for
+        config: Configuration containing package definitions
+
+    Returns:
+        List of all packages including their dependencies
+    """
+    resolved: Set[str] = set()
+    to_process: List[str] = list(packages)
+
+    while to_process:
+        package = to_process.pop(0)
+        if package in resolved:
+            continue
+
+        resolved.add(package)
+
+        package_config = config.packages.get(package)
+        if package_config:
+            for dep in package_config.needs:
+                if dep not in resolved:
+                    logger.debug(f"Adding package as dependency: {dep}")
+                    to_process.append(dep)
+
+    return list(resolved)
+
+
 def arrange_packages_list(
     config: Config,
     packages: Dict[str, Package],
@@ -127,6 +157,8 @@ def arrange_packages_list(
 
     if not result:
         raise ValueError("No packages left after filtering")
+
+    result = resolve_package_deps(result, config)
 
     return result
 

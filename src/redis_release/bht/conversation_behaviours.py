@@ -261,13 +261,6 @@ class RunReleaseCommand(ReleaseAction):
         release_thread.start()
         self.logger.info(f"Started release thread for tag {release_args.release_tag}")
 
-        self.state.replies.append(
-            BotReply(
-                text=f"Starting release for tag `{release_args.release_tag}`... "
-                "I'll post updates as the release progresses."
-            )
-        )
-
         return Status.SUCCESS
 
 

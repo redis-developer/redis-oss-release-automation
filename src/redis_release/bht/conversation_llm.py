@@ -89,12 +89,17 @@ Determine if the user's response is:
             if result.is_confirmed:
                 # User confirmed - convert args and set command
                 if self.state.user_release_args:
+                    action_name = (
+                        "custom build"
+                        if self.state.user_release_args.custom_build
+                        else "release"
+                    )
                     self.set_release_args_from_llm(self.state.user_release_args)
                     self.state.command = Command.RELEASE
                     self.state.is_confirmed = True
-                    self.feedback_message = "User confirmed release"
+                    self.feedback_message = f"User confirmed {action_name}"
                     self.state.replies.append(
-                        BotReply(text="Confirmed! Starting release...")
+                        BotReply(text=f"Confirmed! Starting {action_name}...")
                     )
                     return Status.SUCCESS
                 else:
@@ -360,6 +365,8 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
 
         Available packages:
 {packages_list}
+
+        Note, packages may have dependencies, they would be included into the final package list automatically.
 
         ***
         Provide a reply message to confirm the detected action with the user.
