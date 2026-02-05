@@ -10,11 +10,12 @@ from openai import OpenAI
 from py_trees.common import Status
 from slack_sdk import WebClient
 
-from redis_release.bht.conversation_helpers import ConfirmationHelper
+from redis_release.bht.conversation_helpers import ArgsHelper, ConfirmationHelper
 from redis_release.conversation_models import CommandDetectionResult
 
 from ..config import Config
 from ..conversation_models import (
+    CONFIRMATION_YAML_MARKER,
     IGNORE_THREAD_MESSAGE,
     BotQueueItem,
     BotReply,
@@ -204,10 +205,13 @@ class RunReleaseCommand(ReleaseAction):
             return Status.FAILURE
 
         if release_args.custom_build:
-            self.logger.debug(
-                f"Custom build requested, generating state name for {release_args.release_tag}"
-            )
-            release_args.override_state_name = self.generate_state_name()
+            if self.state.state_name:
+                release_args.override_state_name = self.state.state_name
+            else:
+                self.logger.debug(
+                    f"Custom build requested, generating state name for {release_args.release_tag}"
+                )
+                release_args.override_state_name = self.generate_state_name()
 
         self.logger.info(
             f"Starting release for tag {release_args.release_tag} in background thread"
@@ -295,7 +299,16 @@ class ShowConfirmationMessage(ReleaseAction):
                 yaml_output = yaml.dump(
                     filtered_dict, default_flow_style=False, sort_keys=False
                 )
-                message = f"```\n# release confirmation\n{yaml_output}```\n"
+                message = ""
+                if self.state.state_name and not args.force_rebuild:
+                    action_name = "custom build" if args.custom_build else "release"
+                    message += (
+                        f"> You are starting {action_name} using existing state."
+                        + " Previously completed workflows may not be re-triggered."
+                        + " To re-run, ask to force rebuild specific or all packages."
+                        + "\n>Altertatively start a new thread.\n\n"
+                    )
+                message += f"```\n{CONFIRMATION_YAML_MARKER}\n{yaml_output}```\n"
 
                 self.state.replies.append(BotReply(text=message))
             else:
@@ -325,6 +338,28 @@ class IgnoreThread(ReleaseAction):
 
     def update(self) -> Status:
         self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
+        return Status.SUCCESS
+
+
+class ExtractDetailsFromContext(ReleaseAction, ArgsHelper):
+    """Extract details like state_name from context messages."""
+
+    def __init__(
+        self,
+        name: str,
+        state: ConversationState,
+        config: Config,
+        log_prefix: str = "",
+    ) -> None:
+        self.state = state
+        self.config = config
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        state_name = self.extract_state_name_from_context()
+        if state_name:
+            self.state.state_name = state_name
+            self.feedback_message = f"Extracted state name: {state_name}"
         return Status.SUCCESS
 
 

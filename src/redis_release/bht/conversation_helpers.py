@@ -10,6 +10,7 @@ from redis_release.models import RedisModule, ReleaseArgs
 from ..config import Config, custom_build_package_names
 from ..conversation_models import (
     COMMAND_DESCRIPTIONS,
+    CONFIRMATION_YAML_MARKER,
     REDIS_MODULE_DESCRIPTIONS,
     LLMReleaseArgs,
     LLMStatusArgs,
@@ -99,7 +100,7 @@ class LLMInputHelper:
         )
 
 
-class LLMConvertHelper:
+class ArgsHelper:
     """Helper class for converting LLM response args to state release args.
 
     Classes using this helper must have:
@@ -164,6 +165,58 @@ class LLMConvertHelper:
         if self.state.slack_args:
             self.state.release_args.slack_args = self.state.slack_args
 
+    def packages_list_with_descriptions(self, config: Config) -> str:
+        """Return a formatted list of available packages with display names and descriptions.
+
+        Args:
+            config: The configuration object containing package definitions
+
+        Returns:
+            A formatted string listing packages with their display names and descriptions
+        """
+        lines = []
+        for name, pkg in config.packages.items():
+            display_name = (
+                pkg.package_display_name if pkg.package_display_name else None
+            )
+            if display_name and pkg.description:
+                line = f"- {name}: {display_name} - {pkg.description}"
+            elif display_name:
+                line = f"- {name}: {display_name}"
+            elif pkg.description:
+                line = f"- {name}: {pkg.description}"
+            else:
+                line = f"- {name}"
+
+            if pkg.needs:
+                line += f" (requires: {', '.join(pkg.needs)})"
+
+            lines.append(line)
+        return "\n".join(lines)
+
+    def extract_state_name_from_context(self) -> Optional[str]:
+        """Extract state name from bot messages in context.
+
+        Looks for messages containing 'state-name: STATE_NAME' pattern.
+
+        Returns:
+            The extracted state name if found, None otherwise.
+        """
+        if not self.state.context:
+            return None
+
+        import re
+
+        pattern = r"state-name:\s*(\S+)"
+
+        for msg in reversed(self.state.context):
+            if msg.is_from_bot:
+                match = re.search(pattern, msg.message)
+                if match:
+                    return match.group(1)
+
+        return None
+
 
 class ConfirmationHelper:
     """Helper class for handling confirmation requests.
@@ -173,8 +226,6 @@ class ConfirmationHelper:
     """
 
     state: ConversationState  # Expected to be provided by the class using this helper
-
-    CONFIRMATION_HEADER = "# release confirmation"
 
     def get_previous_bot_message(self) -> Optional[str]:
         """Get the previous message from the bot in context."""
@@ -192,7 +243,7 @@ class ConfirmationHelper:
         if not prev_message:
             return False
         # Check if message contains the confirmation yaml header
-        return "```" in prev_message and self.CONFIRMATION_HEADER in prev_message
+        return "```" in prev_message and CONFIRMATION_YAML_MARKER in prev_message
 
     def extract_confirmation_args(self) -> Optional[LLMReleaseArgs]:
         """Extract LLMReleaseArgs from the previous bot message's confirmation yaml.

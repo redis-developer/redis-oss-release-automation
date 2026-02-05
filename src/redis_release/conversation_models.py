@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .models import RedisModule, SlackArgs
 
 IGNORE_THREAD_MESSAGE = "I will ignore this thread."
+CONFIRMATION_YAML_MARKER = "# release confirmation v1"
 
 
 class UserIntent(str, Enum):

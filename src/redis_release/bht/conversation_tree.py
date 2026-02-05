@@ -20,6 +20,7 @@ from ..conversation_models import (
 from ..models import SlackArgs
 from .conversation_behaviours import (
     ExtractArgsFromConfirmation,
+    ExtractDetailsFromContext,
     HasConfirmationRequest,
     HasIntent,
     HasReleaseArgs,
@@ -207,6 +208,9 @@ def create_conversation_root_node(
                 "Conversation Sequence",
                 memory=False,
                 children=[
+                    ExtractDetailsFromContext(
+                        "Extract Details From Context", state, config
+                    ),
                     handle_confirmation,
                     command_detector,
                     Selector(

@@ -7,7 +7,6 @@ from ..conversation_models import (
     Command,
     InboxMessage,
     LLMReleaseArgs,
-    LLMStatusArgs,
     UserIntent,
 )
 from ..models import ReleaseArgs, SlackArgs, SlackFormat
@@ -31,3 +30,4 @@ class ConversationState(BaseModel):
 
     user_intent: Optional[UserIntent] = None
     slack_format_is_available: bool = False
+    state_name: Optional[str] = None

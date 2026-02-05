@@ -7,9 +7,9 @@ from py_trees.common import Status
 
 from redis_release.bht.behaviours import ReleaseAction
 from redis_release.bht.conversation_behaviours import logger
-from redis_release.bht.conversation_helpers import LLMConvertHelper, LLMInputHelper
+from redis_release.bht.conversation_helpers import ArgsHelper, LLMInputHelper
 from redis_release.bht.conversation_state import ConversationState
-from redis_release.config import Config, LLMInstructions
+from redis_release.config import Config
 from redis_release.conversation_models import (
     INSTRUCTION_SNIPPETS,
     INTENT_DESCRIPTIONS,
@@ -26,7 +26,7 @@ from redis_release.conversation_models import (
 )
 
 
-class LLMHandleConfirmation(ReleaseAction, LLMInputHelper, LLMConvertHelper):
+class LLMHandleConfirmation(ReleaseAction, LLMInputHelper, ArgsHelper):
     """Handle user confirmation using LLM.
 
     Checks if user message is a confirmation (yes) or rejection (no).
@@ -300,7 +300,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
             return Status.FAILURE
 
 
-class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
+class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
     """Handle action intent using LLM. Detects command and extracts arguments."""
 
     model = "gpt-4.1-2025-04-14"
@@ -325,7 +325,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, LLMConvertHelper):
         commands_list = self.get_commands_list()
         modules_list = self.get_modules_list()
         # Get available packages from config with descriptions
-        packages_list = LLMInstructions.packages_list_with_descriptions(self.config)
+        packages_list = self.packages_list_with_descriptions(self.config)
         confirmation_instructions = ""
         if self.state.llm_confirmation_required:
             confirmation_instructions = """

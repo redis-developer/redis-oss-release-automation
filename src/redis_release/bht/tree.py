@@ -89,7 +89,7 @@ def resolve_package_deps(packages: List[str], config: Config) -> List[str]:
         config: Configuration containing package definitions
 
     Returns:
-        List of all packages including their dependencies
+        List of all packages including their dependencies, ordered as in config
     """
     resolved: Set[str] = set()
     to_process: List[str] = list(packages)
@@ -108,7 +108,12 @@ def resolve_package_deps(packages: List[str], config: Config) -> List[str]:
                     logger.debug(f"Adding package as dependency: {dep}")
                     to_process.append(dep)
 
-    return list(resolved)
+    # Return packages in the order they appear in config
+    config_order = list(config.packages.keys())
+    return sorted(
+        resolved,
+        key=lambda p: config_order.index(p) if p in config_order else len(config_order),
+    )
 
 
 def arrange_packages_list(
@@ -241,11 +246,11 @@ def initialize_tree_and_state(
                 state_syncer.state.meta.ephemeral.last_ended_at = datetime.now(
                     tz=timezone.utc
                 )
+                state_syncer.sync()
             if slack_printer:
                 slack_printer.add_status(state_syncer.state)
                 slack_printer.stop()
             print_state_table(state_syncer.state)
-            state_syncer.sync()
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:

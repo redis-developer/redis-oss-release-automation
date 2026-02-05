@@ -256,6 +256,75 @@ class TestResolvePackageDeps:
 
         assert set(result) == {"pkg1", "pkg2"}
 
+    def test_dependencies_ordered_by_config(self) -> None:
+        """Test that resolved packages are ordered according to config order."""
+        # Config has packages in order: pkg1, pkg2, pkg3, pkg4
+        # We request pkg4 which needs pkg1, so result should be [pkg1, pkg4]
+        config = Config(
+            version=1,
+            packages={
+                "pkg1": PackageConfig(
+                    repo="test/repo1",
+                    package_type=PackageType.DOCKER,
+                    build_workflow="build.yml",
+                ),
+                "pkg2": PackageConfig(
+                    repo="test/repo2",
+                    package_type=PackageType.DEBIAN,
+                    build_workflow="build.yml",
+                ),
+                "pkg3": PackageConfig(
+                    repo="test/repo3",
+                    package_type=PackageType.RPM,
+                    build_workflow="build.yml",
+                ),
+                "pkg4": PackageConfig(
+                    repo="test/repo4",
+                    package_type=PackageType.HOMEBREW,
+                    build_workflow="build.yml",
+                    needs=["pkg1"],
+                ),
+            },
+        )
+
+        result = resolve_package_deps(["pkg4"], config)
+
+        # Should be ordered as pkg1, pkg4 (config order), not pkg4, pkg1 (resolution order)
+        assert result == ["pkg1", "pkg4"]
+
+    def test_transitive_dependencies_ordered_by_config(self) -> None:
+        """Test that transitive dependencies are ordered according to config order."""
+        # Config has packages in order: base, middle, top
+        # We request top which needs middle which needs base
+        # Result should be [base, middle, top] regardless of resolution order
+        config = Config(
+            version=1,
+            packages={
+                "base": PackageConfig(
+                    repo="test/base",
+                    package_type=PackageType.DOCKER,
+                    build_workflow="build.yml",
+                ),
+                "middle": PackageConfig(
+                    repo="test/middle",
+                    package_type=PackageType.DEBIAN,
+                    build_workflow="build.yml",
+                    needs=["base"],
+                ),
+                "top": PackageConfig(
+                    repo="test/top",
+                    package_type=PackageType.RPM,
+                    build_workflow="build.yml",
+                    needs=["middle"],
+                ),
+            },
+        )
+
+        result = resolve_package_deps(["top"], config)
+
+        # Should be ordered as base, middle, top (config order)
+        assert result == ["base", "middle", "top"]
+
 
 class TestArrangePackagesList:
     """Tests for arrange_packages_list function."""

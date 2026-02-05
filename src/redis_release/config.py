@@ -75,37 +75,3 @@ def load_config(path: Optional[Union[str, Path]] = None) -> Config:
 def custom_build_package_names(config: Config) -> List[str]:
     """Get packages that support custom builds."""
     return [name for name, pkg in config.packages.items() if pkg.allow_custom_build]
-
-
-class LLMInstructions:
-    """Helper class for generating LLM instruction content from config."""
-
-    @staticmethod
-    def packages_list_with_descriptions(config: Config) -> str:
-        """Return a formatted list of available packages with display names and descriptions.
-
-        Args:
-            config: The configuration object containing package definitions
-
-        Returns:
-            A formatted string listing packages with their display names and descriptions
-        """
-        lines = []
-        for name, pkg in config.packages.items():
-            display_name = (
-                pkg.package_display_name if pkg.package_display_name else None
-            )
-            if display_name and pkg.description:
-                line = f"- {name}: {display_name} - {pkg.description}"
-            elif display_name:
-                line = f"- {name}: {display_name}"
-            elif pkg.description:
-                line = f"- {name}: {pkg.description}"
-            else:
-                line = f"- {name}"
-
-            if pkg.needs:
-                line += f" (requires: {', '.join(pkg.needs)})"
-
-            lines.append(line)
-        return "\n".join(lines)
