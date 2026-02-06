@@ -299,10 +299,10 @@ class ShowConfirmationMessage(ReleaseAction):
                 if self.state.state_name and not args.force_rebuild:
                     action_name = "custom build" if args.custom_build else "release"
                     message += (
-                        f"> You are starting {action_name} using existing state."
+                        f"> You are about to start {action_name} using existing state."
                         + " Previously completed workflows may not be re-triggered."
                         + " To re-run, ask to force rebuild specific or all packages."
-                        + "\n>Altertatively start a new thread.\n\n"
+                        + "\n>Alternatively start a new thread.\n\n"
                     )
                 message += f"```\n{CONFIRMATION_YAML_MARKER}\n{yaml_output}```\n"
 

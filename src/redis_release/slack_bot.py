@@ -203,7 +203,7 @@ class ReleaseBot:
 
                 # Check for duplicate messages (mentions in threads trigger both events)
                 if self.check_message_handled(ts):
-                    logger.debug(f"Skipping already handled message: {ts}")
+                    logger.info(f"Skipping already handled message: {ts}")
                     return
 
                 # Channel filtering
@@ -220,7 +220,7 @@ class ReleaseBot:
                     return
 
                 logger.info(
-                    f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}: {text}"
+                    f"Received {'mention' if is_mention else 'thread message'} from user {user} in channel {channel}, message {ts}: {text}"
                 )
 
                 # Get slack thread messages (excluding the current message)
@@ -295,7 +295,7 @@ class ReleaseBot:
             thread_ts = event.get("thread_ts")
 
             if not channel or not thread_ts:
-                logger.debug("Missing channel or thread_ts")
+                logger.warning("Missing channel or thread_ts")
                 return
 
             logger.debug(f"Checking if bot is participating in thread {thread_ts}")
@@ -307,11 +307,13 @@ class ReleaseBot:
 
             if is_participating:
                 logger.info(
-                    f"Processing thread message in channel {channel}, thread {thread_ts}"
+                    f"Processing thread message in channel {channel}, thread {thread_ts}, user: {event.get('user')}, message {event.get('ts')}"
                 )
                 await process_message(event, logger, is_mention=False)
             else:
-                logger.debug("Bot not participating in this thread, ignoring message")
+                logger.info(
+                    f"Skipping message in {channel}, thread {thread_ts}, user: {event.get('user')}, message {event.get('ts')}: {event.get('text')}"
+                )
 
     def _extract_rich_text_element(self, element: Dict[str, Any]) -> str:
         """Extract text from a rich_text element (recursive).
