@@ -300,10 +300,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
             if result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
 
-            self.feedback_message = (
-                f"LLM question answered {result.emoji if result.emoji else ''}"
-            )
-            self.logger.info(self.feedback_message)
+            self.feedback_message = self.log_reply(result.reply, result.emoji)
             return Status.SUCCESS
 
         except Exception as e:
@@ -417,6 +414,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
             result = cast(ActionResolutionResult, response.output_parsed)
             if not result:
                 self.feedback_message = "LLM returned empty response"
+                self.logger.warning(self.feedback_message)
                 self.state.replies.append(
                     BotReply(text="I couldn't understand your action request.")
                 )
@@ -426,7 +424,6 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
             if result.command:
                 self.state.command = result.command
                 self.feedback_message = f"Detected command: {result.command.value}"
-                self.logger.info(self.feedback_message)
 
             # Set release args
             if result.release_args:
@@ -445,7 +442,9 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
             if result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
 
-            self.logger.info("LLM action handled successfully")
+            self.feedback_message = " ".join(
+                [self.feedback_message, self.log_reply(result.reply, result.emoji)]
+            )
             return Status.SUCCESS
 
         except Exception as e:
@@ -513,8 +512,11 @@ class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
             result = cast(NoActionResolutionResult, response.output_parsed)
             if result and result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
+                self.feedback_message = f"Reacted with {result.emoji}"
+            else:
+                self.feedback_message = "No reaction"
 
-            self.logger.info("LLM no-action handled successfully")
+            self.log_reply(None, result.emoji)
             return Status.SUCCESS
 
         except Exception as e:

@@ -23,7 +23,7 @@ from ..conversation_models import (
     ConversationCockpit,
     UserIntent,
 )
-from ..models import ReleaseType
+from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
@@ -163,6 +163,7 @@ class RunReleaseCommand(ReleaseAction):
     ) -> None:
         self.state = state
         self.config = config
+        self.cockpit = cockpit
         super().__init__(name, log_prefix)
 
     def generate_state_name(self) -> str:
@@ -170,6 +171,102 @@ class RunReleaseCommand(ReleaseAction):
         if self.state.message and self.state.message.slack_ts:
             return f"custom-slack-{self.state.message.slack_ts}"
         return f"custom-{uuid.uuid4().hex[:8]}"
+
+    def run_release_in_thread(
+        self,
+        release_args: ReleaseArgs,
+        stop_event: Optional[threading.Event],
+    ) -> None:
+        """Run release in a separate thread with its own event loop.
+
+        Args:
+            release_args: The release arguments
+            stop_event: Optional event to signal graceful shutdown
+        """
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        client: Optional[WebClient] = None
+        if self.state.slack_args and self.state.slack_args.bot_token:
+            client = WebClient(self.state.slack_args.bot_token)
+
+        # Create async shutdown event and bridge from threading.Event
+        shutdown_event = asyncio.Event()
+
+        def watch_for_shutdown() -> None:
+            """Watch for stop signal and set async event."""
+            if stop_event:
+                stop_event.wait()
+                loop.call_soon_threadsafe(shutdown_event.set)
+
+        # Start watcher thread if we have a stop event
+        if stop_event:
+            watcher = threading.Thread(
+                target=watch_for_shutdown,
+                name=f"shutdown-watcher-{release_args.release_tag}",
+                daemon=True,
+            )
+            watcher.start()
+
+        try:
+            with initialize_tree_and_state(self.config, release_args) as (tree, _):
+                loop.run_until_complete(
+                    async_tick_tock(tree, cutoff=2000, shutdown_event=shutdown_event)
+                )
+            self.logger.info(f"Release {release_args.release_tag} completed")
+
+        except Exception as e:
+            self.logger._logger.error(
+                f"Error running release {release_args.release_tag}: {e}",
+                exc_info=True,
+            )
+            if (
+                client
+                and self.state.slack_args
+                and self.state.slack_args.channel_id
+                and self.state.slack_args.thread_ts
+            ):
+                client.chat_postMessage(
+                    channel=self.state.slack_args.channel_id,
+                    thread_ts=self.state.slack_args.thread_ts,
+                    text=f"Release `{release_args.release_tag}` failed with error: {str(e)}",
+                )
+        finally:
+            loop.close()
+            # Unregister thread from concurrency manager
+            if self.cockpit.concurrency_manager:
+                self.cockpit.concurrency_manager.unregister_thread(
+                    threading.current_thread()
+                )
+
+    def check_authorization(self, release_args: ReleaseArgs) -> bool:
+        """Check if the user is authorized to run the release.
+
+        Args:
+            release_args: The release arguments
+
+        Returns:
+            True if authorized, False otherwise
+        """
+        if (
+            self.state.authorized_users
+            and release_args.custom_build is False
+            and self.state.message
+            and self.state.message.user not in self.state.authorized_users
+        ):
+            self.logger.warning(
+                f"Unauthorized attempt by user {self.state.message.user}. "
+                f"Authorized users: {self.state.authorized_users}"
+            )
+            self.state.replies.append(
+                BotReply(
+                    text="Sorry, you are not authorized to run releases. "
+                    "Please contact an administrator."
+                )
+            )
+            return False
+        return True
 
     def update(self) -> Status:
         self.logger.debug("RunCommand - starting release execution")
@@ -183,21 +280,7 @@ class RunReleaseCommand(ReleaseAction):
 
         release_args = self.state.release_args
 
-        # Check authorization
-        if (
-            self.state.authorized_users
-            and release_args.custom_build is False
-            and self.state.message
-            and self.state.message.user not in self.state.authorized_users
-        ):
-            self.logger.warning(
-                f"Unauthorized attempt by user {self.state.message.user}. Authorized users: {self.state.authorized_users}"
-            )
-            self.state.replies.append(
-                BotReply(
-                    text="Sorry, you are not authorized to run releases. Please contact an administrator."
-                )
-            )
+        if not self.check_authorization(release_args):
             return Status.FAILURE
 
         if release_args.custom_build:
@@ -213,52 +296,22 @@ class RunReleaseCommand(ReleaseAction):
             f"Starting release for tag {release_args.release_tag} in background thread"
         )
 
-        # Start release in a separate thread
-        def run_release_in_thread() -> None:
-            """Run release in a separate thread with its own event loop."""
-            # Create new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            client: Optional[WebClient] = None
-            if self.state.slack_args and self.state.slack_args.bot_token:
-                client = WebClient(self.state.slack_args.bot_token)
-
-            try:
-                # Run the release
-                with initialize_tree_and_state(self.config, release_args) as (
-                    tree,
-                    _,
-                ):
-                    loop.run_until_complete(async_tick_tock(tree, cutoff=2000))
-
-                self.logger.info(f"Release {release_args.release_tag} completed")
-
-            except Exception as e:
-                self.logger._logger.error(
-                    f"Error running release {release_args.release_tag}: {e}",
-                    exc_info=True,
-                )
-                if (
-                    client
-                    and self.state.slack_args
-                    and self.state.slack_args.channel_id
-                    and self.state.slack_args.thread_ts
-                ):
-                    client.chat_postMessage(
-                        channel=self.state.slack_args.channel_id,
-                        thread_ts=self.state.slack_args.thread_ts,
-                        text=f"Release `{release_args.release_tag}` failed with error: {str(e)}",
-                    )
-            finally:
-                loop.close()
-
-        # Start the thread
+        assert self.cockpit.concurrency_manager
+        # Register thread and get stop event for graceful shutdown
+        stop_event: Optional[threading.Event] = None
+        # Create a placeholder thread to register first
         release_thread = threading.Thread(
-            target=run_release_in_thread,
+            target=lambda: None,
             name=f"release-{release_args.release_tag}",
             daemon=True,
         )
+        stop_event = self.cockpit.concurrency_manager.register_thread(release_thread)
+        # Update thread target and start
+        release_thread._target = lambda: self.run_release_in_thread(  # type: ignore[attr-defined]
+            release_args, stop_event
+        )
         release_thread.start()
+
         self.logger.info(f"Started release thread for tag {release_args.release_tag}")
 
         return Status.SUCCESS
@@ -299,10 +352,10 @@ class ShowConfirmationMessage(ReleaseAction):
                 if self.state.state_name and not args.force_rebuild:
                     action_name = "custom build" if args.custom_build else "release"
                     message += (
-                        f"> You are starting {action_name} using existing state."
+                        f"> You are about to start {action_name} using existing state."
                         + " Previously completed workflows may not be re-triggered."
                         + " To re-run, ask to force rebuild specific or all packages."
-                        + "\n>Altertatively start a new thread.\n\n"
+                        + "\n>Alternatively start a new thread.\n\n"
                     )
                 message += f"```\n{CONFIRMATION_YAML_MARKER}\n{yaml_output}```\n"
 

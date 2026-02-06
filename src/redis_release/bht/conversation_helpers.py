@@ -16,6 +16,7 @@ from ..conversation_models import (
     LLMStatusArgs,
 )
 from .conversation_state import ConversationState
+from .logging_wrapper import PyTreesLoggerWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +24,15 @@ logger = logging.getLogger(__name__)
 class LLMInputHelper:
     """Mixin class for building LLM input messages from conversation state.
 
-    Classes using this mixin must have a `state: ConversationState` attribute.
+    Classes using this mixin must have:
+    - `state: ConversationState` attribute
+    - `logger: PyTreesLoggerWrapper` attribute
     """
 
     state: ConversationState  # Expected to be provided by the class using this mixin
+    logger: (
+        PyTreesLoggerWrapper  # Expected to be provided by the class using this mixin
+    )
 
     def add_inbox_and_context(
         self,
@@ -98,6 +104,25 @@ class LLMInputHelper:
             f"{module.value}: {desc}"
             for module, desc in REDIS_MODULE_DESCRIPTIONS.items()
         )
+
+    def log_reply(self, reply: Optional[str], emoji: Optional[str]) -> str:
+        """Log a bot reply and/or emoji reaction.
+
+        Args:
+            reply: The reply text to log (will be trimmed to 100 characters)
+            emoji: The emoji reaction to log
+        """
+        parts = []
+        msg = ""
+        if reply:
+            trimmed = reply[:100] + "..." if len(reply) > 100 else reply
+            parts.append(f"reply: {trimmed}")
+        if emoji:
+            parts.append(f"emoji: :{emoji}:")
+        if parts:
+            msg = f"Bot response: {', '.join(parts)}"
+            self.logger.info(msg)
+        return msg
 
 
 class ArgsHelper:

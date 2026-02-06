@@ -34,6 +34,7 @@ from redis_release.conversation_models import (
     Command,
     ConversationCockpit,
     InboxMessage,
+    UserIntent,
 )
 from redis_release.models import PackageType
 
@@ -57,6 +58,36 @@ def print_llm_response(label: str, data: Any) -> None:
         print(f"{'='*60}")
         print(pformat(data))
         print(f"{'='*60}\n")
+
+
+def print_action_result(label: str, result: Status, state: ConversationState) -> None:
+    """Print action handler result if LLM_DEBUG is enabled."""
+    print_llm_response(
+        label,
+        {
+            "status": result,
+            "command": state.command,
+            "user_release_args": (
+                state.user_release_args.model_dump()
+                if state.user_release_args
+                else None
+            ),
+            "replies": [
+                r.text if isinstance(r, BotReply) else str(r) for r in state.replies
+            ],
+        },
+    )
+
+
+def print_intent_result(label: str, result: Status, state: ConversationState) -> None:
+    """Print intent detector result if LLM_DEBUG is enabled."""
+    print_llm_response(
+        label,
+        {
+            "status": result,
+            "detected_intent": state.user_intent,
+        },
+    )
 
 
 class ConversationBuilder:
@@ -169,23 +200,7 @@ class TestLLMActionHandler:
         )
 
         result = handler.update()
-
-        # Print LLM response for debugging
-        print_llm_response(
-            "Action Handler Result",
-            {
-                "status": result,
-                "command": state.command,
-                "user_release_args": (
-                    state.user_release_args.model_dump()
-                    if state.user_release_args
-                    else None
-                ),
-                "replies": [
-                    r.text if isinstance(r, BotReply) else str(r) for r in state.replies
-                ],
-            },
-        )
+        print_action_result("Action Handler Result", result, state)
 
         assert result == Status.SUCCESS
         assert state.command == Command.RELEASE
@@ -244,23 +259,7 @@ class TestLLMActionHandler:
         )
 
         result = handler.update()
-
-        # Print LLM response for debugging
-        print_llm_response(
-            "Multi-turn Run Tests Unstable",
-            {
-                "status": result,
-                "command": state.command,
-                "user_release_args": (
-                    state.user_release_args.model_dump()
-                    if state.user_release_args
-                    else None
-                ),
-                "replies": [
-                    r.text if isinstance(r, BotReply) else str(r) for r in state.replies
-                ],
-            },
-        )
+        print_action_result("Multi-turn Run Tests Unstable", result, state)
 
         assert result == Status.SUCCESS
         assert state.command == Command.RELEASE
@@ -268,3 +267,78 @@ class TestLLMActionHandler:
         assert state.user_release_args.release_tag == "unstable"
         assert state.user_release_args.custom_build is True
         assert len(state.user_release_args.module_versions) == 0
+
+    def test_approve_from_clients_point_of_view(
+        self, config: Config, cockpit: ConversationCockpit
+    ) -> None:
+        """Test that 'test unstable' is detected as custom build with unstable."""
+        state = (
+            ConversationBuilder()
+            .current(
+                "can you approve the 8.4-int3 from clients point of view?",
+                is_mention=True,
+            )
+            .build_state()
+        )
+
+        handler = LLMActionHandler(
+            name="Test Action Handler",
+            state=state,
+            cockpit=cockpit,
+            config=config,
+        )
+
+        result = handler.update()
+        print_action_result("Test Approve from Clients Point of View", result, state)
+
+        assert result == Status.SUCCESS
+        assert state.command == Command.RELEASE
+        assert state.user_release_args is not None
+        assert state.user_release_args.release_tag == "8.4-int3"
+        assert state.user_release_args.custom_build is True
+
+
+class TestLLMIntentDetector:
+    """Tests for LLMIntentDetector prompt behavior."""
+
+    @pytest.mark.parametrize(
+        "message,expected_intent",
+        [
+            ("huh", UserIntent.NO_ACTION),
+            (
+                "can you approve the 8.4-int3 from clients point of view?",
+                UserIntent.ACTION,
+            ),
+            ("run tests", UserIntent.ACTION),
+            ("test unstable", UserIntent.ACTION),
+            ("stop replying", UserIntent.ACTION),
+            ("do not reply", UserIntent.ACTION),
+            ("ignore messages", UserIntent.ACTION),
+            ("ignore this thread", UserIntent.ACTION),
+            ("shut up please", UserIntent.ACTION),
+        ],
+    )
+    def test_intent_detection(
+        self,
+        config: Config,
+        cockpit: ConversationCockpit,
+        message: str,
+        expected_intent: UserIntent,
+    ) -> None:
+        """Test that LLM detects user intent correctly."""
+        from redis_release.bht.conversation_llm import LLMIntentDetector
+
+        state = ConversationBuilder().current(message, is_mention=True).build_state()
+
+        detector = LLMIntentDetector(
+            name="Test Intent Detector",
+            state=state,
+            cockpit=cockpit,
+            config=config,
+        )
+
+        result = detector.update()
+        print_intent_result(f"Intent Detection for '{message}'", result, state)
+
+        assert result == Status.SUCCESS
+        assert state.user_intent == expected_intent

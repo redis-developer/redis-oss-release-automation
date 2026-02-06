@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import List, Optional, Union
 
 from janus import SyncQueue
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from .concurrency import ConcurrencyManager
 from .models import RedisModule, SlackArgs
 
 IGNORE_THREAD_MESSAGE = "I will ignore this thread."
@@ -19,7 +22,7 @@ class UserIntent(str, Enum):
 
 INTENT_DESCRIPTIONS = {
     UserIntent.QUESTION: "The user is asking a question that needs an answer",
-    UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, etc.)",
+    UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, or asking the bot to stop replying/ignore the thread)",
     UserIntent.NO_ACTION: "The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)",
 }
 
@@ -118,6 +121,7 @@ class ConversationArgs(BaseModel):
 class ConversationCockpit:
     llm: Optional[OpenAI] = None
     reply_queue: Optional[SyncQueue] = None
+    concurrency_manager: Optional[ConcurrencyManager] = None
 
 
 class ModuleVersion(BaseModel):

@@ -6,6 +6,7 @@ the tree.
 import asyncio
 import logging
 import os
+import signal
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
@@ -40,7 +41,11 @@ from .tree_factory import get_factory
 logger = logging.getLogger(__name__)
 
 
-async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
+async def async_tick_tock(
+    tree: BehaviourTree,
+    cutoff: int = 100,
+    shutdown_event: Optional[asyncio.Event] = None,
+) -> None:
     """Drive Behaviour tree using async event loop
 
     The tree is always ticked once.
@@ -48,8 +53,20 @@ async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
     Next tick happens while there is at least one task completed
     or the tree is in RUNNING state.
 
+    Args:
+        tree: The behaviour tree to tick
+        cutoff: Maximum number of ticks before giving up
+        shutdown_event: Optional event to signal graceful shutdown
+
     """
     while True:
+        # Check for shutdown signal
+        if shutdown_event and shutdown_event.is_set():
+            logger.info("Shutdown requested, cancelling pending tasks...")
+            await _cancel_all_tasks()
+            logger.info("All tasks cancelled, stopping tree execution")
+            break
+
         tree.tick()
         if tree.count > cutoff:
             logger.error(f"The Tree has not converged, hit cutoff limit {cutoff}")
@@ -68,6 +85,20 @@ async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
                 break
         else:
             await asyncio.wait(other_tasks, return_when=asyncio.FIRST_COMPLETED)
+
+
+async def _cancel_all_tasks() -> None:
+    """Cancel all tasks except the current one and wait for them to finish."""
+    other_tasks = asyncio.all_tasks() - {asyncio.current_task()}
+    if not other_tasks:
+        return
+
+    logger.debug(f"Cancelling {len(other_tasks)} pending tasks...")
+    for task in other_tasks:
+        task.cancel()
+
+    # Wait for all tasks to finish cancellation, allowing cleanup in finally blocks
+    await asyncio.gather(*other_tasks, return_exceptions=True)
 
 
 def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
@@ -483,3 +514,36 @@ def create_selector_branch() -> Selector:
         ],
     )
     return s
+
+
+async def run_tree_with_shutdown(tree: BehaviourTree, cutoff: int) -> None:
+    """Run the behaviour tree with graceful shutdown on SIGINT/SIGTERM.
+
+    Args:
+        tree: The behaviour tree to run
+        cutoff: Maximum number of ticks before giving up
+    """
+    shutdown_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def signal_handler() -> None:
+        logger.info("Received shutdown signal, initiating graceful shutdown...")
+        shutdown_event.set()
+
+    # Register signal handlers
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, signal_handler)
+        except NotImplementedError:
+            # Windows doesn't support add_signal_handler
+            pass
+
+    try:
+        await async_tick_tock(tree, cutoff=cutoff, shutdown_event=shutdown_event)
+    finally:
+        # Cleanup signal handlers
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.remove_signal_handler(sig)
+            except (NotImplementedError, ValueError):
+                pass
