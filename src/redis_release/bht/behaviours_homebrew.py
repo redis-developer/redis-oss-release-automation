@@ -64,7 +64,7 @@ class DetectHombrewReleaseAndChannel(ReleaseAction):
 
     def update(self) -> Status:
         if self.release_meta.tag is None:
-            logger.error("Release tag is not set")
+            self.logger.error("Release tag is not set")
             return Status.FAILURE
 
         if (

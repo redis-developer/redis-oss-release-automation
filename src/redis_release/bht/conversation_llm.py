@@ -72,7 +72,7 @@ Determine if the user's response is:
             input.append(EasyInputMessageParam(role="system", content=instructions))
             self.add_current_message(input)
 
-            logger.debug(f"LLM Confirmation input: {pformat(input)}")
+            self.logger.debug(f"LLM Confirmation input: {pformat(input)}")
             response = self.llm.responses.parse(
                 model=self.model,
                 input=input,
@@ -84,6 +84,7 @@ Determine if the user's response is:
             result = cast(ConfirmationResult, response.output_parsed)
             if not result:
                 self.feedback_message = "LLM returned empty response"
+                self.logger.warning(self.feedback_message)
                 return Status.FAILURE
 
             if result.is_confirmed:
@@ -98,12 +99,14 @@ Determine if the user's response is:
                     self.state.command = Command.RELEASE
                     self.state.is_confirmed = True
                     self.feedback_message = f"User confirmed {action_name}"
+                    self.logger.info(self.feedback_message)
                     self.state.replies.append(
                         BotReply(text=f"Confirmed! Starting {action_name}...")
                     )
                     return Status.SUCCESS
                 else:
                     self.feedback_message = "No user_release_args to confirm"
+                    self.logger.warning(self.feedback_message)
                     self.state.replies.append(
                         BotReply(
                             text="Error: could not find release arguments to confirm."
@@ -114,6 +117,7 @@ Determine if the user's response is:
                 # User rejected - set intent to ACTION to allow re-processing
                 self.state.user_intent = UserIntent.ACTION
                 self.feedback_message = "User rejected confirmation"
+                self.logger.info(self.feedback_message)
                 return Status.SUCCESS
 
         except Exception as e:
@@ -178,11 +182,11 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
         try:
             assert self.llm is not None
             instructions = self.instructions()
-            logger.debug(f"LLM Intent instructions: {instructions}")
+            self.logger.debug(f"LLM Intent instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
             self.add_inbox_and_context(input, include_context=True, context_first=True)
-            logger.debug(f"LLM Intent input: " + pformat(input))
+            self.logger.debug(f"LLM Intent input: " + pformat(input))
             response = self.llm.responses.parse(
                 model=self.model,
                 input=input,
@@ -194,14 +198,17 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
             result = cast(UserIntentDetectionResult, response.output_parsed)
             if not result:
                 self.feedback_message = "LLM returned empty intent"
+                self.logger.warning(self.feedback_message)
                 return Status.FAILURE
 
             self.state.user_intent = result.intent
             self.feedback_message = f"Detected intent: {result.intent.value}"
+            self.logger.info(self.feedback_message)
             return Status.SUCCESS
 
         except Exception as e:
             self.feedback_message = f"LLM intent detection failed: {str(e)}"
+            self.logger.error(self.feedback_message)
             return Status.FAILURE
 
 
@@ -266,11 +273,11 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
         try:
             assert self.llm is not None
             instructions = self.instructions()
-            logger.debug(f"LLM Question instructions: {instructions}")
+            self.logger.debug(f"LLM Question instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
             self.add_inbox_and_context(input, include_context=True, context_first=False)
-            logger.debug(f"LLM Question input: " + pformat(input))
+            self.logger.debug(f"LLM Question input: " + pformat(input))
             response = self.llm.responses.parse(
                 model=self.model,
                 input=input,
@@ -285,6 +292,7 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
                 self.state.replies.append(
                     BotReply(text="I couldn't process your question. Please try again.")
                 )
+                self.logger.warning(self.feedback_message)
                 return Status.FAILURE
 
             if result.reply:
@@ -292,11 +300,16 @@ class LLMQuestionHandler(ReleaseAction, LLMInputHelper):
             if result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
 
+            self.feedback_message = (
+                f"LLM question answered {result.emoji if result.emoji else ''}"
+            )
+            self.logger.info(self.feedback_message)
             return Status.SUCCESS
 
         except Exception as e:
             self.feedback_message = f"LLM question handling failed: {str(e)}"
             self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
+            self.logger.error(self.feedback_message)
             return Status.FAILURE
 
 
@@ -386,13 +399,13 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
         try:
             assert self.llm is not None
             instructions = self.instructions()
-            logger.debug(f"LLM Action instructions: {instructions}")
+            self.logger.debug(f"LLM Action instructions: {instructions}")
 
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
             self.add_inbox_and_context(input, include_context=True, context_first=True)
 
-            logger.debug(f"LLM Action input: " + pformat(input))
+            self.logger.debug(f"LLM Action input: " + pformat(input))
             response = self.llm.responses.parse(
                 model=self.model,
                 input=input,
@@ -413,6 +426,7 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
             if result.command:
                 self.state.command = result.command
                 self.feedback_message = f"Detected command: {result.command.value}"
+                self.logger.info(self.feedback_message)
 
             # Set release args
             if result.release_args:
@@ -431,10 +445,12 @@ class LLMActionHandler(ReleaseAction, LLMInputHelper, ArgsHelper):
             if result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
 
+            self.logger.info("LLM action handled successfully")
             return Status.SUCCESS
 
         except Exception as e:
             self.feedback_message = f"LLM action handling failed: {str(e)}"
+            self.logger.error(self.feedback_message)
             self.state.replies.append(BotReply(text=f"An error occurred: {str(e)}"))
             return self.log_exception_and_return_failure(e)
 
@@ -481,11 +497,11 @@ class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
         try:
             assert self.llm is not None
             instructions = self.instructions()
-            logger.debug(f"LLM NoAction instructions: {instructions}")
+            self.logger.debug(f"LLM NoAction instructions: {instructions}")
             input: ResponseInputParam = []
             input.append(EasyInputMessageParam(role="system", content=instructions))
             self.add_inbox_and_context(input, include_context=True, context_first=True)
-            logger.debug(f"LLM NoAction input: " + pformat(input))
+            self.logger.debug(f"LLM NoAction input: " + pformat(input))
             response = self.llm.responses.parse(
                 model=self.model,
                 input=input,
@@ -498,6 +514,7 @@ class LLMNoActionHandler(ReleaseAction, LLMInputHelper):
             if result and result.emoji:
                 self.state.replies.append(BotReaction(emoji=result.emoji))
 
+            self.logger.info("LLM no-action handled successfully")
             return Status.SUCCESS
 
         except Exception as e:
