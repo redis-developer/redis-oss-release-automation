@@ -9,6 +9,7 @@ import typer
 from openai import OpenAI
 from py_trees.display import render_dot_tree, unicode_tree
 
+from redis_release.bht.tree import run_tree_with_shutdown
 from redis_release.cli_util import (
     parse_force_release_type,
     parse_module_versions,
@@ -17,11 +18,11 @@ from redis_release.cli_util import (
 
 from .bht.conversation_state import InboxMessage
 from .bht.conversation_tree import initialize_conversation_tree
-from .bht.tree import TreeInspector, async_tick_tock, initialize_tree_and_state
+from .bht.tree import TreeInspector, initialize_tree_and_state
 from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
-from .models import RedisModule, ReleaseArgs, SlackArgs
+from .models import ReleaseArgs, SlackArgs
 from .state_console import print_state_table
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
@@ -205,7 +206,7 @@ def release(
 
     # Use context manager version with automatic lock management
     with initialize_tree_and_state(config, args) as (tree, _):
-        asyncio.run(async_tick_tock(tree, cutoff=tree_cutoff))
+        asyncio.run(run_tree_with_shutdown(tree, cutoff=tree_cutoff))
 
 
 @app.command()

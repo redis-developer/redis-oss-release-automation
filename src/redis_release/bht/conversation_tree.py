@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from typing import List, Optional, Tuple
 
@@ -9,6 +11,7 @@ from py_trees.decorators import Inverter
 from py_trees.trees import BehaviourTree
 from py_trees.visitors import SnapshotVisitor
 
+from ..concurrency import ConcurrencyManager
 from ..config import Config, load_config
 from ..conversation_models import (
     Command,
@@ -291,6 +294,7 @@ def create_conversation_root_node(
 def initialize_conversation_tree(
     args: ConversationArgs,
     reply_queue: Optional[SyncQueue] = None,
+    concurrency_manager: Optional[ConcurrencyManager] = None,
 ) -> Tuple[BehaviourTree, ConversationState]:
 
     config = load_config(args.config_path)
@@ -302,6 +306,7 @@ def initialize_conversation_tree(
     cockpit = ConversationCockpit()
     cockpit.llm = llm
     cockpit.reply_queue = reply_queue
+    cockpit.concurrency_manager = concurrency_manager
 
     if not args.inbox:
         raise ValueError("Inbox message is required")

@@ -2,8 +2,9 @@ import asyncio
 import logging
 import os
 import random
+import signal
 import threading
-from pprint import pformat, pprint
+from pprint import pformat
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import janus
@@ -15,6 +16,7 @@ from redis_release.models import SlackArgs, SlackFormat
 from redis_release.slack_emojis import FALLBACK_REACTION_EMOJI, STANDARD_EMOJIS
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
+from .concurrency import ConcurrencyManager
 from .conversation_models import (
     IGNORE_THREAD_MESSAGE,
     BotQueueItem,
@@ -122,6 +124,12 @@ class ReleaseBot:
         # Track handled messages to avoid duplicate processing
         self.handled_messages_ts: set[str] = set()
 
+        # Concurrency manager for graceful shutdown
+        self._concurrency = ConcurrencyManager()
+
+        # Socket mode handler (set during start)
+        self._handler: Optional[AsyncSocketModeHandler] = None
+
         # Register event handlers
         self._register_handlers()
 
@@ -134,9 +142,15 @@ class ReleaseBot:
         Args:
             args: Conversation arguments
         """
+        if self._concurrency.is_shutting_down:
+            logger.warning("Bot is shutting down, ignoring new conversation")
+            return
+
         queue: janus.Queue[BotQueueItem] = janus.Queue()
 
-        tree, state = initialize_conversation_tree(args, queue.sync_q)
+        tree, state = initialize_conversation_tree(
+            args, queue.sync_q, concurrency_manager=self._concurrency
+        )
         logger.debug("Init State: " + pformat(state))
 
         # Create thread for running the tree (but don't start yet)
@@ -162,7 +176,12 @@ class ReleaseBot:
             tree_thread,
             inbox_ts,
         )
-        asyncio.create_task(queue_listener())
+        task = asyncio.create_task(queue_listener())
+
+        # Track active resources for graceful shutdown
+        self._concurrency.register_task(task)
+        self._concurrency.register_thread(tree_thread)
+        self._concurrency.register_queue(queue)
 
         tree_thread.start()
 
@@ -719,6 +738,23 @@ class ReleaseBot:
         self.handled_messages_ts.add(message_ts)
         return False
 
+    async def shutdown(self, timeout: float = 10.0) -> None:
+        """Gracefully shutdown the bot.
+
+        Args:
+            timeout: Maximum time to wait for active conversations to complete
+        """
+        # Stop accepting new connections first
+        if self._handler:
+            try:
+                logger.debug("Closing socket mode handler...")
+                await self._handler.close_async()
+            except Exception as e:
+                logger.error(f"Error closing socket handler: {e}")
+
+        # Delegate to concurrency manager for task/thread/queue cleanup
+        await self._concurrency.shutdown(timeout=timeout)
+
     async def start(self) -> None:
         """Start the bot using Socket Mode."""
         logger.info("Starting Slack bot in Socket Mode...")
@@ -727,8 +763,40 @@ class ReleaseBot:
         await self._fetch_bot_info()
         await self._fetch_emojis()
 
-        handler = AsyncSocketModeHandler(self.app, self.app_token)
-        await handler.start_async()
+        self._handler = AsyncSocketModeHandler(self.app, self.app_token)
+
+        # Setup signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+
+        def signal_handler() -> None:
+            logger.info("Received shutdown signal")
+            shutdown_event.set()
+
+        # Register signal handlers
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, signal_handler)
+            except NotImplementedError:
+                # Windows doesn't support add_signal_handler
+                signal.signal(sig, lambda _s, _f: signal_handler())
+
+        try:
+            # Start the handler without blocking
+            await self._handler.connect_async()
+            logger.info("Bot is now running. Press Ctrl+C to stop.")
+
+            # Wait for shutdown signal
+            await shutdown_event.wait()
+        finally:
+            # Cleanup signal handlers
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    loop.remove_signal_handler(sig)
+                except (NotImplementedError, ValueError):
+                    pass
+
+            await self.shutdown()
 
 
 async def run_bot(

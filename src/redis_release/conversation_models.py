@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import List, Optional, Union
 
 from janus import SyncQueue
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from .concurrency import ConcurrencyManager
 from .models import RedisModule, SlackArgs
 
 IGNORE_THREAD_MESSAGE = "I will ignore this thread."
@@ -118,6 +121,7 @@ class ConversationArgs(BaseModel):
 class ConversationCockpit:
     llm: Optional[OpenAI] = None
     reply_queue: Optional[SyncQueue] = None
+    concurrency_manager: Optional[ConcurrencyManager] = None
 
 
 class ModuleVersion(BaseModel):
