@@ -8,7 +8,7 @@ from redis_release.models import RedisVersion
 class TestRedisVersion:
     """Tests for RedisVersion model."""
 
-    def test_parse_basic_version(self):
+    def test_parse_basic_version(self) -> None:
         """Test parsing basic version strings."""
         version = RedisVersion.parse("8.2.1")
         assert version.major == 8
@@ -16,7 +16,7 @@ class TestRedisVersion:
         assert version.patch == 1
         assert version.suffix == ""
 
-    def test_parse_version_with_v_prefix(self):
+    def test_parse_version_with_v_prefix(self) -> None:
         """Test parsing version with 'v' prefix."""
         version = RedisVersion.parse("v8.2.1")
         assert version.major == 8
@@ -24,7 +24,7 @@ class TestRedisVersion:
         assert version.patch == 1
         assert version.suffix == ""
 
-    def test_parse_version_with_suffix(self):
+    def test_parse_version_with_suffix(self) -> None:
         """Test parsing version with suffix."""
         version = RedisVersion.parse("8.2.1-m01")
         assert version.major == 8
@@ -32,7 +32,7 @@ class TestRedisVersion:
         assert version.patch == 1
         assert version.suffix == "-m01"
 
-    def test_parse_version_without_patch(self):
+    def test_parse_version_without_patch(self) -> None:
         """Test parsing version without patch number."""
         version = RedisVersion.parse("8.2")
         assert version.major == 8
@@ -40,7 +40,7 @@ class TestRedisVersion:
         assert version.patch is None
         assert version.suffix == ""
 
-    def test_parse_eol_version(self):
+    def test_parse_eol_version(self) -> None:
         """Test parsing EOL version."""
         version = RedisVersion.parse("7.4.0-eol")
         assert version.major == 7
@@ -49,7 +49,7 @@ class TestRedisVersion:
         assert version.suffix == "-eol"
         assert version.is_eol is True
 
-    def test_parse_rc_internal_version(self):
+    def test_parse_rc_internal_version(self) -> None:
         """Test parsing RC internal version."""
         version = RedisVersion.parse("8.2.1-rc2-int3")
         assert version.major == 8
@@ -68,7 +68,7 @@ class TestRedisVersion:
         assert version.is_internal is True
         assert len(version.sort_key) > 0
 
-    def test_parse_invalid_version(self):
+    def test_parse_invalid_version(self) -> None:
         """Test parsing invalid version strings."""
         with pytest.raises(ValueError):
             RedisVersion.parse("invalid")
@@ -76,7 +76,7 @@ class TestRedisVersion:
         with pytest.raises(ValueError):
             RedisVersion.parse("0.1.0")  # Major version must be >= 1
 
-    def test_is_milestone(self):
+    def test_is_milestone(self) -> None:
         """Test milestone detection."""
         ga_version = RedisVersion.parse("8.2.1")
         milestone_version = RedisVersion.parse("8.2.1-m01")
@@ -84,12 +84,12 @@ class TestRedisVersion:
         assert ga_version.is_milestone is False
         assert milestone_version.is_milestone is True
 
-    def test_mainline_version(self):
+    def test_mainline_version(self) -> None:
         """Test mainline version property."""
         version = RedisVersion.parse("8.2.1-m01")
         assert version.mainline_version == "8.2"
 
-    def test_string_representation(self):
+    def test_string_representation(self) -> None:
         """Test string representation."""
         version1 = RedisVersion.parse("8.2.1")
         version2 = RedisVersion.parse("8.2.1-m01")
@@ -99,7 +99,7 @@ class TestRedisVersion:
         assert str(version2) == "8.2.1-m01"
         assert str(version3) == "8.2"
 
-    def test_version_comparison(self):
+    def test_version_comparison(self) -> None:
         """Test version comparison for sorting."""
         v8_2_1 = RedisVersion.parse("8.2.1")
         v8_2_2 = RedisVersion.parse("8.2.2")

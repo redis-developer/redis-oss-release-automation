@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import zipfile
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import aiohttp
 
@@ -90,7 +90,7 @@ class GitHubClientAsync:
                     return {}
 
                 # logger.debug(f"Response: {await response.json()}")
-                return await response.json()
+                return cast(Dict[str, Any], await response.json())
 
     async def github_request_paginated(
         self,
@@ -567,7 +567,7 @@ class GitHubClientAsync:
             with zipfile.ZipFile(io.BytesIO(artifact_content)) as zip_file:
                 if json_file_name in zip_file.namelist():
                     with zip_file.open(json_file_name) as json_file_obj:
-                        result_data = json.load(json_file_obj)
+                        result_data: Dict[str, Any] = json.load(json_file_obj)
                         logger.debug(
                             f"[green]Successfully extracted {json_file_name}[/green]"
                         )

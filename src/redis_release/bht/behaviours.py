@@ -18,7 +18,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from nanoid import generate as nanoid_generate
+from nanoid import generate as nanoid_generate  # type: ignore[import-untyped]
 from py import log
 from py_trees.behaviour import Behaviour
 from py_trees.common import Status

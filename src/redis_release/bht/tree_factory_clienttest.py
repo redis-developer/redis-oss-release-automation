@@ -121,4 +121,3 @@ class ClientTestFactory(GenericPackageFactory, PackageWithValidation):
             workflow,
             log_prefix=log_prefix,
         )
-
