@@ -69,6 +69,7 @@ def create_conversation_root_node(
         slack_format_is_available=slack_format_is_available,
     )
     state.message = input
+    log_prefix = "/".join([x for x in [input.user, input.slack_ts] if x])
 
     LLMResolve = Selector(
         "LLM Resolve",
@@ -78,24 +79,39 @@ def create_conversation_root_node(
                 "Question",
                 memory=False,
                 children=[
-                    IsIntent("Is Question", state, UserIntent.QUESTION),
-                    LLMQuestionHandler("Handle Question", state, cockpit, config),
+                    IsIntent(
+                        "Is Question", state, UserIntent.QUESTION, log_prefix=log_prefix
+                    ),
+                    LLMQuestionHandler(
+                        "Handle Question", state, cockpit, config, log_prefix=log_prefix
+                    ),
                 ],
             ),
             Sequence(
                 "Action",
                 memory=False,
                 children=[
-                    IsIntent("Is Action", state, UserIntent.ACTION),
-                    LLMActionHandler("Handle Action", state, cockpit, config),
+                    IsIntent(
+                        "Is Action", state, UserIntent.ACTION, log_prefix=log_prefix
+                    ),
+                    LLMActionHandler(
+                        "Handle Action", state, cockpit, config, log_prefix=log_prefix
+                    ),
                 ],
             ),
             Sequence(
                 "NoAction",
                 memory=False,
                 children=[
-                    IsIntent("Is No Action", state, UserIntent.NO_ACTION),
-                    LLMNoActionHandler("Handle NoAction", state, cockpit, config),
+                    IsIntent(
+                        "Is No Action",
+                        state,
+                        UserIntent.NO_ACTION,
+                        log_prefix=log_prefix,
+                    ),
+                    LLMNoActionHandler(
+                        "Handle NoAction", state, cockpit, config, log_prefix=log_prefix
+                    ),
                 ],
             ),
         ],
@@ -105,8 +121,10 @@ def create_conversation_root_node(
         "LLM Intent",
         memory=False,
         children=[
-            HasIntent("Has Intent", state, cockpit),
-            LLMIntentDetector("Detect Intent", state, cockpit, config),
+            HasIntent("Has Intent", state, cockpit, log_prefix=log_prefix),
+            LLMIntentDetector(
+                "Detect Intent", state, cockpit, config, log_prefix=log_prefix
+            ),
         ],
     )
 
@@ -118,7 +136,7 @@ def create_conversation_root_node(
         "Classify Command",
         memory=False,
         children=[
-            HasReleaseArgs("Has Release Args", state, cockpit),
+            HasReleaseArgs("Has Release Args", state, cockpit, log_prefix=log_prefix),
             LLMClass,
         ],
     )
@@ -127,8 +145,12 @@ def create_conversation_root_node(
         "Show Confirmation",
         memory=False,
         children=[
-            NeedConfirmation("Need Confirmation", state, cockpit),
-            ShowConfirmationMessage("Show Confirmation Message", state, cockpit),
+            NeedConfirmation(
+                "Need Confirmation", state, cockpit, log_prefix=log_prefix
+            ),
+            ShowConfirmationMessage(
+                "Show Confirmation Message", state, cockpit, log_prefix=log_prefix
+            ),
         ],
     )
 
@@ -136,13 +158,21 @@ def create_conversation_root_node(
         "Release",
         memory=False,
         children=[
-            IsCommand("Is Release Command", state, Command.RELEASE),
+            IsCommand(
+                "Is Release Command", state, Command.RELEASE, log_prefix=log_prefix
+            ),
             Selector(
                 "Run Release",
                 memory=False,
                 children=[
                     show_confirmation,
-                    RunReleaseCommand("Run Release Command", state, cockpit, config),
+                    RunReleaseCommand(
+                        "Run Release Command",
+                        state,
+                        cockpit,
+                        config,
+                        log_prefix=log_prefix,
+                    ),
                 ],
             ),
         ],
@@ -152,8 +182,12 @@ def create_conversation_root_node(
         "Status",
         memory=False,
         children=[
-            IsCommand("Is Status Command", state, Command.STATUS),
-            RunStatusCommand("Run Status Command", state, cockpit, config),
+            IsCommand(
+                "Is Status Command", state, Command.STATUS, log_prefix=log_prefix
+            ),
+            RunStatusCommand(
+                "Run Status Command", state, cockpit, config, log_prefix=log_prefix
+            ),
         ],
     )
 
@@ -162,7 +196,9 @@ def create_conversation_root_node(
         "Handle Confirmation",
         memory=False,
         children=[
-            HasUserReleaseArgs("Has User Release Args", state, cockpit),
+            HasUserReleaseArgs(
+                "Has User Release Args", state, cockpit, log_prefix=log_prefix
+            ),
             Selector(
                 "Check Confirmation Request",
                 memory=False,
@@ -170,7 +206,10 @@ def create_conversation_root_node(
                     Inverter(
                         name="Not Confirmation Request",
                         child=HasConfirmationRequest(
-                            "Has Confirmation Request", state, cockpit
+                            "Has Confirmation Request",
+                            state,
+                            cockpit,
+                            log_prefix=log_prefix,
                         ),
                     ),
                     Sequence(
@@ -178,10 +217,17 @@ def create_conversation_root_node(
                         memory=False,
                         children=[
                             ExtractArgsFromConfirmation(
-                                "Extract Args From Confirmation", state, cockpit
+                                "Extract Args From Confirmation",
+                                state,
+                                cockpit,
+                                log_prefix=log_prefix,
                             ),
                             LLMHandleConfirmation(
-                                "LLM Handle Confirmation", state, cockpit, config
+                                "LLM Handle Confirmation",
+                                state,
+                                cockpit,
+                                config,
+                                log_prefix=log_prefix,
                             ),
                         ],
                     ),
@@ -194,8 +240,13 @@ def create_conversation_root_node(
         "Ignore Thread",
         memory=False,
         children=[
-            IsCommand("Is Ignore Thread Command", state, Command.IGNORE_THREAD),
-            IgnoreThread("Ignore Thread", state, cockpit),
+            IsCommand(
+                "Is Ignore Thread Command",
+                state,
+                Command.IGNORE_THREAD,
+                log_prefix=log_prefix,
+            ),
+            IgnoreThread("Ignore Thread", state, cockpit, log_prefix=log_prefix),
         ],
     )
 
@@ -203,13 +254,18 @@ def create_conversation_root_node(
         "Conversation",
         memory=False,
         children=[
-            IsCommandStarted("Is Command Started", state, cockpit),
+            IsCommandStarted(
+                "Is Command Started", state, cockpit, log_prefix=log_prefix
+            ),
             Sequence(
                 "Conversation Sequence",
                 memory=False,
                 children=[
                     ExtractDetailsFromContext(
-                        "Extract Details From Context", state, config
+                        "Extract Details From Context",
+                        state,
+                        config,
+                        log_prefix=log_prefix,
                     ),
                     handle_confirmation,
                     command_detector,

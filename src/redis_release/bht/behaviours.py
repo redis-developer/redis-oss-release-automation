@@ -44,9 +44,8 @@ class LoggingAction(Behaviour):
         super().__init__(name=name)
         if log_prefix != "":
             log_prefix = f"{log_prefix}."
-        self.logger = PyTreesLoggerWrapper(
-            logging.getLogger(f"{log_prefix}{self.name}")
-        )
+        logger_name = f"{log_prefix}{self.name}".replace("\n", " ")
+        self.logger = PyTreesLoggerWrapper(logging.getLogger(logger_name))
 
     def log_exception_and_return_failure(self, e: Exception) -> Status:
         self.logger.error(f"[red]failed with exception:[/red] {type(e).__name__}: {e}")

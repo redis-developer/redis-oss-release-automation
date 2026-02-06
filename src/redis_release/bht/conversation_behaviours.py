@@ -54,6 +54,7 @@ class ExtractArgsFromConfirmation(ReleaseAction, ConfirmationHelper):
             self.feedback_message = f"Extracted release args: {args.release_tag}"
             return Status.SUCCESS
         self.feedback_message = "Failed to extract confirmation args"
+        self.logger.info(self.feedback_message)
         self.state.replies.append(BotReply(text=self.feedback_message))
         return Status.FAILURE
 
@@ -77,10 +78,7 @@ class RunStatusCommand(ReleaseAction):
 
         if not self.state.release_args:
             self.feedback_message = "No release args available"
-            return Status.FAILURE
-
-        if self.state.command != Command.STATUS:
-            self.feedback_message = "Command is not STATUS"
+            self.logger.warning(self.feedback_message)
             return Status.FAILURE
 
         self.state.command_started = True
@@ -124,6 +122,7 @@ class RunStatusCommand(ReleaseAction):
                     blocks = printer.make_blocks(state_manager.state)
                     printer.update_message(blocks)
                     printer.stop()
+                    self.logger.info("Status posted to Slack")
                     self.state.replies.append(
                         BotReply(
                             text=f"Status for tag `{release_args.release_tag}` posted to Slack."
@@ -177,10 +176,7 @@ class RunReleaseCommand(ReleaseAction):
 
         if not self.state.release_args:
             self.feedback_message = "No release args available"
-            return Status.FAILURE
-
-        if self.state.command != Command.RELEASE:
-            self.feedback_message = "Command is not RELEASE"
+            self.logger.warning(self.feedback_message)
             return Status.FAILURE
 
         self.state.command_started = True
@@ -194,7 +190,7 @@ class RunReleaseCommand(ReleaseAction):
             and self.state.message
             and self.state.message.user not in self.state.authorized_users
         ):
-            logger.warning(
+            self.logger.warning(
                 f"Unauthorized attempt by user {self.state.message.user}. Authorized users: {self.state.authorized_users}"
             )
             self.state.replies.append(
@@ -208,10 +204,10 @@ class RunReleaseCommand(ReleaseAction):
             if self.state.state_name:
                 release_args.override_state_name = self.state.state_name
             else:
-                self.logger.debug(
-                    f"Custom build requested, generating state name for {release_args.release_tag}"
-                )
                 release_args.override_state_name = self.generate_state_name()
+                self.logger.info(
+                    f"Custom build requested, generated new state name for {release_args.release_tag}: {release_args.override_state_name}"
+                )
 
         self.logger.info(
             f"Starting release for tag {release_args.release_tag} in background thread"
@@ -310,8 +306,12 @@ class ShowConfirmationMessage(ReleaseAction):
                     )
                 message += f"```\n{CONFIRMATION_YAML_MARKER}\n{yaml_output}```\n"
 
+                self.logger.info("Showing confirmation message")
                 self.state.replies.append(BotReply(text=message))
             else:
+                self.logger.warning(
+                    "Release command detected but no release arguments available"
+                )
                 self.state.replies.append(
                     BotReply(
                         text="Release command detected but no release arguments available. "
@@ -337,6 +337,7 @@ class IgnoreThread(ReleaseAction):
         super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
+        self.logger.info("Ignoring thread")
         self.state.replies.append(BotReply(text=IGNORE_THREAD_MESSAGE))
         return Status.SUCCESS
 
@@ -360,6 +361,7 @@ class ExtractDetailsFromContext(ReleaseAction, ArgsHelper):
         if state_name:
             self.state.state_name = state_name
             self.feedback_message = f"Extracted state name: {state_name}"
+            self.logger.info(self.feedback_message)
         return Status.SUCCESS
 
 
@@ -418,6 +420,7 @@ class NeedConfirmation(ReleaseAction):
             and self.state.release_args
             and not self.state.is_confirmed
         ):
+            self.logger.info("Confirmation required")
             return Status.SUCCESS
         return Status.FAILURE
 
