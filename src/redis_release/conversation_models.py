@@ -19,7 +19,7 @@ class UserIntent(str, Enum):
 
 INTENT_DESCRIPTIONS = {
     UserIntent.QUESTION: "The user is asking a question that needs an answer",
-    UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, etc.)",
+    UserIntent.ACTION: "The user wants to perform an action (like running a release, checking status, or asking the bot to stop replying/ignore the thread)",
     UserIntent.NO_ACTION: "The user's message doesn't require any action or response (like a comment, acknowledgment, or message to another user)",
 }
 

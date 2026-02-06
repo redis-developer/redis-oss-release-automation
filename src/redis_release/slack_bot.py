@@ -16,6 +16,7 @@ from redis_release.slack_emojis import FALLBACK_REACTION_EMOJI, STANDARD_EMOJIS
 
 from .bht.conversation_tree import initialize_conversation_tree, run_conversation_tree
 from .conversation_models import (
+    IGNORE_THREAD_MESSAGE,
     BotQueueItem,
     BotReaction,
     BotReply,
@@ -519,8 +520,8 @@ class ReleaseBot:
                 # Check if message is from the bot
                 if msg_user == self.bot_user_id or msg_bot_id:
                     logger.debug(f"Found bot message in thread")
-                    if "I will ignore this thread" in msg_text:
-                        logger.debug(f"Found ignore message in thread")
+                    if IGNORE_THREAD_MESSAGE in msg_text:
+                        logger.info(f"Found ignore marker message in thread")
                         is_participating = False
                         break
 
