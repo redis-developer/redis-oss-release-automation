@@ -73,11 +73,8 @@ async def async_tick_tock(tree: BehaviourTree, cutoff: int = 100) -> None:
 def _debug_log_active_tasks(other_tasks: Set[asyncio.Task[Any]]) -> None:
     for task in other_tasks:
         task_name = getattr(task, "get_name", lambda: "unnamed")()
-        coro_name = (
-            task.get_coro().__name__
-            if hasattr(task.get_coro(), "__name__")
-            else str(task.get_coro())
-        )
+        coro = task.get_coro()
+        coro_name = getattr(coro, "__name__", None) or str(coro)
         logger.debug(f"Active task: {task_name} - {coro_name}")
 
 

@@ -194,4 +194,3 @@ class ClientTestWorkflowInputs(LoggingAction):
             self.logger.info(self.feedback_message)
 
         return Status.SUCCESS
-

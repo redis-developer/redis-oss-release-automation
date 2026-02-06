@@ -1,20 +1,26 @@
 on:
-  push:
   pull_request:
+    branches: [main]
 
 
 jobs:
-  test:
+  validate_and_test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
+      - name: Black validation
+        run: |
+          uv run --all-extras black --check --diff .
+
+      - name: MyPy validation
+        run: |
+          uv run --all-extras mypy .
 
       - name: Run tests
         run: |

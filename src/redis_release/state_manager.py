@@ -7,8 +7,11 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional, Protocol
 
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+import boto3  # type: ignore[import-untyped]
+from botocore.exceptions import (  # type: ignore[import-untyped]
+    ClientError,
+    NoCredentialsError,
+)
 from rich.pretty import pretty_repr
 
 from redis_release.bht.state import ReleaseState, logger
@@ -51,7 +54,7 @@ class S3Backed:
         self.aws_session_token = os.getenv("AWS_SESSION_TOKEN")
 
     @property
-    def s3_client(self) -> Optional[boto3.client]:
+    def s3_client(self) -> Optional[Any]:
         """Lazy initialization of S3 client."""
         if self._s3_client is None and not self.dry_run:
             try:
@@ -78,16 +81,13 @@ class S3Backed:
                     self._s3_client = boto3.client("s3", region_name=self.aws_region)
 
                 # Test connection
+                assert self._s3_client is not None
                 self._s3_client.head_bucket(Bucket=self.bucket_name)
                 logger.info(f"Connected to S3 bucket: {self.bucket_name}")
 
             except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
-                    logger.warning(f"S3 bucket not found: {self.bucket_name}")
-                    self._create_bucket()
-                else:
-                    logger.error(f"S3 error: {e}")
-                    raise
+                logger.error(f"S3 error: {e}")
+                raise
             except NoCredentialsError:
                 logger.error("AWS credentials not found")
                 logger.warning(

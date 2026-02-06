@@ -14,8 +14,8 @@ from redis_release.models import RedisModule, WorkflowConclusion, WorkflowType
 
 from .bht.state import (
     ClientImageMeta,
-    DockerMeta,
     ClientTestMeta,
+    DockerMeta,
     HomebrewMeta,
     Package,
     PackageMeta,
@@ -318,7 +318,9 @@ class DisplayModelClientTest(DisplayModelGeneric):
             ephemeral_status=package.meta.ephemeral.validate_client_image,
             message=package.meta.ephemeral.validate_client_image_message,
         )
-        result.extend([prerequisites_section, await_client_image_step, locate_client_image_step])
+        result.extend(
+            [prerequisites_section, await_client_image_step, locate_client_image_step]
+        )
 
         result.extend(base_steps)
         return result

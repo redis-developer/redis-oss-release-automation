@@ -1,5 +1,7 @@
 """Tests for StatusFlagGuard decorator."""
 
+from typing import Optional
+
 import pytest
 from py_trees import common
 from py_trees.behaviour import Behaviour
@@ -12,7 +14,7 @@ from redis_release.bht.decorators import StatusFlagGuard
 class StatusFlagContainer(BaseModel):
     """Container for holding status flags."""
 
-    status_flag: Status | None = None
+    status_flag: Optional[Status] = None
 
 
 class SuccessBehaviour(Behaviour):
