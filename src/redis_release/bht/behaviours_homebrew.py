@@ -149,14 +149,10 @@ class ClassifyHomebrewVersion(ReleaseAction):
 
         if self.release_meta.tag == "unstable":
             self.package_meta.ephemeral.is_version_acceptable = False
+            self.feedback_message = "Skip unstable release for Homebrew"
+            self.logger.info(self.feedback_message)
             # we need to set remote version to not None as it is a sign of successful classify step
             self.package_meta.remote_version = "unstable"
-            return
-
-        if self.release_meta.tag != "":
-            self.package_meta.ephemeral.is_version_acceptable = False
-            # we need to set remote version to not None as it is a sign of successful classify step
-            self.package_meta.remote_version = "custom"
             return
 
         self.feedback_message = ""
@@ -187,7 +183,11 @@ class ClassifyHomebrewVersion(ReleaseAction):
             self.release_version = RedisVersion.parse(self.release_meta.tag)
             self.logger.debug(f"Parsed release version: {self.release_version}")
         except ValueError as e:
-            self.logger.error(f"Failed to parse release tag: {e}")
+            self.package_meta.ephemeral.is_version_acceptable = False
+            self.feedback_message = "Skip custom release for Homebrew"
+            self.logger.info(self.feedback_message)
+            # we need to set remote version to not None as it is a sign of successful classify step
+            self.package_meta.remote_version = "custom"
             return
 
         # Determine which cask file to download based on channel
