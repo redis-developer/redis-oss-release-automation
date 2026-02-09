@@ -72,6 +72,8 @@ packages:
     ref: main
     package_type: clientimage
     package_display_name: "Client Test Image"
+    needs:
+      - docker
     description: |
       Client docker image with specific configuration to test all redis clients.
       Image is build on base of docker image
@@ -80,6 +82,9 @@ packages:
     build_timeout_minutes: 20
   redis-py:
     repo: redis-developer/redis-oss-release-automation
+    package_display_name: Redis-Py Tests
+    needs:
+      - clientimage
     ref: main
     package_type: clienttest
     package_display_name: "Redis-Py Tests"
