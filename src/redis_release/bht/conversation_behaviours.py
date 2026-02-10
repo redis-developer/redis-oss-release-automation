@@ -10,9 +10,6 @@ from openai import OpenAI
 from py_trees.common import Status
 from slack_sdk import WebClient
 
-from redis_release.bht.conversation_helpers import ArgsHelper, ConfirmationHelper
-from redis_release.conversation_models import CommandDetectionResult
-
 from ..config import Config
 from ..conversation_models import (
     CONFIRMATION_YAML_MARKER,
@@ -20,13 +17,16 @@ from ..conversation_models import (
     BotQueueItem,
     BotReply,
     Command,
+    CommandDetectionResult,
     ConversationCockpit,
     UserIntent,
 )
+from ..logging_config import set_log_prefix
 from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
+from .conversation_helpers import ArgsHelper, ConfirmationHelper
 from .conversation_state import ConversationState
 from .tree import async_tick_tock, initialize_tree_and_state
 
@@ -183,6 +183,16 @@ class RunReleaseCommand(ReleaseAction):
             release_args: The release arguments
             stop_event: Optional event to signal graceful shutdown
         """
+        log_prefix: Optional[str] = None
+        if (
+            self.state.message
+            and self.state.message.user
+            and self.state.message.slack_ts
+        ):
+            log_prefix = "/".join(
+                [x for x in [self.state.message.user, self.state.message.slack_ts] if x]
+            )
+            set_log_prefix(log_prefix)
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

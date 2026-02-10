@@ -49,3 +49,15 @@ class PyTreesLoggerWrapper(py_trees.logging.Logger):
     def error(self, msg: str) -> None:
         """Log a message with severity 'ERROR'."""
         self._logger.error(msg, stacklevel=2)
+
+    def with_prefix(self, prefix: str) -> "PyTreesLoggerWrapper":
+        """Create a child logger with an additional prefix.
+
+        Args:
+            prefix: Additional prefix to append to the logger name
+
+        Returns:
+            A new PyTreesLoggerWrapper with the extended name
+        """
+        child_name = f"{self._logger.name}.{prefix}"
+        return PyTreesLoggerWrapper(logging.getLogger(child_name))

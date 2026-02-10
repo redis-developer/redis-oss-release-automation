@@ -14,12 +14,14 @@ from py_trees.visitors import SnapshotVisitor
 from ..concurrency import ConcurrencyManager
 from ..config import Config, load_config
 from ..conversation_models import (
+    BotReply,
     Command,
     ConversationArgs,
     ConversationCockpit,
     InboxMessage,
     UserIntent,
 )
+from ..logging_config import set_log_prefix
 from ..models import SlackArgs
 from .conversation_behaviours import (
     ExtractArgsFromConfirmation,
@@ -72,7 +74,7 @@ def create_conversation_root_node(
         slack_format_is_available=slack_format_is_available,
     )
     state.message = input
-    log_prefix = "/".join([x for x in [input.user, input.slack_ts] if x])
+    log_prefix = "conversation"
 
     LLMResolve = Selector(
         "LLM Resolve",
@@ -334,9 +336,15 @@ def run_conversation_tree(
     """Abstacting away tree run
     Currently it's just a single tick, but it may change in future
     """
-    from ..conversation_models import BotReply
+    log_prefix: Optional[str] = None
+    if state.message and state.message.user and state.message.slack_ts:
+        log_prefix = "/".join(
+            [x for x in [state.message.user, state.message.slack_ts] if x]
+        )
 
     try:
+        if log_prefix:
+            set_log_prefix(log_prefix)
         tree.tick()
         try:
             # Send all replies from the list

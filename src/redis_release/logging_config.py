@@ -2,10 +2,33 @@
 
 import logging
 import os
+import threading
 from typing import Dict, Optional
 
 from rich.logging import RichHandler
 from rich.text import Text
+
+_log_context = threading.local()
+
+
+def get_log_prefix() -> str:
+    """Get the current thread's log prefix."""
+    return getattr(_log_context, "prefix", "")
+
+
+def set_log_prefix(prefix: str) -> None:
+    """Set the log prefix for the current thread."""
+    _log_context.prefix = prefix
+
+
+class PrefixFilter(logging.Filter):
+    """Filter that prepends a thread-local prefix to logger name."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        prefix = get_log_prefix()
+        if prefix:
+            record.name = f"[{prefix}] {record.name}"
+        return True
 
 
 class PlainTextFormatter(logging.Formatter):
@@ -148,12 +171,17 @@ def setup_logging(
     )
     rich_handler.setLevel(level)
 
+    # Add prefix filter to prepend thread-local prefix to all log messages
+    prefix_filter = PrefixFilter()
+    rich_handler.addFilter(prefix_filter)
+
     handlers: list = [rich_handler]
 
     # Add file handler if log_file is specified
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(file_level_int)
+        file_handler.addFilter(prefix_filter)
         # Use PlainTextFormatter to strip Rich markup
         # Format: timestamp\tlogger_name\tlevel\tmessage\tfilename:line
         formatter = PlainTextFormatter(
