@@ -1,0 +1,52 @@
+name: "Jedis client testing"
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      client_test_image:
+        description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
+        required: true
+
+# UUID is used to help automation to identify workflow run in the list of workflow runs.
+run-name: >-
+     Test jedis client
+     ${{ github.event.inputs.client_test_image != '' && format('{0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.workflow_uuid && format(': {0}', github.event.inputs.workflow_uuid) || '' }}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+    name: Jedis test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        uses: redis/jedis/.github/actions/run-tests@master
+        with:
+          client_libs_test_image_tag: ${{ inputs.client_test_image }}
+          ref: master
+
+      - name: Create result artifact
+        shell: bash
+        run: |
+          cat > result.json << EOF
+          {
+            "client_test_image_tag": "${{ inputs.client_test_image }}"
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90

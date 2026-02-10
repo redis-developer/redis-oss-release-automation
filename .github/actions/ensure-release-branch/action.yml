@@ -1,3 +1,8 @@
+name: Ensure Release Branch
+description: |
+  Ensures that the correct release branch exists and switches to it optionally
+  creating it and merging changes from the mainline if needed
+
 inputs:
   release_tag:
     description: 'Release tag to build'
