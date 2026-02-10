@@ -1,7 +1,6 @@
 name: "Jedis client testing"
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       workflow_uuid:
