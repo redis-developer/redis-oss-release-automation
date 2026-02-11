@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import threading
 import uuid
 from typing import Optional
@@ -305,7 +306,7 @@ class RunReleaseCommand(ReleaseAction):
         # Create a placeholder thread to register first
         release_thread = threading.Thread(
             target=lambda: None,
-            name=f"release-{release_args.release_tag}",
+            name=f"release-{release_args.override_state_name or release_args.release_tag}",
             daemon=True,
         )
         stop_event = self.cockpit.concurrency_manager.register_thread(release_thread)

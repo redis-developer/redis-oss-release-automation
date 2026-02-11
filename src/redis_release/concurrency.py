@@ -78,7 +78,7 @@ class ConcurrencyManager:
         with self._lock:
             return [t for t in self._active_threads if t.is_alive()]
 
-    async def shutdown(self, timeout: float = 10.0) -> None:
+    async def shutdown(self, timeout: float = 30.0) -> None:
         """Gracefully shutdown all tracked resources.
 
         Args:
@@ -121,18 +121,26 @@ class ConcurrencyManager:
 
         # Signal all threads to stop via their stop events
         with self._lock:
+            thread_names = [t.name for t in self._thread_stop_events.keys()]
             stop_events = list(self._thread_stop_events.values())
         if stop_events:
-            logger.info(f"Signalling {len(stop_events)} threads to stop...")
+            logger.info(
+                f"Signalling {len(stop_events)} threads to stop: {thread_names}"
+            )
             for event in stop_events:
                 event.set()
 
         # Wait for threads to finish
         threads_to_wait = self.get_active_threads()
         if threads_to_wait:
-            logger.info(f"Waiting for {len(threads_to_wait)} threads to finish...")
-            per_thread_timeout = timeout / max(len(threads_to_wait), 1)
+            thread_names = [t.name for t in threads_to_wait]
+            logger.info(
+                f"Waiting for {len(threads_to_wait)} threads to finish: {thread_names}"
+            )
+            # per_thread_timeout = timeout / max(len(threads_to_wait), 1)
+            per_thread_timeout = max(timeout / 3, 1)
             for thread in threads_to_wait:
+                logger.debug(f"Waiting for thread {thread.name} to finish...")
                 thread.join(timeout=per_thread_timeout)
                 if thread.is_alive():
                     logger.warning(f"Thread {thread.name} did not exit in time")
