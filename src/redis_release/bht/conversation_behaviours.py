@@ -26,7 +26,7 @@ from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
-from .conversation_helpers import ArgsHelper, ConfirmationHelper
+from .conversation_helpers import ArgsHelper, ConfirmationHelper, ConversationHelper
 from .conversation_state import ConversationState
 from .tree import async_tick_tock, initialize_tree_and_state
 
@@ -183,15 +183,8 @@ class RunReleaseCommand(ReleaseAction):
             release_args: The release arguments
             stop_event: Optional event to signal graceful shutdown
         """
-        log_prefix: Optional[str] = None
-        if (
-            self.state.message
-            and self.state.message.user
-            and self.state.message.slack_ts
-        ):
-            log_prefix = "/".join(
-                [x for x in [self.state.message.user, self.state.message.slack_ts] if x]
-            )
+        log_prefix = ConversationHelper.conversation_log_prefix(self.state)
+        if log_prefix:
             set_log_prefix(log_prefix)
 
         loop = asyncio.new_event_loop()

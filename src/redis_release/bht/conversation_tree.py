@@ -39,6 +39,7 @@ from .conversation_behaviours import (
     RunStatusCommand,
     ShowConfirmationMessage,
 )
+from .conversation_helpers import ConversationHelper
 from .conversation_llm import (
     IsLLMAvailable,
     LLMActionHandler,
@@ -336,11 +337,7 @@ def run_conversation_tree(
     """Abstacting away tree run
     Currently it's just a single tick, but it may change in future
     """
-    log_prefix: Optional[str] = None
-    if state.message and state.message.user and state.message.slack_ts:
-        log_prefix = "/".join(
-            [x for x in [state.message.user, state.message.slack_ts] if x]
-        )
+    log_prefix = ConversationHelper.conversation_log_prefix(state)
 
     try:
         if log_prefix:

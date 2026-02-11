@@ -29,6 +29,7 @@ jobs:
         with:
           client_libs_test_image_tag: ${{ inputs.client_test_image }}
           ref: feature/client_testing_reusable_action
+          #repository: redis/jedis
           repository: Peter-Sh/jedis
 
       - name: Create result artifact
