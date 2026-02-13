@@ -9,6 +9,14 @@ on:
       client_test_image:
         description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
         required: true
+      repository:
+        description: 'Repository to test (e.g., redis/jedis)'
+        default: 'redis/jedis'
+        required: false
+      ref:
+        description: 'Ref to test (e.g., main)'
+        default: 'master'
+        required: false
 
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: >-
@@ -28,9 +36,9 @@ jobs:
         uses: Peter-Sh/jedis/.github/actions/run-tests@feature/client_testing_reusable_action
         with:
           client_libs_test_image_tag: ${{ inputs.client_test_image }}
-          ref: feature/client_testing_reusable_action
+          ref: ${{ inputs.ref }}
           #repository: redis/jedis
-          repository: Peter-Sh/jedis
+          repository: ${{ inputs.repository }}
 
       - name: Create result artifact
         shell: bash

@@ -9,6 +9,14 @@ on:
       client_test_image:
         description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
         required: false
+      repository:
+        description: 'Repository to test (e.g., redis/jedis)'
+        default: 'redis/redis-py'
+        required: false
+      ref:
+        description: 'Ref to test (e.g., main)'
+        default: 'master'
+        required: false
 
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: "Test redis-py client${{ github.event.inputs.workflow_uuid && format(': {0}', github.event.inputs.workflow_uuid) || '' }}"
@@ -56,8 +64,8 @@ jobs:
             python-version: 3.14
             parser-backend: plain
             redis-version: ${{ steps.extract_version.outputs.redis_version }}
-            repository: redis/redis-py
-            ref: master
+            repository: ${{ inputs.repository }}
+            ref: ${{ inputs.ref }}
             client-libs-test-image: ${{ inputs.client_test_image }}
 
       - name: Create result artifact
