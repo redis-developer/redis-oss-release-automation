@@ -22,7 +22,7 @@ on:
 run-name: >-
      Test jedis client
      ${{ inputs.ref }}
-     ${{ github.event.inputs.client_test_image != '' && format('/{0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
      ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
 
 jobs:
