@@ -21,8 +21,9 @@ on:
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: >-
      Test jedis client
-     ${{ github.event.inputs.client_test_image != '' && format('{0}', github.event.inputs.client_test_image) || '' }}
-     ${{ github.event.inputs.workflow_uuid && format(': {0}', github.event.inputs.workflow_uuid) || '' }}
+     ${{ inputs.ref }}
+     ${{ github.event.inputs.client_test_image != '' && format('/{0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
 
 jobs:
   tests:
