@@ -59,7 +59,7 @@ async def test_identify_target_ref_already_set(
     assert package_meta.ref == "release/8.2"
 
     # GitHub client should not be called
-    github_client.list_remote_branches.assert_not_called()
+    github_client.list_matching_refs.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -68,9 +68,14 @@ async def test_identify_target_ref_exact_match(
 ) -> None:
     """Test identifying target ref with exact version match."""
     # Mock branch listing
-    branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
+    branches = [
+        "heads/release/7.2",
+        "heads/release/8.0",
+        "heads/release/8.2",
+        "heads/release/8.4",
+    ]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -100,9 +105,14 @@ async def test_identify_target_ref_lower_version(
     release_meta.tag = "8.3.0"
 
     # Mock branch listing - no release/8.3 branch
-    branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
+    branches = [
+        "heads/release/7.2",
+        "heads/release/8.0",
+        "heads/release/8.2",
+        "heads/release/8.4",
+    ]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -131,9 +141,14 @@ async def test_identify_target_ref_milestone_version(
     release_meta.tag = "8.4-m01"
 
     # Mock branch listing
-    branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
+    branches = [
+        "heads/release/7.2",
+        "heads/release/8.0",
+        "heads/release/8.2",
+        "heads/release/8.4",
+    ]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -162,9 +177,14 @@ async def test_identify_target_ref_no_suitable_branch(
     release_meta.tag = "7.0.0"
 
     # Mock branch listing - all branches are newer
-    branches = ["release/7.2", "release/8.0", "release/8.2", "release/8.4"]
+    branches = [
+        "heads/release/7.2",
+        "heads/release/8.0",
+        "heads/release/8.2",
+        "heads/release/8.4",
+    ]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -194,7 +214,7 @@ async def test_identify_target_ref_no_release_branches(
     # Mock branch listing - no release branches
     branches = ["main", "develop", "feature/test"]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -267,9 +287,14 @@ async def test_detect_branch_sorting(
     release_meta.tag = "8.5.0"
 
     # Mock branch listing - unsorted
-    branches = ["release/8.0", "release/8.4", "release/7.2", "release/8.2"]
+    branches = [
+        "heads/release/8.0",
+        "heads/release/8.4",
+        "heads/release/7.2",
+        "heads/release/8.2",
+    ]
 
-    github_client.list_remote_branches = AsyncMock(return_value=branches)
+    github_client.list_matching_refs = AsyncMock(return_value=branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",
@@ -300,9 +325,9 @@ async def test_identify_target_ref_running_state(
 
     async def mock_list_branches(*args: Any, **kwargs: Any) -> List[str]:
         await future
-        return ["release/8.2"]
+        return ["heads/release/8.2"]
 
-    github_client.list_remote_branches = AsyncMock(side_effect=mock_list_branches)
+    github_client.list_matching_refs = AsyncMock(side_effect=mock_list_branches)
 
     behaviour = IdentifyTargetRef(
         "Test Identify Ref",

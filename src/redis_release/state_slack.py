@@ -131,11 +131,15 @@ class SlackStatePrinter:
         self._queue_thread = threading.Thread(target=self.process_queue, daemon=False)
         self._queue_thread.start()
 
-    def format_package_name(self, package_name: str, package: Package) -> str:
+    def format_package_name(
+        self,
+        package_name: str,
+        package: Package,
+        display_model: DisplayModelGeneric,
+    ) -> str:
         formatted = package_name.capitalize()
 
-        if package.meta.package_display_name:
-            formatted = package.meta.package_display_name
+        formatted = display_model.get_package_name(package) or formatted
 
         if package.meta.release_type == ReleaseType.PUBLIC:
             release_type_str = f" - public release"
@@ -423,7 +427,11 @@ class SlackStatePrinter:
 
         # Process each package
         for package_name, package in state.packages.items():
-            formatted_name = self.format_package_name(package_name, package)
+            display_model = get_display_model(package.meta)
+
+            formatted_name = self.format_package_name(
+                package_name, package, display_model
+            )
 
             build_status, build_status_emoji = self.get_workflow_status_emoji(
                 package, package.build
@@ -459,7 +467,8 @@ class SlackStatePrinter:
                 self.blocks_append(blocks, self.make_package_details_blocks(package))
             elif self.slack_format == SlackFormat.COMPACT:
                 self.blocks_append(
-                    blocks, self.make_package_details_blocks_compact(package)
+                    blocks,
+                    self.make_package_details_blocks_compact(package, display_model),
                 )
 
             # Add package result blocks if package is successful
@@ -505,10 +514,9 @@ class SlackStatePrinter:
         return blocks
 
     def make_package_details_blocks_compact(
-        self, package: Package
+        self, package: Package, display_model: DisplayModelGeneric
     ) -> List[Optional[Dict[str, Any]]]:
         blocks: List[Optional[Dict[str, Any]]] = []
-        display_model = get_display_model(package.meta)
 
         # Collect build workflow details
         build_link = get_workflow_link(package.meta.repo, package.build.run_id)

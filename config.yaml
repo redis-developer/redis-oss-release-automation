@@ -83,9 +83,10 @@ packages:
   redis-py:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Redis-Py Tests
+    client_repo: redis/redis-py
     needs:
       - clientimage
-    ref: main
+    ref: jedis_client_test
     package_type: clienttest
     description: "redis-py python client for running redis tests"
     allow_custom_build: true
@@ -94,6 +95,9 @@ packages:
   jedis:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Jedis Tests
+    #client_repo: redis/jedis
+    client_repo: Peter-Sh/jedis
+    client_ref: feature/client_testing_reusable_action
     needs:
       - clientimage
     #ref: main
