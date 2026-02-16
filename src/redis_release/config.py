@@ -32,6 +32,13 @@ class PackageConfig(BaseModel):
     needs: List[str] = Field(default_factory=list)
 
 
+class PackageConfigClientTest(PackageConfig):
+    """Configuration for client test packages."""
+
+    client_repo: str
+    client_ref: Optional[str] = None
+
+
 class Config(BaseModel):
     """Root configuration model."""
 
@@ -49,11 +56,15 @@ class Config(BaseModel):
             data = yaml.safe_load(f)
 
         # Convert package configs to PackageConfig objects
+        # Use PackageConfigClientTest for CLIENTTEST package types
         if "packages" in data:
-            data["packages"] = {
-                name: PackageConfig(**pkg_data)
-                for name, pkg_data in data["packages"].items()
-            }
+            packages: Dict[str, PackageConfig] = {}
+            for name, pkg_data in data["packages"].items():
+                if pkg_data.get("package_type") == PackageType.CLIENTTEST.value:
+                    packages[name] = PackageConfigClientTest(**pkg_data)
+                else:
+                    packages[name] = PackageConfig(**pkg_data)
+            data["packages"] = packages
 
         return cls(**data)
 

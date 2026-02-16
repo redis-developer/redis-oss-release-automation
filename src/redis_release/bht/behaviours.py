@@ -111,11 +111,13 @@ class IdentifyTargetRef(ReleaseAction):
             return
 
         # List remote branches matching release pattern with major version
-        # Pattern: release/MAJOR.\d+$ (e.g., release/8.\d+$ for major version 8)
-        pattern = f"^release/{self.release_version.major}\\.\\d+$"
+        # ref_prefix: heads/release/ to match all release branches
+        # pattern: ^heads/release/{major}\.\d+$ to match release/8.0, release/8.2, etc.
+        ref_prefix = "heads/release/"
+        pattern = f"^heads/release/{self.release_version.major}\\.\\d+$"
         self.task = asyncio.create_task(
-            self.github_client.list_remote_branches(
-                self.package_meta.repo, pattern=pattern
+            self.github_client.list_matching_refs(
+                self.package_meta.repo, ref_prefix=ref_prefix, pattern=pattern
             )
         )
 
@@ -161,13 +163,13 @@ class IdentifyTargetRef(ReleaseAction):
         """Sort branches by version in descending order.
 
         Args:
-            branches: List of branch names (e.g., ["release/8.0", "release/8.4"])
+            branches: List of branch refs (e.g., ["heads/release/8.0", "heads/release/8.4"])
 
         Returns:
-            Sorted list of branch names in descending order by version
-            (e.g., ["release/8.4", "release/8.2", "release/8.0"])
+            Sorted list of branch refs in descending order by version
+            (e.g., ["heads/release/8.4", "heads/release/8.2", "heads/release/8.0"])
         """
-        pattern = re.compile(r"^release/(\d+)\.(\d+)$")
+        pattern = re.compile(r"^heads/release/(\d+)\.(\d+)$")
         branch_versions = []
 
         for branch in branches:
@@ -189,12 +191,12 @@ class IdentifyTargetRef(ReleaseAction):
         branch equal to release/MAJOR.MINOR or lower version.
 
         Args:
-            sorted_branches: Sorted list of branch names in descending order
-                           (e.g., ["release/8.4", "release/8.2", "release/8.0"])
+            sorted_branches: Sorted list of branch refs in descending order
+                           (e.g., ["heads/release/8.4", "heads/release/8.2", "heads/release/8.0"])
                            Can be empty.
 
         Returns:
-            Branch name or None if no suitable branch found
+            Branch name (without heads/ prefix) or None if no suitable branch found
         """
         if not self.release_version:
             return None
@@ -206,8 +208,8 @@ class IdentifyTargetRef(ReleaseAction):
         target_major = self.release_version.major
         target_minor = self.release_version.minor
 
-        # Pattern to extract version from branch name
-        pattern = re.compile(r"^release/(\d+)\.(\d+)$")
+        # Pattern to extract version from branch ref
+        pattern = re.compile(r"^heads/release/(\d+)\.(\d+)$")
 
         # Walk through sorted branches (descending order)
         # Find first branch <= target version
@@ -218,10 +220,12 @@ class IdentifyTargetRef(ReleaseAction):
                 minor = int(match.group(2))
 
                 if (major, minor) <= (target_major, target_minor):
+                    # Return branch name without "heads/" prefix
+                    branch_name = branch[6:]  # Remove "heads/" prefix
                     self.logger.debug(
-                        f"Found matching branch: {branch} for target {target_major}.{target_minor}"
+                        f"Found matching branch: {branch_name} for target {target_major}.{target_minor}"
                     )
-                    return branch
+                    return branch_name
 
         self.logger.warning(
             f"No suitable branch found for version {target_major}.{target_minor}"

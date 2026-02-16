@@ -66,6 +66,11 @@ _STEP_STATUS_MAPPING = {
 class DisplayModelGeneric:
     """Model for computing display status from workflow state."""
 
+    def get_package_name(self, package: Package) -> Optional[str]:
+        if package.meta.package_display_name:
+            return package.meta.package_display_name
+        return None
+
     def get_custom_versions(self, state: ReleaseState) -> Dict[str, str]:
         """Get custom version information for display.
 
@@ -291,6 +296,19 @@ class DisplayModelClientImage(DisplayModelGeneric):
 class DisplayModelClientTest(DisplayModelGeneric):
     """DisplayModel for client test packages."""
 
+    def get_package_name(self, package: Package) -> Optional[str]:
+        assert isinstance(
+            package.meta, ClientTestMeta
+        ), f"DisplayModelClientTest requires ClientTestMeta, got {type(package.meta).__name__}"
+
+        names = []
+        if package.meta.package_display_name:
+            names.append(package.meta.package_display_name)
+        if package.meta.client_ref:
+            names.append(package.meta.client_ref)
+
+        return None if not names else " - ".join(names)
+
     def get_workflow_section(self, workflow: Workflow) -> Section:
         """Override to return 'Test Workflow' instead of 'Build Workflow'."""
         return Section(name="Test Workflow", is_workflow=True)
@@ -307,6 +325,11 @@ class DisplayModelClientTest(DisplayModelGeneric):
         base_steps = super().get_workflow_steps(package, workflow)
 
         prerequisites_section = Section(name="Prerequisites")
+        resolve_client_version_step = Step(
+            name="Resolve client version",
+            has_result=package.meta.client_ref is not None,
+            ephemeral_status=package.meta.ephemeral.resolve_client_version,
+        )
         await_client_image_step = Step(
             name="Await client image",
             has_result=package.meta.client_test_image is not None,
@@ -319,7 +342,12 @@ class DisplayModelClientTest(DisplayModelGeneric):
             message=package.meta.ephemeral.validate_client_image_message,
         )
         result.extend(
-            [prerequisites_section, await_client_image_step, locate_client_image_step]
+            [
+                prerequisites_section,
+                resolve_client_version_step,
+                await_client_image_step,
+                locate_client_image_step,
+            ]
         )
 
         result.extend(base_steps)

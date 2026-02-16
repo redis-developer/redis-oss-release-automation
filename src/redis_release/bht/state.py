@@ -65,7 +65,7 @@ from py_trees import common
 from py_trees.common import Status
 from pydantic import BaseModel, Field
 
-from ..config import Config, PackageConfig
+from ..config import Config, PackageConfig, PackageConfigClientTest
 from ..models import (
     HomebrewChannel,
     PackageType,
@@ -168,6 +168,7 @@ class ClientTestMetaEphemeral(PackageMetaEphemeral):
     await_client_image: Optional[common.Status] = None
     validate_client_image: Optional[common.Status] = None
     validate_client_image_message: Optional[str] = None
+    resolve_client_version: Optional[common.Status] = None
 
 
 class PackageMeta(BaseModel):
@@ -232,6 +233,8 @@ class ClientTestMeta(PackageMeta):
 
     serialization_hint: Literal["clienttest"] = "clienttest"  # type: ignore[assignment]
     client_test_image: Optional[str] = None
+    client_repo: Optional[str] = None
+    client_ref: Optional[str] = None
     ephemeral: ClientTestMetaEphemeral = Field(default_factory=ClientTestMetaEphemeral)  # type: ignore[assignment]
 
 
@@ -287,7 +290,7 @@ class ReleaseState(BaseModel):
 
     @staticmethod
     def _create_package_meta_from_config(
-        package_config: "PackageConfig",
+        package_config: Union[PackageConfig, PackageConfigClientTest],
     ) -> Union[
         HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, ClientTestMeta, PackageMeta
     ]:
@@ -335,12 +338,15 @@ class ReleaseState(BaseModel):
                 publish_internal_release=package_config.publish_internal_release,
             )
         elif package_config.package_type == PackageType.CLIENTTEST:
+            assert isinstance(package_config, PackageConfigClientTest)
             return ClientTestMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,
                 package_display_name=package_config.package_display_name,
                 publish_internal_release=package_config.publish_internal_release,
+                client_repo=package_config.client_repo,
+                client_ref=package_config.client_ref,
             )
         elif package_config.package_type is not None:
             return PackageMeta(

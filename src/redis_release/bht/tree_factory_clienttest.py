@@ -11,6 +11,7 @@ from .behaviours_clienttest import (
     DetectReleaseTypeClientTest,
     LocateClientImage,
     NeedToReleaseClientTest,
+    ResolveClientVersion,
 )
 from .composites import ResetPackageStateGuarded
 from .decorators import StatusFlagGuard
@@ -54,11 +55,24 @@ class ClientTestFactory(GenericPackageFactory, PackageWithValidation):
             default_package,
             log_prefix=package_name,
         )
+        resolve_client_version = StatusFlagGuard(
+            name=None,
+            child=ResolveClientVersion(
+                "Resolve Client Version",
+                cast(ClientTestMeta, package.meta),
+                github_client,
+                log_prefix=package_name,
+            ),
+            container=package.meta.ephemeral,
+            flag="resolve_client_version",
+            guard_status=None,
+        )
         package_sequence = Sequence(
             f"Release {package_name}",
             memory=False,
             children=[
                 reset_package_state,
+                resolve_client_version,
                 AwaitClientImage(
                     "Await Client Image",
                     cast(ClientTestMeta, package.meta),

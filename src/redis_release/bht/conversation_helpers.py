@@ -21,6 +21,28 @@ from .logging_wrapper import PyTreesLoggerWrapper
 logger = logging.getLogger(__name__)
 
 
+class ConversationHelper:
+    """Helper class for conversation-related utilities."""
+
+    @staticmethod
+    def conversation_log_prefix(state: ConversationState) -> Optional[str]:
+        """Generate a log prefix from conversation state.
+
+        Creates a prefix in the format "user/slack_ts" from the state's message.
+
+        Args:
+            state: The conversation state containing the message
+
+        Returns:
+            A log prefix string, or None if user/slack_ts not available
+        """
+        if state.message and state.message.user and state.message.slack_ts:
+            return "/".join(
+                [x for x in [state.message.user, state.message.slack_ts] if x]
+            )
+        return None
+
+
 class LLMInputHelper:
     """Mixin class for building LLM input messages from conversation state.
 

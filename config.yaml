@@ -83,12 +83,28 @@ packages:
   redis-py:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Redis-Py Tests
+    client_repo: redis/redis-py
+    # if not set - detect latest client version
+    client_ref: master
     needs:
       - clientimage
-    ref: main
+    ref: jedis_client_test
     package_type: clienttest
-    package_display_name: "Redis-Py Tests"
-    description: "redis-py python client for redis tests"
+    description: "redis-py python client for running redis tests"
     allow_custom_build: true
     build_workflow: redis-py.yml
     build_timeout_minutes: 50
+  jedis:
+    repo: redis-developer/redis-oss-release-automation
+    package_display_name: Jedis Tests
+    client_repo: redis/jedis
+    client_ref: master
+    needs:
+      - clientimage
+    #ref: main
+    ref: jedis_client_test
+    package_type: clienttest
+    description: "jedis java client for running redis tests"
+    allow_custom_build: true
+    build_workflow: jedis.yml
+    build_timeout_minutes: 30

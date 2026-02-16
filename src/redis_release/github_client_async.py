@@ -646,24 +646,30 @@ class GitHubClientAsync:
             logger.error(f"[red]Error downloading file {file_path}: {e}[/red]")
             return None
 
-    async def list_remote_branches(
-        self, repo: str, pattern: Optional[str] = None
+    async def list_matching_refs(
+        self,
+        repo: str,
+        ref_prefix: str,
+        pattern: Optional[str] = None,
     ) -> List[str]:
-        """List remote branches, optionally filtered by pattern.
+        """List remote refs matching a prefix, optionally filtered by regex pattern.
+
+        Uses GitHub's matching-refs API to efficiently fetch refs starting with a prefix.
 
         Args:
             repo: Repository name (e.g., "redis/redis")
-            pattern: Optional wildcard pattern (e.g., "release/*", "feature/*")
+            ref_prefix: Ref prefix to match (e.g., "heads/release/", "tags/v")
+            pattern: Optional regex pattern to further filter results (e.g., "^release/8\\.\\d+$")
 
         Returns:
-            List of branch names matching the pattern
+            List of ref names (without "refs/" prefix, e.g., "heads/release/8.0", "tags/v5.1.0")
         """
-        url = f"https://api.github.com/repos/{repo}/git/refs/heads"
+        url = f"https://api.github.com/repos/{repo}/git/matching-refs/{ref_prefix}"
         headers = {
-            "Accept": "application/vnd.github.v3+json",
+            "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
+            "Authorization": f"Bearer {self.token}",
         }
-        headers["Authorization"] = f"Bearer {self.token}"
 
         try:
             data = await self.github_request_paginated(
@@ -675,27 +681,31 @@ class GitHubClientAsync:
                 max_pages=None,
             )
 
-            branches = []
+            refs = []
             # data is a list of ref objects
             if isinstance(data, list):
                 for ref_data in data:
                     ref_name = ref_data.get("ref", "")
-                    if ref_name.startswith("refs/heads/"):
-                        branch_name = ref_name[11:]  # Remove "refs/heads/" prefix
-                        branches.append(branch_name)
+                    # Strip "refs/" prefix, keep the rest (e.g., "heads/release/8.0", "tags/v5.1.0")
+                    if ref_name.startswith("refs/"):
+                        name = ref_name[5:]  # Remove "refs/" prefix
+                        refs.append(name)
 
-            # Filter by pattern if provided
+            # Filter by regex pattern if provided
             if pattern:
-                branches = [branch for branch in branches if re.match(pattern, branch)]
+                refs = [ref for ref in refs if re.match(pattern, ref)]
 
             logger.debug(
-                f"[green]Found {len(branches)} branches{' matching pattern' if pattern else ''}[/green]"
+                f"[green]Found {len(refs)} refs matching '{ref_prefix}'"
+                f"{' and pattern' if pattern else ''}[/green]"
             )
             if pattern:
                 logger.debug(f"Pattern: {pattern}")
 
-            return sorted(branches)
+            return sorted(refs)
 
         except Exception as e:
-            logger.error(f"[red]Error listing branches: {e}[/red]")
+            logger.error(
+                f"[red]Error listing refs with prefix '{ref_prefix}': {e}[/red]"
+            )
             return []

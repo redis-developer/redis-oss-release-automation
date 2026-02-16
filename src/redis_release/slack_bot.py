@@ -618,6 +618,7 @@ class ReleaseBot:
                             logger.debug(
                                 "Tree thread completed, exiting queue listener"
                             )
+                            self._concurrency.unregister_thread(tree_thread)
                             queue.close()
                             break
                     except janus.AsyncQueueShutDown:
@@ -630,6 +631,9 @@ class ReleaseBot:
                 if not queue.closed:
                     queue.close()
                 await queue.wait_closed()
+                # Unregister the tree thread from concurrency manager if it's done
+                if not tree_thread.is_alive():
+                    self._concurrency.unregister_thread(tree_thread)
                 logger.debug("Queue listener exiting")
 
         return queue_listener
@@ -738,7 +742,7 @@ class ReleaseBot:
         self.handled_messages_ts.add(message_ts)
         return False
 
-    async def shutdown(self, timeout: float = 10.0) -> None:
+    async def shutdown(self) -> None:
         """Gracefully shutdown the bot.
 
         Args:
@@ -753,7 +757,7 @@ class ReleaseBot:
                 logger.error(f"Error closing socket handler: {e}")
 
         # Delegate to concurrency manager for task/thread/queue cleanup
-        await self._concurrency.shutdown(timeout=timeout)
+        await self._concurrency.shutdown()
 
     async def start(self) -> None:
         """Start the bot using Socket Mode."""

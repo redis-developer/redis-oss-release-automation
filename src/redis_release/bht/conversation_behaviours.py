@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import threading
 import uuid
 from typing import Optional
@@ -10,9 +11,6 @@ from openai import OpenAI
 from py_trees.common import Status
 from slack_sdk import WebClient
 
-from redis_release.bht.conversation_helpers import ArgsHelper, ConfirmationHelper
-from redis_release.conversation_models import CommandDetectionResult
-
 from ..config import Config
 from ..conversation_models import (
     CONFIRMATION_YAML_MARKER,
@@ -20,13 +18,16 @@ from ..conversation_models import (
     BotQueueItem,
     BotReply,
     Command,
+    CommandDetectionResult,
     ConversationCockpit,
     UserIntent,
 )
+from ..logging_config import set_log_prefix
 from ..models import ReleaseArgs, ReleaseType
 from ..state_manager import S3StateStorage, StateManager
 from ..state_slack import init_slack_printer
 from .behaviours import ReleaseAction
+from .conversation_helpers import ArgsHelper, ConfirmationHelper, ConversationHelper
 from .conversation_state import ConversationState
 from .tree import async_tick_tock, initialize_tree_and_state
 
@@ -183,6 +184,9 @@ class RunReleaseCommand(ReleaseAction):
             release_args: The release arguments
             stop_event: Optional event to signal graceful shutdown
         """
+        log_prefix = ConversationHelper.conversation_log_prefix(self.state)
+        if log_prefix:
+            set_log_prefix(log_prefix)
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -302,7 +306,7 @@ class RunReleaseCommand(ReleaseAction):
         # Create a placeholder thread to register first
         release_thread = threading.Thread(
             target=lambda: None,
-            name=f"release-{release_args.release_tag}",
+            name=f"release-{release_args.override_state_name or release_args.release_tag}",
             daemon=True,
         )
         stop_event = self.cockpit.concurrency_manager.register_thread(release_thread)

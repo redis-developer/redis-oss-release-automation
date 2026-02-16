@@ -1,9 +1,14 @@
 """Behaviours specific to client test packages."""
 
+import asyncio
+import re
+from typing import List
+
 from py_trees.common import Status
 
+from ..github_client_async import GitHubClientAsync
 from ..models import ReleaseType
-from .behaviours import LoggingAction
+from .behaviours import LoggingAction, ReleaseAction
 from .state import ClientTestMeta, PackageMeta, ReleaseMeta, Workflow
 
 
@@ -187,10 +192,130 @@ class ClientTestWorkflowInputs(LoggingAction):
 
         self.workflow.inputs["client_test_image"] = client_test_image
 
-        self.feedback_message = f"Set inputs: client_test_image={client_test_image}"
+        if self.package_meta.client_repo:
+            self.workflow.inputs["repository"] = self.package_meta.client_repo
+        if self.package_meta.client_ref:
+            self.workflow.inputs["ref"] = self.package_meta.client_ref
+
+        self.feedback_message = f"Set inputs: {self.workflow.inputs}"
         if self.log_once(
             "workflow_inputs_set", self.package_meta.ephemeral.log_once_flags
         ):
             self.logger.info(self.feedback_message)
 
         return Status.SUCCESS
+
+
+class ResolveClientVersion(ReleaseAction):
+    """Resolve the latest stable client version from repository tags.
+
+    Fetches tags matching `v\\d+\\.\\d+.*` pattern and sorts them using
+    version sorting to determine the latest stable version.
+    Only starts if client_ref is not already set.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: ClientTestMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.github_client = github_client
+        self.tags: List[str] = []
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def initialise(self) -> None:
+        """Initialize by fetching tags from the client repository."""
+        # If client_ref is already set, nothing to do
+        if self.package_meta.client_ref is not None:
+            self.feedback_message = (
+                f"client_ref already set: {self.package_meta.client_ref}"
+            )
+            if self.log_once(
+                "client_ref_set", self.package_meta.ephemeral.log_once_flags
+            ):
+                self.logger.info(self.feedback_message)
+            return
+
+        # Check if client_repo is set
+        if not self.package_meta.client_repo:
+            self.feedback_message = "client_repo is not set"
+            if self.log_once(
+                "client_repo_not_set", self.package_meta.ephemeral.log_once_flags
+            ):
+                self.logger.error("client_repo is not set")
+            return
+
+        # Fetch tags matching version pattern vX.Y.Z (e.g., v5.1.0, v5.2.1)
+        # ref_prefix: tags/v to match all version tags
+        # pattern: ^tags/v\d+\.\d+\.\d+$ to match only strict semver tags
+        ref_prefix = "tags/v"
+        pattern = r"^tags/v\d+\.\d+\.\d+$"
+        self.task = asyncio.create_task(
+            self.github_client.list_matching_refs(
+                self.package_meta.client_repo, ref_prefix=ref_prefix, pattern=pattern
+            )
+        )
+
+    def update(self) -> Status:
+        # If client_ref is already set, we're done
+        if self.package_meta.client_ref is not None:
+            return Status.SUCCESS
+
+        if not self.package_meta.client_repo:
+            return Status.FAILURE
+
+        try:
+            assert self.task is not None
+
+            # Wait for tag listing to complete
+            if not self.task.done():
+                return Status.RUNNING
+
+            self.tags = self.task.result()
+            self.logger.debug(f"Found {len(self.tags)} tags")
+
+            # Sort tags and select the latest stable version
+            sorted_tags = self._sort_tags(self.tags)
+
+            if sorted_tags:
+                latest_tag_ref = sorted_tags[
+                    0
+                ]  # First is the latest (descending order)
+                # Strip "tags/" prefix to get the actual tag name (e.g., "v5.2.1")
+                latest_tag = latest_tag_ref[5:]  # Remove "tags/" prefix
+                self.package_meta.client_ref = latest_tag
+                self.feedback_message = f"Client ref set to {latest_tag}"
+                if self.log_once(
+                    "client_ref_set", self.package_meta.ephemeral.log_once_flags
+                ):
+                    self.logger.info(self.feedback_message)
+                return Status.SUCCESS
+            else:
+                self.logger.error("No matching tags found")
+                self.feedback_message = "No matching tags found"
+                return Status.FAILURE
+
+        except Exception as e:
+            return self.log_exception_and_return_failure(e)
+
+    def _sort_tags(self, tags: List[str]) -> List[str]:
+        """Sort tags by version in descending order."""
+        # Pattern to extract version components: tags/vX.Y.Z
+        pattern = re.compile(r"^tags/v(\d+)\.(\d+)\.(\d+)$")
+        tag_versions = []
+
+        for tag in tags:
+            match = pattern.match(tag)
+            if match:
+                major = int(match.group(1))
+                minor = int(match.group(2))
+                patch = int(match.group(3))
+                tag_versions.append((major, minor, patch, tag))
+
+        # Sort by (major, minor, patch) descending
+        tag_versions.sort(reverse=True)
+
+        return [tag for _, _, _, tag in tag_versions]
