@@ -33,12 +33,10 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Run tests
-        #uses: redis/jedis/.github/actions/run-tests@master
-        uses: Peter-Sh/jedis/.github/actions/run-tests@feature/client_testing_reusable_action
+        uses: redis/jedis/.github/actions/run-tests@master
         with:
           client_libs_test_image_tag: ${{ inputs.client_test_image }}
           ref: ${{ inputs.ref }}
-          #repository: redis/jedis
           repository: ${{ inputs.repository }}
 
       - name: Create result artifact
