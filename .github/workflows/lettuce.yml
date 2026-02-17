@@ -28,13 +28,13 @@ run-name: >-
 jobs:
   tests:
     runs-on: ubuntu-latest
-    name: lettuce test
+    name: Run Lettuce tests
     steps:
       - uses: actions/checkout@v6
 
       - name: Run tests
         #uses: redis/lettuce/.github/actions/run-tests@main
-        uses: Peter-Sh/lettuce/.github/actions/run-tests@main
+        uses: Peter-Sh/lettuce/.github/actions/run-tests@client_testing_reusable_action
         with:
           client_libs_test_image_tag: ${{ inputs.client_test_image }}
           ref: ${{ inputs.ref }}
