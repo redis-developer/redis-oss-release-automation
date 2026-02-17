@@ -108,3 +108,17 @@ packages:
     allow_custom_build: true
     build_workflow: jedis.yml
     build_timeout_minutes: 30
+  lettuce:
+    repo: redis-developer/redis-oss-release-automation
+    package_display_name: Lettuce Tests
+    client_repo: Peter-Sh/lettuce
+    client_ref: client_testing_reusable_action
+    needs:
+      - clientimage
+    #ref: main
+    ref: lettuce_tests
+    package_type: clienttest
+    description: "lettuce java client for running redis tests"
+    allow_custom_build: true
+    build_workflow: lettuce.yml
+    build_timeout_minutes: 30
