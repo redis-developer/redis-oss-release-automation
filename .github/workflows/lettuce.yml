@@ -27,34 +27,27 @@ run-name: >-
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
     name: Run Lettuce tests
+    uses: redis/lettuce/.github/workflows/integration.yml@test-reusable-workflows
+    with:
+      client_libs_test_image_tag: ${{ inputs.client_test_image }}
+      ref: ${{ inputs.ref }}
+      repository: ${{ inputs.repository }}
+  result:
+    name: Create result artifact
+    needs: tests
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Run tests
-        #uses: redis/lettuce/.github/actions/run-tests@main
-        uses: Peter-Sh/lettuce/.github/actions/run-tests@client_testing_reusable_action
-        with:
-          client_libs_test_image_tag: ${{ inputs.client_test_image }}
-          ref: ${{ inputs.ref }}
-          repository: ${{ inputs.repository }}
-
       - name: Create result artifact
+        env:
+            CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
         shell: bash
         run: |
           cat > result.json << EOF
           {
-            "client_test_image_tag": "${{ inputs.client_test_image }}"
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE"
           }
           EOF
 
           echo "Created result.json:"
           cat result.json
-
-      - name: Upload result artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: result
-          path: result.json
-          retention-days: 90
