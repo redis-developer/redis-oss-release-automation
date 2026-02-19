@@ -28,7 +28,7 @@ run-name: >-
 jobs:
   tests:
     name: Run Lettuce tests
-    uses: redis/lettuce/.github/workflows/integration.yml@test-reusable-workflows
+    uses: redis/lettuce/.github/workflows/run-tests.yml@test-reusable-workflows
     with:
       client_libs_test_image_tag: ${{ inputs.client_test_image }}
       ref: ${{ inputs.ref }}
