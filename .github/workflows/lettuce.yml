@@ -51,3 +51,9 @@ jobs:
 
           echo "Created result.json:"
           cat result.json
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90
