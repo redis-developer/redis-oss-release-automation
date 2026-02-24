@@ -107,7 +107,7 @@ class LocateDockerImage(LoggingAction):
     """
 
     expected_distro = "debian"
-    expected_arch = "amd64"
+    expected_arch = "multi-arch"
 
     def __init__(
         self,
