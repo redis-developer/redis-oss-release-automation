@@ -27,6 +27,12 @@ class ConditionGuard(DecoratorWithLogging):
 
     If the condition function returns True, the guard returns guard_status
     and does not execute the decorated behaviour.
+
+    This follows the py_trees EternalGuard pattern where:
+    - The condition is checked once at the start of tick()
+    - If condition is met, stop() is called with guard_status and the guard yields itself
+    - If condition is not met, the child is ticked normally
+    - update() simply reflects the child's status (only called when child was ticked)
     """
 
     def __init__(
@@ -44,11 +50,12 @@ class ConditionGuard(DecoratorWithLogging):
         )
 
     def update(self) -> common.Status:
-        if self.condition():
-            self.logger.debug(
-                f"Condition met, returning guard status: {self.guard_status}"
-            )
-            return self.guard_status
+        """
+        Reflect the decorated child's status.
+
+        The update method is only ever triggered when the child was ticked,
+        which implies that the condition was not met (refer to the tick() method).
+        """
         self.logger.debug(
             f"Condition not met, returning child status: {self.decorated.status}"
         )
@@ -56,17 +63,20 @@ class ConditionGuard(DecoratorWithLogging):
 
     def tick(self) -> Iterator[behaviour.Behaviour]:
         """
-        Tick the child or bounce back with guard status if condition is met.
+        Tick the child or stop with guard status if condition is met.
 
         Yields:
-            a reference to itself or a behaviour in it's child subtree
+            a reference to itself or a behaviour in its child subtree
         """
         if self.condition():
-            # ignore the child, condition is met
-            for node in behaviour.Behaviour.tick(self):
-                yield node
+            # Condition met - stop with guard_status directly, don't tick child
+            self.logger.debug(
+                f"Condition met, returning guard status: {self.guard_status}"
+            )
+            self.stop(self.guard_status)
+            yield self
         else:
-            # tick the child, condition not met
+            # Condition not met - normal tick (will call update())
             for node in Decorator.tick(self):
                 yield node
 
