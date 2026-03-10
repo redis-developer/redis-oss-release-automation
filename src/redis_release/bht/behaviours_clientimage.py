@@ -89,10 +89,6 @@ class AwaitDockerImage(LoggingAction):
             return Status.SUCCESS
 
         self.feedback_message = "Docker workflow result not available"
-        self.package_meta.ephemeral.validate_docker_image = Status.FAILURE
-        self.package_meta.ephemeral.validate_docker_image_message = (
-            self.feedback_message
-        )
         self.package_meta.ephemeral.await_docker_image = Status.FAILURE
         return Status.FAILURE
 

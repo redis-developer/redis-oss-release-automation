@@ -278,12 +278,13 @@ class DisplayModelClientImage(DisplayModelGeneric):
         validation_section = Section(name="Prerequisites")
         await_docker_image_step = Step(
             name="Await docker results",
-            has_result=package.meta.base_image is not None,
+            # use only ephemeral flag for this step
+            has_result=package.meta.ephemeral.await_docker_image == Status.SUCCESS,
             ephemeral_status=package.meta.ephemeral.await_docker_image,
         )
         validation_step = Step(
             name="Locate docker image",
-            has_result=package.meta.base_image is not None,
+            has_result=package.meta.base_image_tag is not None,
             ephemeral_status=package.meta.ephemeral.validate_docker_image,
             message=package.meta.ephemeral.validate_docker_image_message,
         )
@@ -332,7 +333,8 @@ class DisplayModelClientTest(DisplayModelGeneric):
         )
         await_client_image_step = Step(
             name="Await client image",
-            has_result=package.meta.client_test_image is not None,
+            # use only ephemeral flag for this step
+            has_result=package.meta.ephemeral.await_client_image == Status.SUCCESS,
             ephemeral_status=package.meta.ephemeral.await_client_image,
         )
         locate_client_image_step = Step(
