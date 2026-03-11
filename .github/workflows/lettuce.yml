@@ -34,6 +34,7 @@ jobs:
       client_libs_test_image_tag: ${{ inputs.client_test_image }}
       ref: ${{ inputs.ref }}
       repository: ${{ inputs.repository }}
+      upload_coverage: false
   result:
     name: Create result artifact
     needs: tests
