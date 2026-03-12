@@ -2,7 +2,7 @@ from typing import Optional
 
 from py_trees.common import Status
 
-from ..models import RedisVersion, ReleaseType
+from ..models import RedisModule, RedisVersion, ReleaseType
 from .behaviours import IdentifyTargetRef, LoggingAction, ReleaseAction
 from .state import DockerMeta, ReleaseMeta, Workflow
 
@@ -38,6 +38,9 @@ class DockerBuildWorkflowInputs(ReleaseAction):
             self.workflow.inputs["run_type"] = "release"
         elif self.release_meta.tag == "unstable":
             self.workflow.inputs["run_type"] = "unstable"
+            # Set all module versions to "master" for unstable releases
+            for module in RedisModule:
+                self.workflow.inputs[f"{module.value}_version"] = "master"
         else:
             self.workflow.inputs["run_type"] = "custom"
 
