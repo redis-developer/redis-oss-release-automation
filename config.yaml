@@ -102,7 +102,6 @@ packages:
     needs:
       - clientimage
     ref: main
-    #ref: jedis_client_test
     package_type: clienttest
     description: "jedis java client for running redis tests"
     allow_custom_build: true
