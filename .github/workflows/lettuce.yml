@@ -11,7 +11,7 @@ on:
         required: true
       repository:
         description: 'Repository to test (e.g., redis/lettuce)'
-        default: 'Peter-Sh/lettuce'
+        default: 'redis/lettuce'
         required: false
       ref:
         description: 'Ref to test (e.g., main)'
@@ -28,8 +28,7 @@ run-name: >-
 jobs:
   tests:
     name: Run Lettuce tests
-    #uses: redis/lettuce/.github/workflows/run-tests.yml@test-reusable-workflows
-    uses: Peter-Sh/lettuce/.github/workflows/run-tests.yml@test-reusable-workflows
+    uses: redis/lettuce/.github/workflows/run-tests.yml@main
     with:
       client_libs_test_image_tag: ${{ inputs.client_test_image }}
       ref: ${{ inputs.ref }}
