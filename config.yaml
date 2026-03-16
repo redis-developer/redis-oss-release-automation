@@ -102,9 +102,21 @@ packages:
     needs:
       - clientimage
     ref: main
-    #ref: jedis_client_test
     package_type: clienttest
     description: "jedis java client for running redis tests"
     allow_custom_build: true
     build_workflow: jedis.yml
+    build_timeout_minutes: 30
+  lettuce:
+    repo: redis-developer/redis-oss-release-automation
+    package_display_name: Lettuce Tests
+    client_repo: redis/lettuce
+    client_ref: main
+    needs:
+      - clientimage
+    ref: main
+    package_type: clienttest
+    description: "lettuce java client for running redis tests"
+    allow_custom_build: true
+    build_workflow: lettuce.yml
     build_timeout_minutes: 30

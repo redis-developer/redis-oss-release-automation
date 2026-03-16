@@ -1,0 +1,60 @@
+name: "Lettuce client testing"
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      client_test_image:
+        description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
+        required: true
+      repository:
+        description: 'Repository to test (e.g., redis/lettuce)'
+        default: 'redis/lettuce'
+        required: false
+      ref:
+        description: 'Ref to test (e.g., main)'
+        default: 'main'
+        required: false
+
+# UUID is used to help automation to identify workflow run in the list of workflow runs.
+run-name: >-
+     Test lettuce client
+     ${{ inputs.ref }}
+     ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
+
+jobs:
+  tests:
+    name: Run Lettuce tests
+    uses: redis/lettuce/.github/workflows/run-tests.yml@main
+    with:
+      client_libs_test_image_tag: ${{ inputs.client_test_image }}
+      ref: ${{ inputs.ref }}
+      repository: ${{ inputs.repository }}
+      upload_coverage: false
+  result:
+    name: Create result artifact
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create result artifact
+        env:
+            CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+        shell: bash
+        run: |
+          cat > result.json << EOF
+          {
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE"
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90
