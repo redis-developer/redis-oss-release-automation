@@ -88,7 +88,7 @@ packages:
     client_ref: master
     needs:
       - clientimage
-    ref: jedis_client_test
+    ref: RED-187316-go-redis
     package_type: clienttest
     description: "redis-py python client for running redis tests"
     allow_custom_build: true
@@ -101,7 +101,7 @@ packages:
     client_ref: master
     needs:
       - clientimage
-    ref: main
+    ref: RED-187316-go-redis
     package_type: clienttest
     description: "jedis java client for running redis tests"
     allow_custom_build: true
@@ -114,9 +114,22 @@ packages:
     client_ref: main
     needs:
       - clientimage
-    ref: main
+    ref: RED-187316-go-redis
     package_type: clienttest
     description: "lettuce java client for running redis tests"
     allow_custom_build: true
     build_workflow: lettuce.yml
+    build_timeout_minutes: 30
+  go-redis:
+    repo: redis-developer/redis-oss-release-automation
+    package_display_name: Go-Redis Tests
+    client_repo: redis/go-redis
+    client_ref: master
+    needs:
+      - clientimage
+    ref: RED-187316-go-redis
+    package_type: clienttest
+    description: "go-redis go client for running redis tests"
+    allow_custom_build: true
+    build_workflow: go-redis.yml
     build_timeout_minutes: 30

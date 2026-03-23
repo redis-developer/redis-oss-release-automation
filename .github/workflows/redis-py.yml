@@ -9,6 +9,9 @@ on:
       client_test_image:
         description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
         required: false
+      redis_version:
+        description: 'Redis version (e.g., 8.6.1, unstable)'
+        required: false
       repository:
         description: 'Repository to test (e.g., redis/jedis)'
         default: 'redis/redis-py'
@@ -34,25 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Extract Redis version from Docker image
-        id: extract_version
+      - name: Prepare Redis version
+        id: prepare_version
         env:
-          IMAGE_TAG: ${{ inputs.client_test_image }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
         run: |
-          # Construct full image name
-          FULL_IMAGE="redislabs/client-libs-test:${IMAGE_TAG}"
-
-          # Pull the Docker image
-          docker pull "${FULL_IMAGE}"
-
-          # Extract the io.redis.version label
-          REDIS_VERSION=$(docker inspect "${FULL_IMAGE}" --format='{{index .Config.Labels "io.redis.version"}}')
-
-          echo "Extracted Redis version: ${REDIS_VERSION}"
-
-          # Store original version for result.json
-          echo "redis_version_original=${REDIS_VERSION}" >> $GITHUB_OUTPUT
-
           # Handle "unstable" version - convert to "8" for testing action
           if [[ "${REDIS_VERSION}" == "unstable" ]]; then
             REDIS_VERSION="8"
@@ -67,33 +56,26 @@ jobs:
         with:
             python-version: 3.14
             parser-backend: plain
-            redis-version: ${{ steps.extract_version.outputs.redis_version }}
+            redis-version: ${{ steps.prepare_version.outputs.redis_version }}
             repository: ${{ inputs.repository }}
             ref: ${{ inputs.ref }}
             client-libs-test-image: ${{ inputs.client_test_image }}
 
+  result:
+    name: Create result artifact
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
       - name: Create result artifact
-        if: always()
+        env:
+          CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
         shell: bash
         run: |
-          # Determine status based on previous steps
-          if [ "${{ job.status }}" == "success" ]; then
-            STATUS="success"
-          else
-            STATUS="failure"
-          fi
-
-          # Construct full image name for reference
-          FULL_IMAGE="redislabs/client-libs-test:${{ inputs.client_test_image }}"
-
-          # Create result.json with comprehensive test information
           cat > result.json << EOF
           {
-            "status": "${STATUS}",
-            "client_test_image_tag": "${{ inputs.client_test_image }}",
-            "redis_version": "${{ steps.extract_version.outputs.redis_version_original }}",
-            "python_version": "3.14",
-            "parser_backend": "plain"
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE",
+            "redis_version": "$REDIS_VERSION"
           }
           EOF
 
@@ -101,9 +83,8 @@ jobs:
           cat result.json
 
       - name: Upload result artifact
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: result
           path: result.json
-          retention-days: 7
+          retention-days: 90

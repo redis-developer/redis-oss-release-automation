@@ -1,4 +1,4 @@
-name: "Lettuce client testing"
+name: "Go-redis client testing"
 
 on:
   workflow_dispatch:
@@ -13,30 +13,38 @@ on:
         description: 'Redis version (e.g., 8.6.1, unstable)'
         required: false
       repository:
-        description: 'Repository to test (e.g., redis/lettuce)'
-        default: 'redis/lettuce'
+        description: 'Repository to test (e.g., redis/go-redis)'
+        default: 'redis/go-redis'
         required: false
       ref:
         description: 'Ref to test (e.g., main)'
-        default: 'main'
+        default: 'master'
         required: false
 
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: >-
-     Test lettuce client
+     Test go-redis client
      ${{ inputs.ref }}
      ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
      ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
 
 jobs:
   tests:
-    name: Run Lettuce tests
-    uses: redis/lettuce/.github/workflows/run-tests.yml@main
-    with:
-      client_libs_test_image_tag: ${{ inputs.client_test_image }}
-      ref: ${{ inputs.ref }}
-      repository: ${{ inputs.repository }}
-      upload_coverage: false
+    runs-on: ubuntu-latest
+    name: Go-redis test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        id: run_tests
+        uses: dariaguy/go-redis/.github/actions/run-tests@RED-187316-release-automation-integration
+        with:
+          redis-version: ${{ inputs.redis_version }}
+          go-version: "1.24.x"
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          client-libs-test-image: ${{ inputs.client_test_image }}
+
   result:
     name: Create result artifact
     needs: tests
