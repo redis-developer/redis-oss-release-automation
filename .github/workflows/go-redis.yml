@@ -1,6 +1,8 @@
 name: "Go-redis client testing"
 
 on:
+  push:
+    branches: [ "RED-187316-go-redis" ]
   workflow_dispatch:
     inputs:
       workflow_uuid:
