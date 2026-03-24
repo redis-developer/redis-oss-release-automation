@@ -145,8 +145,9 @@ class LocateClientImage(LoggingAction):
             redis_version = self.clientimage_build_workflow.result.get("redis_version")
             if not redis_version:
                 raise ValueError("redis_version not found in result")
+            self.package_meta.redis_version = redis_version
             self.feedback_message = (
-                f"Located client test image tag: {image_tag} (from {client_test_image})"
+                f"Located client test image tag: {image_tag} (from {client_test_image}), redis_version: {redis_version}"
             )
             if self.log_once(
                 "client_image_located", self.package_meta.ephemeral.log_once_flags
