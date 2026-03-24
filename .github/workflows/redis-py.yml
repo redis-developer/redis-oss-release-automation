@@ -37,26 +37,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Prepare Redis version
-        id: prepare_version
-        env:
-          REDIS_VERSION: ${{ inputs.redis_version }}
-        run: |
-          # Handle "unstable" version - convert to "8" for testing action
-          if [[ "${REDIS_VERSION}" == "unstable" ]]; then
-            REDIS_VERSION="8"
-            echo "Converted unstable to version 8 for testing action"
-          fi
-
-          echo "Final Redis version for tests: ${REDIS_VERSION}"
-          echo "redis_version=${REDIS_VERSION}" >> $GITHUB_OUTPUT
-
       - name: Run tests
         uses: redis/redis-py/.github/actions/run-tests@master
         with:
             python-version: 3.14
             parser-backend: plain
-            redis-version: ${{ steps.prepare_version.outputs.redis_version }}
+            redis-version: ${{ inputs.redis_version == 'unstable' && '8' || inputs.redis_version }}
             repository: ${{ inputs.repository }}
             ref: ${{ inputs.ref }}
             client-libs-test-image: ${{ inputs.client_test_image }}
