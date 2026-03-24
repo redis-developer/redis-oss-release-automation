@@ -37,7 +37,7 @@ jobs:
 
       - name: Run tests
         id: run_tests
-        uses: dariaguy/go-redis/.github/actions/run-tests@RED-187316-release-automation-integration
+        uses: dariaguy/go-redis/.github/actions/run-tests@master
         with:
           redis-version: ${{ inputs.redis_version != 'unstable' && inputs.redis_version || '' }}
           go-version: "1.24.x"
