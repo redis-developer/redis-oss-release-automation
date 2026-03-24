@@ -43,7 +43,7 @@ jobs:
           go-version: "1.24.x"
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
-          client-libs-test-image: ${{ inputs.client_test_image }}
+          client-libs-test-image-tag: ${{ inputs.client_test_image }}
 
   result:
     name: Create result artifact
