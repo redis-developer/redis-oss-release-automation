@@ -574,8 +574,6 @@ class SlackStatePrinter:
         blocks: List[Union[Dict[str, Any], None]] = []
         if package_name == "clientimage":
             self.blocks_append(blocks, self.make_clientimage_result_blocks(state))
-        elif package_name == "redis-py":
-            self.blocks_append(blocks, self.make_redispy_result_blocks(state))
         return blocks
 
     def make_clientimage_result_blocks(
@@ -600,38 +598,6 @@ class SlackStatePrinter:
                             },
                         }
                     )
-
-        return blocks
-
-    def make_redispy_result_blocks(
-        self, state: ReleaseState
-    ) -> Optional[List[Union[Dict[str, Any], None]]]:
-        blocks: List[Union[Dict[str, Any], None]] = []
-
-        if self.slack_format == SlackFormat.COMPACT:
-            return blocks
-
-        # Redis-py test results
-        redispy_package = state.packages.get("redis-py")
-        if redispy_package is not None:
-            result = redispy_package.build.result
-
-            # Show result if workflow succeeded and we have results
-            if result is not None:
-                redis_version = result.get("redis_version", "N/A")
-                image_tag = result.get("client_test_image_tag", "N/A")
-                python_version = result.get("python_version", "N/A")
-                parser = result.get("parser_backend", "N/A")
-
-                blocks.append(
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```\nRedis Version: {redis_version}\nImage Tag: {image_tag}\nPython: {python_version}\nParser: {parser}\n```",
-                        },
-                    }
-                )
 
         return blocks
 

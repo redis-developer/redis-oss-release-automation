@@ -233,6 +233,7 @@ class ClientTestMeta(PackageMeta):
 
     serialization_hint: Literal["clienttest"] = "clienttest"  # type: ignore[assignment]
     client_test_image: Optional[str] = None
+    redis_version: Optional[str] = None
     client_repo: Optional[str] = None
     client_ref: Optional[str] = None
     ephemeral: ClientTestMetaEphemeral = Field(default_factory=ClientTestMetaEphemeral)  # type: ignore[assignment]

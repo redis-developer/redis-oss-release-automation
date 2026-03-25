@@ -9,6 +9,9 @@ on:
       client_test_image:
         description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
         required: true
+      redis_version:
+        description: 'Redis version (e.g., 8.6.1, unstable)'
+        required: false
       repository:
         description: 'Repository to test (e.g., redis/lettuce)'
         default: 'redis/lettuce'
@@ -41,17 +44,20 @@ jobs:
     steps:
       - name: Create result artifact
         env:
-            CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+          CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
         shell: bash
         run: |
           cat > result.json << EOF
           {
-            "client_test_image_tag": "$CLIENT_TEST_IMAGE"
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE",
+            "redis_version": "$REDIS_VERSION"
           }
           EOF
 
           echo "Created result.json:"
           cat result.json
+
       - name: Upload result artifact
         uses: actions/upload-artifact@v4
         with:

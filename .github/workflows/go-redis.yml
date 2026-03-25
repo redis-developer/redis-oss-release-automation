@@ -1,4 +1,4 @@
-name: "Redis-py client testing"
+name: "Go-redis client testing"
 
 on:
   workflow_dispatch:
@@ -8,13 +8,13 @@ on:
         required: false
       client_test_image:
         description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
-        required: false
+        required: true
       redis_version:
         description: 'Redis version (e.g., 8.6.1, unstable)'
         required: false
       repository:
-        description: 'Repository to test (e.g., redis/jedis)'
-        default: 'redis/redis-py'
+        description: 'Repository to test (e.g., redis/go-redis)'
+        default: 'redis/go-redis'
         required: false
       ref:
         description: 'Ref to test (e.g., main)'
@@ -23,7 +23,7 @@ on:
 
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: >-
-     Test redis-py client
+     Test go-redis client
      ${{ inputs.ref }}
      ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
      ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
@@ -31,21 +31,19 @@ run-name: >-
 jobs:
   tests:
     runs-on: ubuntu-latest
-    env:
-      ACTIONS_ALLOW_UNSECURE_COMMANDS: true
-    name: Redis-py test
+    name: Go-redis test
     steps:
       - uses: actions/checkout@v6
 
       - name: Run tests
-        uses: redis/redis-py/.github/actions/run-tests@master
+        id: run_tests
+        uses: redis/go-redis/.github/actions/run-tests@master
         with:
-            python-version: 3.14
-            parser-backend: plain
-            redis-version: ${{ inputs.redis_version == 'unstable' && '8' || inputs.redis_version }}
-            repository: ${{ inputs.repository }}
-            ref: ${{ inputs.ref }}
-            client-libs-test-image: ${{ inputs.client_test_image }}
+          redis-version: ${{ inputs.redis_version != 'unstable' && inputs.redis_version || '' }}
+          go-version: "1.24.x"
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          client-libs-test-image-tag: ${{ inputs.client_test_image }}
 
   result:
     name: Create result artifact
