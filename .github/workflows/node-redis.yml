@@ -1,8 +1,6 @@
 name: "Node-redis client testing"
 
 on:
-  push:
-   branches: [ "RED-187309-node-redis" ]
   workflow_dispatch:
     inputs:
       workflow_uuid:
@@ -41,7 +39,7 @@ jobs:
         id: run_tests
         uses: dariaguy/node-redis/.github/actions/run-tests@add-run-tests-action
         with:
-          redis-version: ${{ inputs.redis_version }}
+          redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
           node-version: "22"
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
