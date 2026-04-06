@@ -133,3 +133,16 @@ packages:
     allow_custom_build: true
     build_workflow: go-redis.yml
     build_timeout_minutes: 30
+  node-redis:
+    repo: redis-developer/redis-oss-release-automation
+    ref: RED-187309-node-redis
+    package_display_name: Node-Redis Tests
+    client_repo: redis/node-redis
+    client_ref: master
+    needs:
+      - clientimage
+    package_type: clienttest
+    description: "node-redis node.js client for running redis tests"
+    allow_custom_build: true
+    build_workflow: node-redis.yml
+    build_timeout_minutes: 30
