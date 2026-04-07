@@ -1,0 +1,75 @@
+name: "Node-redis client testing"
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      client_test_image:
+        description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
+        required: true
+      redis_version:
+        description: 'Redis version (e.g., 8.6.1, unstable)'
+        required: false
+      repository:
+        description: 'Repository to test (e.g., redis/node-redis)'
+        default: 'redis/node-redis'
+        required: false
+      ref:
+        description: 'Ref to test (e.g., main)'
+        default: 'master'
+        required: false
+
+# UUID is used to help automation to identify workflow run in the list of workflow runs.
+run-name: >-
+     Test node-redis client
+     ${{ inputs.ref }}
+     ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    name: node-redis test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        id: run_tests
+        uses: redis/node-redis/.github/actions/run-tests@master
+        with:
+          redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
+          node-version: "22"
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+          redis-tag: ${{ inputs.client_test_image }}
+          run-codecov: false
+
+  result:
+    name: Create result artifact
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create result artifact
+        env:
+          CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
+        shell: bash
+        run: |
+          cat > result.json << EOF
+          {
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE",
+            "redis_version": "$REDIS_VERSION"
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90
