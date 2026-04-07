@@ -135,7 +135,7 @@ packages:
     build_timeout_minutes: 30
   node-redis:
     repo: redis-developer/redis-oss-release-automation
-    ref: RED-187309-node-redis
+    ref: main
     package_display_name: Node-Redis Tests
     client_repo: redis/node-redis
     client_ref: master
