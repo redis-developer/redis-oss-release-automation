@@ -1,0 +1,69 @@
+name: "NRedisStack client testing"
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      client_test_image:
+        description: 'Docker image tag (e.g., unstable-21323211374-debian-amd64)'
+        required: true
+      redis_version:
+        description: 'Redis version (e.g., 8.6.1, unstable)'
+        required: false
+      repository:
+        description: 'Repository to test (e.g., redis/NRedisStack)'
+        default: 'redis/NRedisStack'
+        required: false
+      ref:
+        description: 'Ref to test (e.g., main)'
+        default: 'main'
+        required: false
+
+# UUID is used to help automation to identify workflow run in the list of workflow runs.
+run-name: >-
+     Test NRedisStack client
+     ${{ inputs.ref }}
+     ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
+     ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
+
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    name: NRedisStack test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        #uses: redis/NRedisStack/.github/workflows/run-tests.yml@master
+        uses: Peter-Sh/NRedisStack/.github/workflows/run-tests.yml@master
+        with:
+          client_libs_test_image_tag: ${{ inputs.client_test_image }}
+          redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
+          ref: ${{ inputs.ref }}
+          repository: ${{ inputs.repository }}
+
+      - name: Create result artifact
+        env:
+          CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
+        shell: bash
+        run: |
+          cat > result.json << EOF
+          {
+            "client_test_image_tag": "$CLIENT_TEST_IMAGE",
+            "redis_version": "$REDIS_VERSION"
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90
