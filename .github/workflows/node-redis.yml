@@ -37,7 +37,7 @@ jobs:
 
       - name: Run tests
         id: run_tests
-        uses: dariaguy/node-redis/.github/actions/run-tests@master
+        uses: redis/node-redis/.github/actions/run-tests@master
         with:
           redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
           node-version: "22"
