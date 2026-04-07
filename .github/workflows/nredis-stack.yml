@@ -37,8 +37,8 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Run tests
-        uses: Peter-Sh/NRedisStack/.github/actions/run-tests.yml@master
-        #uses: redis/NRedisStack/.github/actions/run-tests.yml@master
+        uses: Peter-Sh/NRedisStack/.github/actions/run-tests@master
+        #uses: redis/NRedisStack/.github/actions/run-tests@master
         with:
           client_libs_test_image_tag: ${{ inputs.client_test_image }}
           redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
