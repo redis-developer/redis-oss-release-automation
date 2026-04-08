@@ -41,6 +41,7 @@ jobs:
         #uses: redis/NRedisStack/.github/actions/run-tests@master
         with:
           client-libs-test-image-tag: ${{ inputs.client_test_image }}
+          dotnet-version: "10.0"
           redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
           ref: ${{ inputs.ref }}
           repository: ${{ inputs.repository }}
