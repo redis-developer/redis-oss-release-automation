@@ -40,7 +40,7 @@ jobs:
         uses: Peter-Sh/NRedisStack/.github/actions/run-tests@master
         #uses: redis/NRedisStack/.github/actions/run-tests@master
         with:
-          client_libs_test_image_tag: ${{ inputs.client_test_image }}
+          client-libs-test-image-tag: ${{ inputs.client_test_image }}
           redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
           ref: ${{ inputs.ref }}
           repository: ${{ inputs.repository }}
