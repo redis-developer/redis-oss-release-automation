@@ -110,6 +110,7 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Lettuce Tests
     client_repo: redis/lettuce
+    client_ref: main
     # lettuce doesn't have "v" prefix and has .RELEASE at the end of version tags
     version_ref_prefix: "tags/"
     version_ref_pattern: '^tags/(\d+)\.(\d+)\.(\d+).RELEASE$'
