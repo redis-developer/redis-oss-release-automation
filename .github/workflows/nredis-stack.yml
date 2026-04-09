@@ -1,4 +1,4 @@
-name: "Go-redis client testing"
+name: "NRedisStack client testing"
 
 on:
   workflow_dispatch:
@@ -13,43 +13,37 @@ on:
         description: 'Redis version (e.g., 8.6.1, unstable)'
         required: false
       repository:
-        description: 'Repository to test (e.g., redis/go-redis)'
-        default: 'redis/go-redis'
+        description: 'Repository to test (e.g., redis/NRedisStack)'
+        default: 'redis/NRedisStack'
         required: false
       ref:
         description: 'Ref to test (e.g., main)'
-        default: 'master'
+        default: 'main'
         required: false
 
 # UUID is used to help automation to identify workflow run in the list of workflow runs.
 run-name: >-
-     Test go-redis client
+     Test NRedisStack client
      ${{ inputs.ref }}
      ${{ github.event.inputs.client_test_image != '' && format('/ {0}', github.event.inputs.client_test_image) || '' }}
      ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
 
+
 jobs:
   tests:
     runs-on: ubuntu-latest
-    name: Go-redis test
+    name: NRedisStack test
     steps:
       - uses: actions/checkout@v6
 
       - name: Run tests
-        id: run_tests
-        uses: redis/go-redis/.github/actions/run-tests@master
+        uses: redis/NRedisStack/.github/actions/run-tests@master
         with:
-          redis-version: ${{ inputs.redis_version != 'unstable' && inputs.redis_version || '' }}
-          go-version: "1.24.x"
-          repository: ${{ inputs.repository }}
-          ref: ${{ inputs.ref }}
           client-libs-test-image-tag: ${{ inputs.client_test_image }}
+          redis-version: ${{ inputs.redis_version == 'unstable' && '255.255.255' || inputs.redis_version }}
+          ref: ${{ inputs.ref }}
+          repository: ${{ inputs.repository }}
 
-  result:
-    name: Create result artifact
-    needs: tests
-    runs-on: ubuntu-latest
-    steps:
       - name: Create result artifact
         env:
           CLIENT_TEST_IMAGE: ${{ inputs.client_test_image }}

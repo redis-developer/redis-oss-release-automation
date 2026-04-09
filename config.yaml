@@ -146,3 +146,16 @@ packages:
     allow_custom_build: true
     build_workflow: node-redis.yml
     build_timeout_minutes: 30
+  nredis-stack:
+    package_type: clienttest
+    package_display_name: NRedisStack Tests
+    description: "NRedisStack .NET client for redis tests"
+    client_repo: redis/NRedisStack
+    client_ref: master
+    needs:
+      - clientimage
+    repo: redis-developer/redis-oss-release-automation
+    ref: nredisstack
+    build_workflow: nredis-stack.yml
+    build_timeout_minutes: 30
+    allow_custom_build: true
