@@ -57,9 +57,8 @@ packages:
   snap:
     package_type: snap
     repo: redis/redis-snap
-    # homebrew has one fixed release branch: main
-    #ref: master
-    ref: release_automation
+    # snap has one fixed release branch: master
+    ref: master
     build_workflow: release_build_and_test.yml
     build_timeout_minutes: 60
     build_inputs: {}
@@ -111,7 +110,9 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Lettuce Tests
     client_repo: redis/lettuce
-    client_ref: main
+    # lettuce doesn't have "v" prefix and has .RELEASE at the end of version tags
+    version_ref_prefix: "tags/"
+    version_ref_pattern: '^tags/(\d+)\.(\d+)\.(\d+).RELEASE$'
     needs:
       - clientimage
     ref: main
@@ -155,7 +156,21 @@ packages:
     needs:
       - clientimage
     repo: redis-developer/redis-oss-release-automation
-    ref: nredisstack
+    ref: main
     build_workflow: nredis-stack.yml
     build_timeout_minutes: 30
     allow_custom_build: true
+# stackexchange-redis:
+#   package_type: clienttest
+#   package_display_name: StackExchange.Redis Tests
+#   description: "StackExchange.Redis .NET client for redis tests"
+#   client_repo: Peter-Sh/StackExchange.Redis
+#   #client_repo: StackExchange/StackExchange.Redis
+#   client_ref: main
+#   needs:
+#     - clientimage
+#   repo: redis-developer/redis-oss-release-automation
+#   ref: main
+#   build_workflow: stackexchange-redis.yml
+#   build_timeout_minutes: 30
+#   allow_custom_build: true
