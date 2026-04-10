@@ -252,11 +252,10 @@ class ResolveClientVersion(ReleaseAction):
                 self.logger.error("client_repo is not set")
             return
 
-        # Fetch tags matching version pattern vX.Y.Z (e.g., v5.1.0, v5.2.1)
-        # ref_prefix: tags/v to match all version tags
-        # pattern: ^tags/v\d+\.\d+\.\d+$ to match only strict semver tags
-        ref_prefix = "tags/v"
-        pattern = r"^tags/v\d+\.\d+\.\d+$"
+        # Fetch tags matching version pattern from package_meta configuration
+        # ref_prefix and pattern are configurable per-package
+        ref_prefix = self.package_meta.version_ref_prefix
+        pattern = self.package_meta.version_ref_pattern
         self.task = asyncio.create_task(
             self.github_client.list_matching_refs(
                 self.package_meta.client_repo, ref_prefix=ref_prefix, pattern=pattern
@@ -307,8 +306,8 @@ class ResolveClientVersion(ReleaseAction):
 
     def _sort_tags(self, tags: List[str]) -> List[str]:
         """Sort tags by version in descending order."""
-        # Pattern to extract version components: tags/vX.Y.Z
-        pattern = re.compile(r"^tags/v(\d+)\.(\d+)\.(\d+)$")
+        # Use the configurable pattern from package_meta to extract version components
+        pattern = re.compile(self.package_meta.version_ref_pattern)
         tag_versions = []
 
         for tag in tags:

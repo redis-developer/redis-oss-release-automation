@@ -1,10 +1,11 @@
 """Configuration management for Redis release automation."""
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .models import HomebrewChannel, PackageType, SnapRiskLevel
 
@@ -32,11 +33,32 @@ class PackageConfig(BaseModel):
     needs: List[str] = Field(default_factory=list)
 
 
+def validate_version_ref_pattern(v: str) -> str:
+    """Validate that version_ref_pattern is a valid regex with 3 capture groups."""
+    try:
+        compiled = re.compile(v)
+    except re.error as e:
+        raise ValueError(f"Invalid regex pattern: {e}") from e
+
+    if compiled.groups != 3:
+        raise ValueError(
+            f"Pattern must have exactly 3 capture groups for (major, minor, patch), "
+            f"got {compiled.groups}"
+        )
+    return v
+
+
 class PackageConfigClientTest(PackageConfig):
     """Configuration for client test packages."""
 
     client_repo: str
     client_ref: Optional[str] = None
+    version_ref_prefix: str = "tags/v"
+    version_ref_pattern: str = r"^tags/v(\d+)\.(\d+)\.(\d+)$"
+
+    _validate_pattern = field_validator("version_ref_pattern")(
+        validate_version_ref_pattern
+    )
 
 
 class Config(BaseModel):
