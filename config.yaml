@@ -161,17 +161,16 @@ packages:
     build_workflow: nredis-stack.yml
     build_timeout_minutes: 30
     allow_custom_build: true
-# stackexchange-redis:
-#   package_type: clienttest
-#   package_display_name: StackExchange.Redis Tests
-#   description: "StackExchange.Redis .NET client for redis tests"
-#   client_repo: Peter-Sh/StackExchange.Redis
-#   #client_repo: StackExchange/StackExchange.Redis
-#   client_ref: main
-#   needs:
-#     - clientimage
-#   repo: redis-developer/redis-oss-release-automation
-#   ref: main
-#   build_workflow: stackexchange-redis.yml
-#   build_timeout_minutes: 30
-#   allow_custom_build: true
+  stackexchange-redis:
+    package_type: clienttest
+    package_display_name: StackExchange.Redis Tests
+    description: "StackExchange.Redis .NET client for redis tests"
+    client_repo: StackExchange/StackExchange.Redis
+    client_ref: main
+    needs:
+      - clientimage
+    repo: redis-developer/redis-oss-release-automation
+    ref: main
+    build_workflow: stackexchange-redis.yml
+    build_timeout_minutes: 30
+    allow_custom_build: true

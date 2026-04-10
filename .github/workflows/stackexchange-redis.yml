@@ -1,7 +1,6 @@
 name: "StackExchange.Redis client testing"
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       workflow_uuid:
@@ -41,8 +40,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Run tests
-        #uses: StackExchange/StackExchange.Redis/.github/actions/run-tests@main
-        uses: Peter-Sh/StackExchange.Redis/.github/actions/run-tests@main
+        uses: StackExchange/StackExchange.Redis/.github/actions/run-tests@main
         with:
           client-libs-test-image-tag: ${{ inputs.client_test_image }}
           ref: ${{ inputs.ref }}
