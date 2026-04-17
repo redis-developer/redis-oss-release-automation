@@ -6,14 +6,12 @@ import json
 import logging
 import re
 import zipfile
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 import aiohttp
 
+from .github_token_provider import GitHubTokenProvider
 from .models import WorkflowConclusion, WorkflowRun, WorkflowStatus
-
-if TYPE_CHECKING:
-    from .github_token_provider import GitHubTokenProvider
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
@@ -22,7 +20,7 @@ logger = logging.getLogger(__name__)
 class GitHubClientAsync:
     """Async GitHub API client for workflow operations."""
 
-    def __init__(self, token_provider: "GitHubTokenProvider"):
+    def __init__(self, token_provider: GitHubTokenProvider):
         """Initialize async GitHub client.
 
         Args:
