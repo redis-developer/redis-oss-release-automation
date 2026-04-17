@@ -91,6 +91,27 @@ class GitHubAppAuth:
         Returns:
             Installation access token or None if failed
         """
+        result = await self.get_installation_token_with_expiry(
+            installation_id, jwt_token
+        )
+        if result:
+            return result[0]
+        return None
+
+    async def get_installation_token_with_expiry(
+        self, installation_id: int, jwt_token: str
+    ) -> Optional[tuple[str, float]]:
+        """Get an installation access token with expiration timestamp.
+
+        Args:
+            installation_id: GitHub App installation ID
+            jwt_token: JWT token for authentication
+
+        Returns:
+            Tuple of (token, expires_at_timestamp) or None if failed
+        """
+        from datetime import datetime
+
         url = (
             f"https://api.github.com/app/installations/{installation_id}/access_tokens"
         )
@@ -105,11 +126,22 @@ class GitHubAppAuth:
                 if response.status == 201:
                     data = await response.json()
                     token: Optional[str] = data.get("token")
-                    expires_at = data.get("expires_at")
-                    logger.info(
-                        f"Generated installation token (expires at {expires_at})"
+                    expires_at_str = data.get("expires_at")
+
+                    if not token or not expires_at_str:
+                        return None
+
+                    # Parse ISO 8601 timestamp to Unix timestamp
+                    # GitHub returns format like "2024-01-15T12:00:00Z"
+                    expires_at_dt = datetime.fromisoformat(
+                        expires_at_str.replace("Z", "+00:00")
                     )
-                    return token
+                    expires_at = expires_at_dt.timestamp()
+
+                    logger.info(
+                        f"Generated installation token (expires at {expires_at_str})"
+                    )
+                    return (token, expires_at)
                 else:
                     error_text = await response.text()
                     logger.error(
@@ -140,20 +172,3 @@ class GitHubAppAuth:
 
         # Get installation token
         return await self.get_installation_token(installation_id, jwt_token)
-
-
-def load_private_key_from_file(file_path: str) -> str:
-    """Load GitHub App private key from a file.
-
-    Args:
-        file_path: Path to the private key file
-
-    Returns:
-        Private key content as string
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-        IOError: If the file can't be read
-    """
-    with open(file_path, "r") as f:
-        return f.read()
