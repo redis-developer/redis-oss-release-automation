@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 import aiohttp
 
+from .github_token_provider import GitHubTokenProvider
 from .models import WorkflowConclusion, WorkflowRun, WorkflowStatus
 
 # Get logger for this module
@@ -19,13 +20,24 @@ logger = logging.getLogger(__name__)
 class GitHubClientAsync:
     """Async GitHub API client for workflow operations."""
 
-    def __init__(self, token: str):
+    def __init__(self, token_provider: GitHubTokenProvider):
         """Initialize async GitHub client.
 
         Args:
-            token: GitHub API token
+            token_provider: Provider for obtaining GitHub API tokens
         """
-        self.token = token
+        self.token_provider = token_provider
+
+    async def get_token(self, repo: str) -> str:
+        """Get token from provider for the specified repository.
+
+        Args:
+            repo: Repository name in format "owner/repo"
+
+        Returns:
+            Valid GitHub API token
+        """
+        return await self.token_provider.get_token(repo)
 
     async def github_request(
         self,
@@ -245,9 +257,10 @@ class GitHubClientAsync:
         if "workflow_uuid" in inputs:
             logger.debug(f"Workflow UUID: [cyan]{inputs['workflow_uuid']}[/cyan]")
 
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/dispatches"
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -302,9 +315,10 @@ class GitHubClientAsync:
         Returns:
             Updated WorkflowRun object
         """
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -364,9 +378,10 @@ class GitHubClientAsync:
         Returns:
             List of WorkflowRun objects, sorted by creation time (newest first)
         """
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/actions/workflows/{workflow_file}/runs"
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -436,9 +451,10 @@ class GitHubClientAsync:
         """
         logger.debug(f"[blue]Getting artifacts for workflow {run_id} in {repo}[/blue]")
 
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts"
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -541,8 +557,9 @@ class GitHubClientAsync:
             logger.error(f"[red]{artifact_name} artifact has no download URL[/red]")
             return None
 
+        token = await self.get_token(repo)
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -596,9 +613,10 @@ class GitHubClientAsync:
         Returns:
             File content as a string, or None if the file is not found or an error occurs
         """
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
         headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
@@ -664,11 +682,12 @@ class GitHubClientAsync:
         Returns:
             List of ref names (without "refs/" prefix, e.g., "heads/release/8.0", "tags/v5.1.0")
         """
+        token = await self.get_token(repo)
         url = f"https://api.github.com/repos/{repo}/git/matching-refs/{ref_prefix}"
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
         }
 
         try:
@@ -708,4 +727,80 @@ class GitHubClientAsync:
             logger.error(
                 f"[red]Error listing refs with prefix '{ref_prefix}': {e}[/red]"
             )
+            return []
+
+    async def list_remote_tags(
+        self,
+        repo: str,
+        pattern: Optional[str] = None,
+    ) -> List[str]:
+        """List remote tags using git ls-remote (no authentication required for public repos).
+
+        This method spawns a git process asynchronously to fetch remote refs,
+        which works for public repositories without requiring a GitHub token.
+
+        This allows to avoid API rate limiting when there is no suitable token
+        availabe and requests are read only.
+
+        Args:
+            repo: Repository name in format "owner/repo"
+            pattern: Optional regex pattern to filter tags (e.g., "^v8\\.\\d+\\.\\d+$")
+
+        Returns:
+            List of tag names (without "refs/tags/" prefix), sorted alphabetically
+        """
+        import asyncio
+
+        url = f"https://github.com/{repo}.git"
+        logger.debug(f"[blue]Listing remote tags for {repo} using git ls-remote[/blue]")
+
+        try:
+            # Run git ls-remote asynchronously
+            process = await asyncio.create_subprocess_exec(
+                "git",
+                "ls-remote",
+                "--tags",
+                "--refs",
+                url,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode().strip() if stderr else "Unknown error"
+                logger.error(f"[red]git ls-remote failed for {repo}: {error_msg}[/red]")
+                return []
+
+            # Parse output: each line is "<sha>\trefs/tags/<tagname>"
+            tags: List[str] = []
+            for line in stdout.decode().strip().split("\n"):
+                if not line:
+                    continue
+                parts = line.split("\t")
+                if len(parts) == 2:
+                    ref = parts[1]
+                    # Extract tag name from refs/tags/<tagname>
+                    if ref.startswith("refs/tags/"):
+                        tag_name = ref[len("refs/tags/") :]
+                        tags.append(tag_name)
+
+            # Apply pattern filter if specified
+            if pattern:
+                compiled_pattern = re.compile(pattern)
+                tags = [tag for tag in tags if compiled_pattern.match(tag)]
+
+            logger.debug(
+                f"[green]Found {len(tags)} tags for {repo}"
+                f"{' matching pattern' if pattern else ''}[/green]"
+            )
+
+            return sorted(tags)
+
+        except FileNotFoundError:
+            logger.error("[red]git command not found. Please install git.[/red]")
+            return []
+        except Exception as e:
+            logger.error(f"[red]Error listing remote tags for {repo}: {e}[/red]")
             return []

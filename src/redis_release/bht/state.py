@@ -241,8 +241,7 @@ class ClientTestMeta(PackageMeta):
     redis_version: Optional[str] = None
     client_repo: Optional[str] = None
     client_ref: Optional[str] = None
-    version_ref_prefix: str = "tags/v"
-    version_ref_pattern: str = r"^tags/v(\d+)\.(\d+)\.(\d+)$"
+    version_ref_pattern: str = r"^v(\d+)\.(\d+)\.(\d+)$"
     ephemeral: ClientTestMetaEphemeral = Field(default_factory=ClientTestMetaEphemeral)  # type: ignore[assignment]
 
     _validate_pattern = field_validator("version_ref_pattern")(
@@ -359,7 +358,6 @@ class ReleaseState(BaseModel):
                 publish_internal_release=package_config.publish_internal_release,
                 client_repo=package_config.client_repo,
                 client_ref=package_config.client_ref,
-                version_ref_prefix=package_config.version_ref_prefix,
                 version_ref_pattern=package_config.version_ref_pattern,
             )
         elif package_config.package_type is not None:

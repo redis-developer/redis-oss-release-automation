@@ -112,8 +112,7 @@ packages:
     client_repo: redis/lettuce
     client_ref: main
     # lettuce doesn't have "v" prefix and has .RELEASE at the end of version tags
-    version_ref_prefix: "tags/"
-    version_ref_pattern: '^tags/(\d+)\.(\d+)\.(\d+).RELEASE$'
+    version_ref_pattern: '^(\d+)\.(\d+)\.(\d+).RELEASE$'
     needs:
       - clientimage
     ref: main

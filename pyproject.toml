@@ -36,6 +36,7 @@ dependencies = [
     "cryptography>=41.0.0",
     "janus>=2.0,<2.2",
     "nanoid>=2.0.0",
+    "pyjwt>=2.12.1",
 ]
 
 [project.optional-dependencies]

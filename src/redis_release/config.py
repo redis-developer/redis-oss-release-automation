@@ -53,8 +53,7 @@ class PackageConfigClientTest(PackageConfig):
 
     client_repo: str
     client_ref: Optional[str] = None
-    version_ref_prefix: str = "tags/v"
-    version_ref_pattern: str = r"^tags/v(\d+)\.(\d+)\.(\d+)$"
+    version_ref_pattern: str = r"^v(\d+)\.(\d+)\.(\d+)$"
 
     _validate_pattern = field_validator("version_ref_pattern")(
         validate_version_ref_pattern
