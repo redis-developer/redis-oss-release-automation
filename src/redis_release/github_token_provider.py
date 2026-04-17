@@ -4,14 +4,16 @@ This module provides a token provider pattern for GitHub authentication,
 supporting multiple authentication mechanisms with thread-safe caching.
 """
 
+import asyncio
 import logging
 import os
 import threading
 import time
+import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Tuple
 
 from .github_app_auth import GitHubAppAuth
 
@@ -124,8 +126,20 @@ class GitHubAppTokenProvider(GitHubTokenProvider):
     - Global token cache shared across all instances
     """
 
-    # Class-level cache for global token sharing across all instances
-    token_cache: Dict[str, CachedToken] = {}
+    # Class-level cache for global token sharing across all instances,
+    # keyed by (app_id, repo) so providers for different GitHub Apps do
+    # not collide.
+    token_cache: Dict[Tuple[str, str], CachedToken] = {}
+    # Per-event-loop async locks. asyncio.Lock is bound to the loop it
+    # is first awaited in, so each loop gets its own lock. Stored in a
+    # WeakKeyDictionary so entries are discarded when loops are GCed.
+    async_locks: (
+        "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]"
+    ) = weakref.WeakKeyDictionary()
+    # Threading lock for behaviour trees running in the same process
+    # (e.g. spawned by the Slack bot), each in its own thread with its
+    # own event loop. Also protects lazy creation of entries in
+    # async_locks above.
     lock: threading.Lock = threading.Lock()
 
     def __init__(
@@ -146,6 +160,19 @@ class GitHubAppTokenProvider(GitHubTokenProvider):
         self.min_lifetime_seconds = min_lifetime_seconds
         self.app_auth = GitHubAppAuth(app_id=app_id, private_key=private_key)
 
+    @classmethod
+    def _get_async_lock(cls) -> asyncio.Lock:
+        """Return the async lock for the current event loop, creating it lazily."""
+        loop = asyncio.get_running_loop()
+        async_lock = cls.async_locks.get(loop)
+        if async_lock is None:
+            with cls.lock:
+                async_lock = cls.async_locks.get(loop)
+                if async_lock is None:
+                    async_lock = asyncio.Lock()
+                    cls.async_locks[loop] = async_lock
+        return async_lock
+
     async def get_token(self, repo: str) -> str:
         """Get a valid token, using cache or refreshing if needed.
 
@@ -158,25 +185,35 @@ class GitHubAppTokenProvider(GitHubTokenProvider):
         Raises:
             TokenProviderError: If token cannot be obtained
         """
+        cache_key = (self.app_id, repo)
+
         # Check cache without lock first (fast path)
-        cached = self.token_cache.get(repo)
+        cached = self.token_cache.get(cache_key)
         if cached and cached.is_valid(self.min_lifetime_seconds):
             logger.debug(f"Using cached app token for {repo}")
             return cached.token
 
-        # Acquire lock for token refresh (thread-safe)
-        with self.lock:
-            # Double-check after acquiring lock
-            cached = self.token_cache.get(repo)
+        # Async lock first: keep all coroutines in the current event loop
+        # from ever reaching the blocking threading lock below.
+        async with self._get_async_lock():
+            cached = self.token_cache.get(cache_key)
             if cached and cached.is_valid(self.min_lifetime_seconds):
                 logger.debug(f"Using cached app token for {repo}")
                 return cached.token
 
-            # Fetch new token
-            token_data = await self.fetch_token(repo)
-            self.token_cache[repo] = token_data
-            logger.info(f"Issued new app token for {repo}")
-            return token_data.token
+            # Threading lock protects the shared class-level cache across
+            # behaviour trees running in the same process, but in different
+            # event loops, e.g.: started by the Slack bot.
+            with self.lock:
+                cached = self.token_cache.get(cache_key)
+                if cached and cached.is_valid(self.min_lifetime_seconds):
+                    logger.debug(f"Using cached app token for {repo}")
+                    return cached.token
+
+                token_data = await self.fetch_token(repo)
+                self.token_cache[cache_key] = token_data
+                logger.info(f"Issued new app token for {repo}")
+                return token_data.token
 
     async def fetch_token(self, repo: str) -> CachedToken:
         """Fetch a new installation token from GitHub.
