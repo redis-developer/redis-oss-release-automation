@@ -3,12 +3,34 @@
 import asyncio
 import threading
 import time
-import types
 from typing import List
 
 import pytest
 
 from redis_release.github_token_provider import CachedToken, GitHubAppTokenProvider
+
+
+class TestGitHubAppTokenProvider(GitHubAppTokenProvider):
+    """Provider with deterministic fetch behavior for concurrency tests."""
+
+    def __init__(
+        self,
+        app_id: str,
+        private_key: str,
+        token_value: str,
+        fetch_calls: List[int],
+        fetch_calls_lock: threading.Lock,
+    ) -> None:
+        super().__init__(app_id=app_id, private_key=private_key)
+        self._token_value = token_value
+        self._fetch_calls = fetch_calls
+        self._fetch_calls_lock = fetch_calls_lock
+
+    async def fetch_token(self, repo: str) -> CachedToken:
+        with self._fetch_calls_lock:
+            self._fetch_calls[0] += 1
+        await asyncio.sleep(0.1)
+        return CachedToken(token=self._token_value, expires_at=time.time() + 3600)
 
 
 @pytest.fixture(autouse=True)
@@ -37,18 +59,15 @@ def _run_get_token_in_thread(
 
 def test_no_deadlock_multithread_same_provider_instance() -> None:
     """Concurrent calls from multiple threads should finish without deadlock."""
-    provider = GitHubAppTokenProvider(app_id="1", private_key="dummy")
-    fetch_calls = 0
+    fetch_calls = [0]
     fetch_calls_lock = threading.Lock()
-
-    async def fake_fetch(self: GitHubAppTokenProvider, repo: str) -> CachedToken:
-        nonlocal fetch_calls
-        with fetch_calls_lock:
-            fetch_calls += 1
-        await asyncio.sleep(0.1)
-        return CachedToken(token="thread-safe-token", expires_at=time.time() + 3600)
-
-    provider.fetch_token = types.MethodType(fake_fetch, provider)
+    provider = TestGitHubAppTokenProvider(
+        app_id="1",
+        private_key="dummy",
+        token_value="thread-safe-token",
+        fetch_calls=fetch_calls,
+        fetch_calls_lock=fetch_calls_lock,
+    )
 
     barrier = threading.Barrier(2)
     results: List[str] = []
@@ -75,27 +94,29 @@ def test_no_deadlock_multithread_same_provider_instance() -> None:
     assert all(not thread.is_alive() for thread in threads), "Thread join timeout"
     assert not errors, f"Unexpected thread errors: {errors}"
     assert results == ["thread-safe-token", "thread-safe-token"]
-    assert fetch_calls == 1
+    assert fetch_calls[0] == 1
 
 
 def test_no_deadlock_multithread_across_provider_instances() -> None:
     """Concurrent calls from multiple instances/threads should finish."""
-    providers = [
-        GitHubAppTokenProvider(app_id="1", private_key="dummy"),
-        GitHubAppTokenProvider(app_id="1", private_key="dummy"),
-    ]
-    fetch_calls = 0
+    fetch_calls = [0]
     fetch_calls_lock = threading.Lock()
-
-    async def fake_fetch(self: GitHubAppTokenProvider, repo: str) -> CachedToken:
-        nonlocal fetch_calls
-        with fetch_calls_lock:
-            fetch_calls += 1
-        await asyncio.sleep(0.1)
-        return CachedToken(token="shared-cache-token", expires_at=time.time() + 3600)
-
-    for provider in providers:
-        provider.fetch_token = types.MethodType(fake_fetch, provider)
+    providers = [
+        TestGitHubAppTokenProvider(
+            app_id="1",
+            private_key="dummy",
+            token_value="shared-cache-token",
+            fetch_calls=fetch_calls,
+            fetch_calls_lock=fetch_calls_lock,
+        ),
+        TestGitHubAppTokenProvider(
+            app_id="1",
+            private_key="dummy",
+            token_value="shared-cache-token",
+            fetch_calls=fetch_calls,
+            fetch_calls_lock=fetch_calls_lock,
+        ),
+    ]
 
     barrier = threading.Barrier(2)
     results: List[str] = []
@@ -122,4 +143,4 @@ def test_no_deadlock_multithread_across_provider_instances() -> None:
     assert all(not thread.is_alive() for thread in threads), "Thread join timeout"
     assert not errors, f"Unexpected thread errors: {errors}"
     assert results == ["shared-cache-token", "shared-cache-token"]
-    assert fetch_calls == 1
+    assert fetch_calls[0] == 1
