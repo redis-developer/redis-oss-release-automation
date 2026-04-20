@@ -5,6 +5,7 @@ from aiohttp import web
 from aiohttp.test_utils import AioHTTPTestCase
 
 from redis_release.github_client_async import GitHubClientAsync
+from redis_release.github_token_provider import GitHubDummyTokenProvider
 
 
 class TestGitHubClientAsync(AioHTTPTestCase):
@@ -75,7 +76,8 @@ class TestGitHubClientAsync(AioHTTPTestCase):
 
     async def test_no_link_header(self) -> None:
         """Test pagination with no Link header (single page response)."""
-        client = GitHubClientAsync(token="test-token")
+        token_provider = GitHubDummyTokenProvider(token="test-token")
+        client = GitHubClientAsync(token_provider=token_provider)
         url = self.server.make_url("/no-pagination")
         headers = {"Authorization": "Bearer test-token"}
 
@@ -98,7 +100,8 @@ class TestGitHubClientAsync(AioHTTPTestCase):
 
     async def test_array_pagination(self) -> None:
         """Test pagination with array response across multiple pages."""
-        client = GitHubClientAsync(token="test-token")
+        token_provider = GitHubDummyTokenProvider(token="test-token")
+        client = GitHubClientAsync(token_provider=token_provider)
         url = self.server.make_url("/array-pagination")
         headers = {"Authorization": "Bearer test-token"}
 
@@ -122,7 +125,8 @@ class TestGitHubClientAsync(AioHTTPTestCase):
 
     async def test_dict_pagination_with_merge_key(self) -> None:
         """Test pagination with dict response and merge_key."""
-        client = GitHubClientAsync(token="test-token")
+        token_provider = GitHubDummyTokenProvider(token="test-token")
+        client = GitHubClientAsync(token_provider=token_provider)
         url = self.server.make_url("/dict-pagination")
         headers = {"Authorization": "Bearer test-token"}
 

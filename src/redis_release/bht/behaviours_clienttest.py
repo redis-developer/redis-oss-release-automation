@@ -253,12 +253,12 @@ class ResolveClientVersion(ReleaseAction):
             return
 
         # Fetch tags matching version pattern from package_meta configuration
-        # ref_prefix and pattern are configurable per-package
-        ref_prefix = self.package_meta.version_ref_prefix
-        pattern = self.package_meta.version_ref_pattern
+        # Uses git ls-remote which doesn't require authentication for public repos
+        # and is not rate limited
         self.task = asyncio.create_task(
-            self.github_client.list_matching_refs(
-                self.package_meta.client_repo, ref_prefix=ref_prefix, pattern=pattern
+            self.github_client.list_remote_tags(
+                self.package_meta.client_repo,
+                pattern=self.package_meta.version_ref_pattern,
             )
         )
 
@@ -284,11 +284,8 @@ class ResolveClientVersion(ReleaseAction):
             sorted_tags = self._sort_tags(self.tags)
 
             if sorted_tags:
-                latest_tag_ref = sorted_tags[
-                    0
-                ]  # First is the latest (descending order)
-                # Strip "tags/" prefix to get the actual tag name (e.g., "v5.2.1")
-                latest_tag = latest_tag_ref[5:]  # Remove "tags/" prefix
+                # list_remote_tags returns tag names directly (e.g., "v5.2.1")
+                latest_tag = sorted_tags[0]  # First is the latest (descending order)
                 self.package_meta.client_ref = latest_tag
                 self.feedback_message = f"Client ref set to {latest_tag}"
                 if self.log_once(

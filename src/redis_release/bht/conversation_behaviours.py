@@ -216,7 +216,7 @@ class RunReleaseCommand(ReleaseAction):
         try:
             with initialize_tree_and_state(self.config, release_args) as (tree, _):
                 loop.run_until_complete(
-                    async_tick_tock(tree, cutoff=2000, shutdown_event=shutdown_event)
+                    async_tick_tock(tree, cutoff=5000, shutdown_event=shutdown_event)
                 )
             self.logger.info(f"Release {release_args.release_tag} completed")
 

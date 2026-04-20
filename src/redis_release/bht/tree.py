@@ -5,7 +5,6 @@ the tree.
 
 import asyncio
 import logging
-import os
 import signal
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -22,6 +21,10 @@ from rich.text import Text
 
 from ..config import Config, PackageConfig, custom_build_package_names
 from ..github_client_async import GitHubClientAsync
+from ..github_token_provider import (
+    GitHubDummyTokenProvider,
+    create_token_provider_from_env,
+)
 from ..models import PackageType, ReleaseArgs
 from ..state_console import print_state_table
 from ..state_manager import S3StateStorage, StateManager, StateStorage
@@ -203,7 +206,8 @@ def initialize_tree_and_state(
     storage: Optional[StateStorage] = None,
     read_only: bool = False,
 ) -> Iterator[Tuple[BehaviourTree, StateManager]]:
-    github_client = GitHubClientAsync(token=os.getenv("GITHUB_TOKEN") or "")
+    token_provider = create_token_provider_from_env()
+    github_client = GitHubClientAsync(token_provider=token_provider)
 
     if storage is None:
         storage = S3StateStorage()
@@ -406,7 +410,8 @@ class TreeInspector:
         workflow = state.packages["inspected"].build
         package_meta = state.packages["inspected"].meta
         release_meta = state.meta
-        github_client = GitHubClientAsync(token="dummy")
+        token_provider = GitHubDummyTokenProvider()
+        github_client = GitHubClientAsync(token_provider=token_provider)
         package = state.packages["inspected"]
         log_prefix = "test"
 
