@@ -84,7 +84,7 @@ packages:
     package_display_name: Redis-Py Tests
     client_repo: redis/redis-py
     # if not set - detect latest client version
-    # client_ref: master
+    client_ref: master
     needs:
       - clientimage
     ref: main
@@ -97,7 +97,7 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Jedis Tests
     client_repo: redis/jedis
-    # client_ref: master
+    client_ref: master
     needs:
       - clientimage
     ref: main
