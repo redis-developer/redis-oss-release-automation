@@ -236,9 +236,9 @@ class NeedToReleaseDocker(LoggingAction):
             result = Status.FAILURE
 
         if self.release_version is not None:
-            if self.release_version.major < 8:
+            if self.release_version.major < 6:
                 self.feedback_message = (
-                    f"Skip release for docker {str(self.release_version)} < 8.0"
+                    f"Skip release for docker {str(self.release_version)} < 6.0"
                 )
                 result = Status.FAILURE
             else:
