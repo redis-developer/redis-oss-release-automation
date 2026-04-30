@@ -92,7 +92,7 @@ packages:
     description: "redis-py python client for running redis tests"
     allow_custom_build: true
     build_workflow: redis-py.yml
-    build_timeout_minutes: 50
+    build_timeout_minutes: 150
   jedis:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Jedis Tests
