@@ -24,7 +24,7 @@ from .config import load_config
 from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
 from .models import ReleaseArgs, SlackArgs
-from .state_console import print_state_table
+from .state_console import StateFormat, print_state
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
 
@@ -182,6 +182,11 @@ def release(
         "--log-file-level",
         help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
     ),
+    state_output_format: StateFormat = typer.Option(
+        StateFormat.TABLE,
+        "--state-output-format",
+        help="Output format for the final state print",
+    ),
 ) -> None:
     """Run release using behaviour tree implementation."""
     setup_logging(log_file=log_file, log_file_level=log_file_level)
@@ -206,7 +211,9 @@ def release(
     )
 
     # Use context manager version with automatic lock management
-    with initialize_tree_and_state(config, args) as (tree, _):
+    with initialize_tree_and_state(
+        config, args, state_output_format=state_output_format
+    ) as (tree, _):
         final_status = asyncio.run(run_tree_with_shutdown(tree, cutoff=tree_cutoff))
 
     if final_status == Status.FAILURE:
@@ -225,6 +232,11 @@ def status(
         None,
         "--override-state-name",
         help="Custom state name to use instead of release tag, to be able to make test runs without affecting production state",
+    ),
+    state_output_format: StateFormat = typer.Option(
+        StateFormat.TABLE,
+        "--state-output-format",
+        help="Output format for the console state display",
     ),
     slack: bool = typer.Option(False, "--slack", help="Post status to Slack"),
     slack_channel_id: Optional[str] = typer.Option(
@@ -271,7 +283,7 @@ def status(
         read_only=True,
     ) as state_syncer:
         # Always print to console
-        print_state_table(state_syncer.state)
+        print_state(state_syncer.state, format=state_output_format)
 
         if slack:
             printer = init_slack_printer(

@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import List, Optional, Union
 
 from rich.console import Console
@@ -5,6 +6,12 @@ from rich.table import Table
 
 from redis_release.bht.state import Package, ReleaseState, Workflow
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
+from redis_release.state_slack import get_workflow_link
+
+
+class StateFormat(str, Enum):
+    TABLE = "table"
+    TEXT = "text"
 
 
 class ConsoleStatePrinter:
@@ -18,7 +25,18 @@ class ConsoleStatePrinter:
         """
         self.console = console or Console()
 
-    def print_state_table(self, state: ReleaseState) -> None:
+    def print_state(
+        self,
+        state: ReleaseState,
+        format: StateFormat = StateFormat.TABLE,
+    ) -> None:
+        """Print the release state in the requested format."""
+        if format == StateFormat.TEXT:
+            self._print_state_text(state)
+        else:
+            self._print_state_table(state)
+
+    def _print_state_table(self, state: ReleaseState) -> None:
         """Print table showing the release state.
 
         Args:
@@ -146,15 +164,82 @@ class ConsoleStatePrinter:
 
         return "\n".join(details)
 
+    def _print_state_text(self, state: ReleaseState) -> None:
+        """Print the release state as plain (Rich-styled) text, no table."""
+        self.console.print()
+        self.console.print(
+            f"[bold cyan]Release State: {state.meta.tag or 'N/A'}[/bold cyan]"
+        )
+        self.console.print()
 
-def print_state_table(state: ReleaseState, console: Optional[Console] = None) -> None:
-    """Print table showing the release state.
+        for package_name, package in sorted(state.packages.items()):
+            display_model = get_display_model(package.meta)
+            build_status = display_model.get_workflow_status(package, package.build)
+            publish_status = None
+            if package.publish is not None:
+                publish_status = display_model.get_workflow_status(
+                    package, package.publish
+                )
 
-    This is a convenience function that creates a ConsoleStatePrinter and prints the state.
+            # Package-level state: prefer publish if it has progressed, else build.
+            overall = (
+                publish_status[0]
+                if publish_status is not None
+                and publish_status[0] != StepStatus.NOT_STARTED
+                else build_status[0]
+            )
+            if overall == StepStatus.NOT_STARTED:
+                continue
+            self.console.print(
+                f"[bold]{package_name}[/bold]  {self.get_step_status_display(overall)}"
+            )
+
+            repo = package.meta.repo
+            self.console.print(
+                f"  build   {self.get_step_status_display(build_status[0])}"
+                f"{self._url_suffix(repo, package.build, build_status[0])}"
+            )
+            if package.publish is not None and publish_status is not None:
+                self.console.print(
+                    f"  publish {self.get_step_status_display(publish_status[0])}"
+                    f"{self._url_suffix(repo, package.publish, publish_status[0])}"
+                )
+
+            details: List[str] = []
+            if build_status[0] not in (StepStatus.NOT_STARTED, StepStatus.SUCCEEDED):
+                details.extend(self.collect_text_details(build_status[1]))
+            if publish_status is not None and publish_status[0] not in (
+                StepStatus.NOT_STARTED,
+                StepStatus.SUCCEEDED,
+            ):
+                details.extend(self.collect_text_details(publish_status[1]))
+
+            if details:
+                self.console.print("  details")
+                for line in details:
+                    self.console.print(f"    {line}")
+
+            self.console.print()
+
+    @staticmethod
+    def _url_suffix(repo: str, workflow: Workflow, status: StepStatus) -> str:
+        if status == StepStatus.NOT_STARTED:
+            return ""
+        link = workflow.url or get_workflow_link(repo, workflow.run_id)
+        return f"  {link}" if link else ""
+
+
+def print_state(
+    state: ReleaseState,
+    format: StateFormat = StateFormat.TABLE,
+    console: Optional[Console] = None,
+) -> None:
+    """Print the release state in the requested format.
 
     Args:
         state: The ReleaseState to display
+        format: Output format (table or text)
         console: Optional Rich Console instance (creates new one if not provided)
     """
     printer = ConsoleStatePrinter(console)
-    printer.print_state_table(state)
+    printer.print_state(state, format=format)

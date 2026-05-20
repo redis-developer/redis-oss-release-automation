@@ -26,7 +26,7 @@ from ..github_token_provider import (
     create_token_provider_from_env,
 )
 from ..models import PackageType, ReleaseArgs
-from ..state_console import print_state_table
+from ..state_console import StateFormat, print_state
 from ..state_manager import S3StateStorage, StateManager, StateStorage
 from ..state_slack import SlackStatePrinter, init_slack_printer
 from .composites import ParallelBarrier
@@ -210,6 +210,7 @@ def initialize_tree_and_state(
     args: ReleaseArgs,
     storage: Optional[StateStorage] = None,
     read_only: bool = False,
+    state_output_format: StateFormat = StateFormat.TABLE,
 ) -> Iterator[Tuple[BehaviourTree, StateManager]]:
     token_provider = create_token_provider_from_env()
     github_client = GitHubClientAsync(token_provider=token_provider)
@@ -287,7 +288,7 @@ def initialize_tree_and_state(
             if slack_printer:
                 slack_printer.add_status(state_syncer.state)
                 slack_printer.stop()
-            print_state_table(state_syncer.state)
+            print_state(state_syncer.state, format=state_output_format)
 
 
 def log_tree_state_with_markup(tree: BehaviourTree) -> None:
