@@ -6,7 +6,7 @@ from rich.table import Table
 
 from redis_release.bht.state import Package, ReleaseState, Workflow
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
-from redis_release.state_slack import get_workflow_link
+from redis_release.state_simplified import StateSimplifier
 
 
 class StateFormat(str, Enum):
@@ -60,7 +60,7 @@ class ConsoleStatePrinter:
         )
         table.add_column("Details", style="yellow", width=100)
 
-        for package_name, package in sorted(state.packages.items()):
+        for package_name, package in state.packages.items():
             build_status = self.get_workflow_status_display(package, package.build)
 
             publish_status = ""
@@ -172,47 +172,29 @@ class ConsoleStatePrinter:
         )
         self.console.print()
 
-        for package_name, package in sorted(state.packages.items()):
-            display_model = get_display_model(package.meta)
-            build_status = display_model.get_workflow_status(package, package.build)
-            publish_status = None
-            if package.publish is not None:
-                publish_status = display_model.get_workflow_status(
-                    package, package.publish
-                )
-
-            # Package-level state: prefer publish if it has progressed, else build.
-            overall = (
-                publish_status[0]
-                if publish_status is not None
-                and publish_status[0] != StepStatus.NOT_STARTED
-                else build_status[0]
-            )
-            if overall == StepStatus.NOT_STARTED:
-                continue
+        for pkg in StateSimplifier(state).packages:
             self.console.print(
-                f"[bold]{package_name}[/bold]  {self.get_step_status_display(overall)}"
+                f"[bold]{pkg.package_name}[/bold]  "
+                f"{self.get_step_status_display(pkg.status)}"
             )
-
-            repo = package.meta.repo
             self.console.print(
-                f"  build   {self.get_step_status_display(build_status[0])}"
-                f"{self._url_suffix(repo, package.build, build_status[0])}"
+                f"  build   {self.get_step_status_display(pkg.build.status)}"
+                f"{self._url_suffix(pkg.build.url)}"
             )
-            if package.publish is not None and publish_status is not None:
+            if pkg.publish is not None:
                 self.console.print(
-                    f"  publish {self.get_step_status_display(publish_status[0])}"
-                    f"{self._url_suffix(repo, package.publish, publish_status[0])}"
+                    f"  publish {self.get_step_status_display(pkg.publish.status)}"
+                    f"{self._url_suffix(pkg.publish.url)}"
                 )
 
             details: List[str] = []
-            if build_status[0] not in (StepStatus.NOT_STARTED, StepStatus.SUCCEEDED):
-                details.extend(self.collect_text_details(build_status[1]))
-            if publish_status is not None and publish_status[0] not in (
+            if pkg.build.status not in (StepStatus.NOT_STARTED, StepStatus.SUCCEEDED):
+                details.extend(self.collect_text_details(pkg.build.steps))
+            if pkg.publish is not None and pkg.publish.status not in (
                 StepStatus.NOT_STARTED,
                 StepStatus.SUCCEEDED,
             ):
-                details.extend(self.collect_text_details(publish_status[1]))
+                details.extend(self.collect_text_details(pkg.publish.steps))
 
             if details:
                 self.console.print("  details")
@@ -222,11 +204,8 @@ class ConsoleStatePrinter:
             self.console.print()
 
     @staticmethod
-    def _url_suffix(repo: str, workflow: Workflow, status: StepStatus) -> str:
-        if status == StepStatus.NOT_STARTED:
-            return ""
-        link = workflow.url or get_workflow_link(repo, workflow.run_id)
-        return f"  {link}" if link else ""
+    def _url_suffix(url: Optional[str]) -> str:
+        return f"  {url}" if url else ""
 
 
 def print_state(

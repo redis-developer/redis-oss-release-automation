@@ -1,6 +1,7 @@
 """Redis OSS Release Automation CLI."""
 
 import asyncio
+import json
 import logging
 import os
 from typing import List, Optional
@@ -25,6 +26,7 @@ from .conversation_models import ConversationArgs, InboxMessage
 from .logging_config import setup_logging
 from .models import ReleaseArgs, SlackArgs
 from .state_console import StateFormat, print_state
+from .state_simplified import StateSimplifier
 from .state_manager import InMemoryStateStorage, S3StateStorage, StateManager
 from .state_slack import init_slack_printer
 
@@ -313,6 +315,11 @@ def export_state(
         "--override-state-name",
         help="Custom state name to use instead of release tag",
     ),
+    simplified: bool = typer.Option(
+        False,
+        "--simplified",
+        help="Export a simplified per-package summary (status, build/publish status + url) instead of the full state",
+    ),
     log_file: Optional[str] = typer.Option(
         None,
         "--log-file",
@@ -341,8 +348,15 @@ def export_state(
         args=args,
         read_only=True,
     ) as state_syncer:
+        if simplified:
+            payload = json.dumps(
+                StateSimplifier(state_syncer.state).to_json(), indent=2
+            )
+        else:
+            payload = state_syncer.state.model_dump_json(indent=2)
+
         with open(output_file, "w") as f:
-            f.write(state_syncer.state.model_dump_json(indent=2))
+            f.write(payload)
 
     logger.info(f"Exported state to {output_file}")
 
