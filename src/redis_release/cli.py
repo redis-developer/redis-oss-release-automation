@@ -285,6 +285,57 @@ def status(
 
 
 @app.command()
+def export_state(
+    release_tag: str = typer.Argument(..., help="Release tag (e.g., 8.4-m01-int1)"),
+    output_file: str = typer.Option(
+        ...,
+        "--output-file",
+        "-o",
+        help="Path to write the JSON state to",
+    ),
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file (default: config.yaml)"
+    ),
+    override_state_name: Optional[str] = typer.Option(
+        None,
+        "--override-state-name",
+        help="Custom state name to use instead of release tag",
+    ),
+    log_file: Optional[str] = typer.Option(
+        None,
+        "--log-file",
+        help="Path to log file (if not provided, uses LOG_FILE env var)",
+    ),
+    log_file_level: Optional[str] = typer.Option(
+        None,
+        "--log-file-level",
+        help="Log level for file output (default: debug). Supports: debug, info, warning, error, critical",
+    ),
+) -> None:
+    """Export release state to a JSON file."""
+    setup_logging(log_file=log_file, log_file_level=log_file_level)
+    config_path = config_file or "config.yaml"
+    config = load_config(config_path)
+
+    args = ReleaseArgs(
+        release_tag=release_tag,
+        force_rebuild=[],
+        override_state_name=override_state_name,
+    )
+
+    with StateManager(
+        storage=S3StateStorage(),
+        config=config,
+        args=args,
+        read_only=True,
+    ) as state_syncer:
+        with open(output_file, "w") as f:
+            f.write(state_syncer.state.model_dump_json(indent=2))
+
+    logger.info(f"Exported state to {output_file}")
+
+
+@app.command()
 def slack_bot(
     slack_bot_token: Optional[str] = typer.Option(
         None,
