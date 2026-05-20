@@ -48,7 +48,7 @@ async def async_tick_tock(
     tree: BehaviourTree,
     cutoff: int = 100,
     shutdown_event: Optional[asyncio.Event] = None,
-) -> None:
+) -> Status:
     """Drive Behaviour tree using async event loop
 
     The tree is always ticked once.
@@ -60,6 +60,9 @@ async def async_tick_tock(
         tree: The behaviour tree to tick
         cutoff: Maximum number of ticks before giving up
         shutdown_event: Optional event to signal graceful shutdown
+
+    Returns:
+        The final status of the tree root when the loop exits.
 
     """
     while True:
@@ -88,6 +91,8 @@ async def async_tick_tock(
                 break
         else:
             await asyncio.wait(other_tasks, return_when=asyncio.FIRST_COMPLETED)
+
+    return tree.root.status
 
 
 async def _cancel_all_tasks() -> None:
@@ -521,12 +526,15 @@ def create_selector_branch() -> Selector:
     return s
 
 
-async def run_tree_with_shutdown(tree: BehaviourTree, cutoff: int) -> None:
+async def run_tree_with_shutdown(tree: BehaviourTree, cutoff: int) -> Status:
     """Run the behaviour tree with graceful shutdown on SIGINT/SIGTERM.
 
     Args:
         tree: The behaviour tree to run
         cutoff: Maximum number of ticks before giving up
+
+    Returns:
+        The final status of the tree root when execution ends.
     """
     shutdown_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -544,7 +552,9 @@ async def run_tree_with_shutdown(tree: BehaviourTree, cutoff: int) -> None:
             pass
 
     try:
-        await async_tick_tock(tree, cutoff=cutoff, shutdown_event=shutdown_event)
+        return await async_tick_tock(
+            tree, cutoff=cutoff, shutdown_event=shutdown_event
+        )
     finally:
         # Cleanup signal handlers
         for sig in (signal.SIGINT, signal.SIGTERM):

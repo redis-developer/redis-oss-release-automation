@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import typer
 from openai import OpenAI
+from py_trees.common import Status
 from py_trees.display import render_dot_tree, unicode_tree
 
 from redis_release.bht.tree import run_tree_with_shutdown
@@ -206,7 +207,12 @@ def release(
 
     # Use context manager version with automatic lock management
     with initialize_tree_and_state(config, args) as (tree, _):
-        asyncio.run(run_tree_with_shutdown(tree, cutoff=tree_cutoff))
+        final_status = asyncio.run(run_tree_with_shutdown(tree, cutoff=tree_cutoff))
+
+    if final_status == Status.FAILURE:
+        raise typer.Exit(1)
+    if final_status != Status.SUCCESS:
+        raise typer.Exit(2)
 
 
 @app.command()
