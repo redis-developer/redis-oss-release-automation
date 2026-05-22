@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from redis_release.bht.state import ReleaseState, Workflow
+from redis_release.github_client_async import get_workflow_link
 from redis_release.state_display import Section, Step, StepStatus, get_display_model
-from redis_release.state_slack import get_workflow_link
 
 
 @dataclass

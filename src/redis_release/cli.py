@@ -357,8 +357,7 @@ def export_state(
 
         with open(output_file, "w") as f:
             f.write(payload)
-
-    logger.info(f"Exported state to {output_file}")
+        logger.info(f"[green]{output_file}[/green] was written successfully")
 
 
 @app.command()

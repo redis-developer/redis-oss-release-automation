@@ -804,3 +804,10 @@ class GitHubClientAsync:
         except Exception as e:
             logger.error(f"[red]Error listing remote tags for {repo}: {e}[/red]")
             return []
+
+
+def get_workflow_link(repo: str, run_id: Optional[int]) -> Optional[str]:
+    """Generate GitHub workflow URL from repo and run_id."""
+    if not run_id or not repo:
+        return None
+    return f"https://github.com/{repo}/actions/runs/{run_id}"

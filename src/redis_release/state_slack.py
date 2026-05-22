@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from redis_release.github_client_async import get_workflow_link
+
 # Max number of slack status messages in queue
 MAX_QUEUE_SIZE = 10
 
@@ -26,13 +28,6 @@ from .state_display import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def get_workflow_link(repo: str, run_id: Optional[int]) -> Optional[str]:
-    """Generate GitHub workflow URL from repo and run_id."""
-    if not run_id or not repo:
-        return None
-    return f"https://github.com/{repo}/actions/runs/{run_id}"
 
 
 def init_slack_printer(
@@ -130,6 +125,22 @@ class SlackStatePrinter:
         self.message_queue: Queue[Optional[List[Optional[Dict[str, Any]]]]] = Queue()
         self._queue_thread = threading.Thread(target=self.process_queue, daemon=False)
         self._queue_thread.start()
+
+    def get_message_permalink(self) -> Optional[str]:
+        """Return a URL pointing to the posted slack message, or None if no
+        message has been posted yet."""
+        if self.message_ts is None:
+            return None
+        return (
+            f"https://redis.slack.com/archives/{self.channel_id}/"
+            f"p{self.message_ts.replace('.', '')}"
+        )
+
+    def log_message_url(self) -> None:
+        """Log the URL of the posted slack message, if any."""
+        permalink = self.get_message_permalink()
+        if permalink:
+            logger.info(f"Slack URL: [cyan]{permalink}[/cyan]")
 
     def format_package_name(
         self,
@@ -396,6 +407,7 @@ class SlackStatePrinter:
                     f"Posted Slack message ts={self.message_ts}"
                     + (f" in thread {self.thread_ts}" if self.thread_ts else "")
                 )
+                self.log_message_url()
             else:
                 # Update existing message
                 # Filter out None values for Slack API compatibility

@@ -187,7 +187,7 @@ class StateManager:
         if not self.storage.acquire_lock(self.state_name):
             raise RuntimeError(f"Failed to acquire lock for tag: {self.state_name}")
         self._lock_acquired = True
-        logger.info(f"Lock acquired for tag: {self.state_name}")
+        logger.info(f"Lock acquired for tag: [yellow]{self.state_name}[/yellow]")
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

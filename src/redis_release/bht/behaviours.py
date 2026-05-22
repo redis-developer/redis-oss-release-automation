@@ -26,7 +26,7 @@ from py_trees.common import Status
 from redis_release.bht.state import reset_model_to_defaults
 from redis_release.config import NANOID_SIZE
 
-from ..github_client_async import GitHubClientAsync
+from ..github_client_async import GitHubClientAsync, get_workflow_link
 from ..logging_config import log_once
 from ..models import RedisVersion, ReleaseType, WorkflowConclusion, WorkflowStatus
 from .logging_wrapper import PyTreesLoggerWrapper
@@ -355,6 +355,11 @@ class IdentifyWorkflowByUUID(ReleaseAction):
                 self.logger.info(
                     f"[green]Workflow found successfully:[/green] uuid: {self.workflow.uuid}, run_id: {self.workflow.run_id}"
                 )
+                workflow_url = get_workflow_link(
+                    self.package_meta.repo, self.workflow.run_id
+                )
+                if workflow_url:
+                    self.logger.info(f"Workflow URL: [cyan]{workflow_url}[/cyan]")
             self.feedback_message = (
                 f"Workflow identified, run_id: {self.workflow.run_id}"
             )
