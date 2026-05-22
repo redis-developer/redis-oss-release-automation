@@ -165,7 +165,8 @@ class ArgsHelper:
             ValueError: If invalid package names are provided in force_rebuild or only_packages.
         """
         # Determine valid packages based on custom_build mode
-        if llm_args.custom_build:
+        # (nightly_build implies custom_build).
+        if llm_args.custom_build or llm_args.nightly_build:
             valid_packages = set(custom_build_package_names(self.config))
         else:
             valid_packages = set(self.config.packages.keys())
@@ -199,6 +200,7 @@ class ArgsHelper:
             force_rebuild=llm_args.force_rebuild,
             only_packages=llm_args.only_packages,
             custom_build=llm_args.custom_build,
+            nightly_build=llm_args.nightly_build,
             module_versions=module_versions,
         )
         if self.state.slack_args:

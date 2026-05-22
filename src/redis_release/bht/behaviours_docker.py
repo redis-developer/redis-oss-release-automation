@@ -38,9 +38,6 @@ class DockerBuildWorkflowInputs(ReleaseAction):
             self.workflow.inputs["run_type"] = "release"
         elif self.release_meta.tag == "unstable":
             self.workflow.inputs["run_type"] = "unstable"
-            # Set all module versions to "master" for unstable releases
-            for module in RedisModule:
-                self.workflow.inputs[f"{module.value}_version"] = "master"
         else:
             self.workflow.inputs["run_type"] = "custom"
 
@@ -51,6 +48,13 @@ class DockerBuildWorkflowInputs(ReleaseAction):
 
         if self.release_meta.is_custom_build:
             self.workflow.inputs["run_type"] = "custom"
+
+        # nightly_build enforces nightly build configuration: each module is
+        # master and run_type is set to nightly. custom_build is implied.
+        if self.release_meta.is_nightly_build:
+            self.workflow.inputs["run_type"] = "nightly"
+            for module in RedisModule:
+                self.workflow.inputs[f"{module.value}_version"] = "master"
 
         if self.release_meta.ephemeral.slack_channel_id is not None:
             self.workflow.inputs["slack_channel_id"] = (
