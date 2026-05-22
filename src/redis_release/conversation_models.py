@@ -148,6 +148,13 @@ class LLMReleaseArgs(BaseModel):
     custom_build: bool = Field(
         False, description="Whether this is a custom build (True) or a release (False)"
     )
+    nightly_build: bool = Field(
+        False,
+        description=(
+            "Enforce nightly build configuration: each module is master and "
+            "run_type is set to nightly. custom_build is implied."
+        ),
+    )
     module_versions: List[ModuleVersion] = Field(
         default_factory=list,
         description="List of module versions to use (e.g., [{'module_name': 'redisjson', 'version': '2.4.0'}])",

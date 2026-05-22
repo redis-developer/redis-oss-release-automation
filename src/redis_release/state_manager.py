@@ -289,6 +289,8 @@ class StateManager:
 
             if self.args.custom_build:
                 state.meta.is_custom_build = True
+            if self.args.nightly_build:
+                state.meta.is_nightly_build = True
 
     def load(self) -> Optional[ReleaseState]:
         """Load state from storage backend."""

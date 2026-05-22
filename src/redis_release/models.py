@@ -5,7 +5,7 @@ import re
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class WorkflowType(str, Enum):
@@ -224,6 +224,15 @@ class ReleaseArgs(BaseModel):
 
     slack_args: Optional["SlackArgs"] = None
     custom_build: bool = False
+    # nightly_build enforces nightly build configuration: each module is master
+    # and run_type is set to nightly. custom_build is implied.
+    nightly_build: bool = False
+
+    @model_validator(mode="after")
+    def _nightly_implies_custom(self) -> "ReleaseArgs":
+        if self.nightly_build:
+            self.custom_build = True
+        return self
 
 
 class SlackArgs(BaseModel):

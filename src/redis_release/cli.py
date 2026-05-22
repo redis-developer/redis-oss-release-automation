@@ -67,6 +67,11 @@ def release_print(
         "--custom-build",
         help="Enforce custom build mode, this will interpret release tag as a git ref (branch or tag) and use only packages supporting custom builds",
     ),
+    nightly_build: bool = typer.Option(
+        False,
+        "--nightly-build",
+        help="Enforce nightly build configuration: each module is master and run_type is set to nightly. custom_build is implied.",
+    ),
 ) -> None:
     """Print and render (using graphviz) the release behaviour tree or a specific PPA."""
     config_path = config_file or "config.yaml"
@@ -78,6 +83,7 @@ def release_print(
         force_rebuild=[],
         only_packages=only_packages or [],
         custom_build=custom_build,
+        nightly_build=nightly_build,
     )
     setup_logging()
 
@@ -154,6 +160,11 @@ def release(
         "--custom-build",
         help="Enforce custom build mode, this will interpret release tag as a git ref (branch or tag) and use only packages supporting custom builds",
     ),
+    nightly_build: bool = typer.Option(
+        False,
+        "--nightly-build",
+        help="Enforce nightly build configuration: each module is master and run_type is set to nightly. custom_build is implied.",
+    ),
     slack_token: Optional[str] = typer.Option(
         None,
         "--slack-token",
@@ -204,6 +215,7 @@ def release(
         override_state_name=override_state_name,
         module_versions=parse_module_versions(module_versions),
         custom_build=custom_build,
+        nightly_build=nightly_build,
         slack_args=SlackArgs(
             bot_token=slack_token,
             channel_id=slack_channel_id,
