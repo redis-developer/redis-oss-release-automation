@@ -553,9 +553,7 @@ async def run_tree_with_shutdown(tree: BehaviourTree, cutoff: int) -> Status:
             pass
 
     try:
-        return await async_tick_tock(
-            tree, cutoff=cutoff, shutdown_event=shutdown_event
-        )
+        return await async_tick_tock(tree, cutoff=cutoff, shutdown_event=shutdown_event)
     finally:
         # Cleanup signal handlers
         for sig in (signal.SIGINT, signal.SIGTERM):
