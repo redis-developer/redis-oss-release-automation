@@ -37,6 +37,8 @@ jobs:
       ref: ${{ inputs.ref }}
       repository: ${{ inputs.repository }}
       upload_coverage: false
+      # skip, since units doesn't actually test the server
+      skip_unit_tests: true
   result:
     name: Create result artifact
     needs: tests
