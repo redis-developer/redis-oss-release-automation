@@ -84,7 +84,7 @@ packages:
     package_display_name: Redis-Py Tests
     client_repo: redis/redis-py
     # if not set - detect latest client version
-    client_ref: master
+    # client_ref: master
     needs:
       - clientimage
     ref: main
