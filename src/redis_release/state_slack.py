@@ -185,7 +185,11 @@ class SlackStatePrinter:
     ) -> List[Union[Dict[str, Any], None]]:
         blocks: List[Union[Dict[str, Any], None]] = []
 
-        header_prefix = "Custom Build" if state.meta.is_custom_build else "Release"
+        header_prefix = "Release"
+        if state.meta.is_nightly_build:
+            header_prefix = "Nightly Build"
+        elif state.meta.is_custom_build:
+            header_prefix = "Custom Build"
 
         aggregated_status = self.aggregate_status(all_workflow_statuses)
         status_emoji = self.get_step_status_emoji_with_name(aggregated_status)

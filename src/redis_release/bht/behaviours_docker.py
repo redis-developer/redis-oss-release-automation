@@ -2,7 +2,7 @@ from typing import Optional
 
 from py_trees.common import Status
 
-from ..models import RedisModule, RedisVersion, ReleaseType
+from ..models import RedisVersion, ReleaseType
 from .behaviours import IdentifyTargetRef, LoggingAction, ReleaseAction
 from .state import DockerMeta, ReleaseMeta, Workflow
 
@@ -43,18 +43,20 @@ class DockerBuildWorkflowInputs(ReleaseAction):
 
         if self.package_meta.module_versions:
             self.workflow.inputs["run_type"] = "custom"
-            for module, version in self.package_meta.module_versions.items():
-                self.workflow.inputs[f"{module.value}_version"] = version
 
         if self.release_meta.is_custom_build:
             self.workflow.inputs["run_type"] = "custom"
 
-        # nightly_build enforces nightly build configuration: each module is
-        # master and run_type is set to nightly. custom_build is implied.
+        # nightly_build sets run_type to nightly. The module versions (master)
+        # are set at the ReleaseArgs level and flow through package_meta.module_versions,
+        # so the state reflects them and displays correctly.
         if self.release_meta.is_nightly_build:
             self.workflow.inputs["run_type"] = "nightly"
-            for module in RedisModule:
-                self.workflow.inputs[f"{module.value}_version"] = "master"
+
+        # Set module version inputs from whatever is present in the model
+        if self.package_meta.module_versions:
+            for module, version in self.package_meta.module_versions.items():
+                self.workflow.inputs[f"{module.value}_version"] = version
 
         if self.release_meta.ephemeral.slack_channel_id is not None:
             self.workflow.inputs["slack_channel_id"] = (

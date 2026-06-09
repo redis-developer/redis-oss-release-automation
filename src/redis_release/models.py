@@ -232,6 +232,7 @@ class ReleaseArgs(BaseModel):
     def _nightly_implies_custom(self) -> "ReleaseArgs":
         if self.nightly_build:
             self.custom_build = True
+            self.module_versions = {module: "master" for module in RedisModule}
         return self
 
 
