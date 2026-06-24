@@ -125,7 +125,7 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     package_display_name: Go-Redis Tests
     client_repo: redis/go-redis
-    # client_ref: master
+    client_ref: master
     needs:
       - clientimage
     ref: main
