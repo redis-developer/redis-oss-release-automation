@@ -1,0 +1,54 @@
+name: "Determine module build system"
+description: "Determines whether Redis should be built with the modern modules build flow"
+
+inputs:
+  release_tag:
+    description: "Release tag, empty PR build tag, or unstable"
+    required: false
+    default: ""
+
+outputs:
+  MODERN_MODULES_BUILD:
+    description: "true when Redis should use the modern modules build flow"
+    value: ${{ steps.determine.outputs.MODERN_MODULES_BUILD }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Determine module build system
+      id: determine
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        version="${{ inputs.release_tag }}"
+        if [ -z "$version" ] && [ -f .redis_version ]; then
+          version="$(cat .redis_version)"
+        fi
+
+        modern_modules_build=false
+        if [ "$version" = "unstable" ]; then
+          modern_modules_build=true
+        elif [ -n "$version" ]; then
+          uv tool install 'redis-version @ git+https://github.com/redis/redis-oss-release-automation.git@master#subdirectory=packages/redis-version'
+          export PATH="$HOME/.local/bin:$PATH"
+
+          set +e
+          redis-version compare "$version" '>=' '8.10-rc1'
+          compare_rc=$?
+          set -e
+
+          case "$compare_rc" in
+            0) modern_modules_build=true ;;
+            1) modern_modules_build=false ;;
+            2) modern_modules_build=false ;;
+            *) exit "$compare_rc" ;;
+          esac
+        fi
+
+        echo "Version for module build decision: ${version:-<empty>}"
+        echo "MODERN_MODULES_BUILD=$modern_modules_build"
+        echo "MODERN_MODULES_BUILD=$modern_modules_build" >> "$GITHUB_OUTPUT"
