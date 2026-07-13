@@ -12,18 +12,28 @@ if [ -z "$TAG" ]; then
     exit 1
 fi
 
-# Construct Redis archive URL
-REDIS_ARCHIVE_URL="https://github.com/redis/redis/archive/refs/tags/${TAG}.tar.gz"
-#REDIS_ARCHIVE_URL="https://download.redis.io/releases/redis-${TAG}.tar.gz"
-echo "REDIS_ARCHIVE_URL: $REDIS_ARCHIVE_URL"
-
-# Download the Redis archive
+# Figure out the correct URL for the Redis release archive. Prefer a bundled
+# redis-full.tar.gz release asset (Redis core + modules) when published for this
+# tag; otherwise fall back to the plain tag source archive.
 TEMP_ARCHIVE="/tmp/redis-${TAG}.tar.gz"
-echo "Downloading Redis archive to $TEMP_ARCHIVE..."
-if ! curl -sfL -o "$TEMP_ARCHIVE" "$REDIS_ARCHIVE_URL"; then
-    echo "Error: Failed to download Redis archive from $REDIS_ARCHIVE_URL"
+REDIS_ARCHIVE_URL=""
+for URL in \
+    "https://github.com/redis/redis/releases/download/${TAG}/redis-full.tar.gz" \
+    "https://github.com/redis/redis/archive/refs/tags/${TAG}.tar.gz"; do
+    echo "Trying Redis archive URL: $URL"
+    if curl -sfL -o "$TEMP_ARCHIVE" "$URL"; then
+        REDIS_ARCHIVE_URL="$URL"
+        break
+    fi
+    rm -f "$TEMP_ARCHIVE"
+done
+
+if [ -z "$REDIS_ARCHIVE_URL" ]; then
+    echo "Error: Failed to download Redis archive for $TAG"
     exit 1
 fi
+
+echo "REDIS_ARCHIVE_URL: $REDIS_ARCHIVE_URL"
 
 # Calculate SHA256 sum
 echo "Calculating SHA256 sum..."
