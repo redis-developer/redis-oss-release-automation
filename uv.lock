@@ -6,6 +6,12 @@ resolution-markers = [
     "python_full_version < '3.10'",
 ]
 
+[manifest]
+members = [
+    "redis-release-cli",
+    "redis-version",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
@@ -2128,6 +2134,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyjwt" },
     { name = "pyyaml" },
+    { name = "redis-version" },
     { name = "requests" },
     { name = "rich" },
     { name = "slack-bolt" },
@@ -2171,6 +2178,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "redis-version", editable = "packages/redis-version" },
     { name = "requests", specifier = ">=2.28.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "slack-bolt", specifier = ">=1.27.0" },
@@ -2181,6 +2189,21 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "types-pyyaml", specifier = ">=6.0.12.20250915" }]
+
+[[package]]
+name = "redis-version"
+version = "0.1.0"
+source = { editable = "packages/redis-version" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "typer", specifier = ">=0.9.0" },
+]
 
 [[package]]
 name = "requests"

@@ -1,8 +1,6 @@
-"""Tests for data models."""
-
 import pytest
 
-from redis_release.models import RedisVersion
+from redis_version import RedisVersion
 
 
 class TestRedisVersion:
