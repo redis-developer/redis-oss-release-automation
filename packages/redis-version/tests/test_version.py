@@ -2,6 +2,7 @@ import pytest
 
 from redis_version import RedisVersion
 
+
 class TestRedisVersion:
     """Tests for RedisVersion model."""
 

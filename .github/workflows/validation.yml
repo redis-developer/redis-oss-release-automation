@@ -24,4 +24,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run --all-extras pytest
+          uv run --all-extras pytest src/tests packages/redis-version/tests
