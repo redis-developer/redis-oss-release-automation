@@ -159,6 +159,17 @@ class SnapMetaEphemeral(PackageMetaEphemeral):
     pass
 
 
+class CliStaticMetaEphemeral(PackageMetaEphemeral):
+    """Ephemeral metadata for redis-cli-static package.
+
+    Extends base ephemeral metadata with cli-static-specific fields.
+    """
+
+    classify_remote_versions: Optional[common.Status] = None
+
+    is_version_acceptable: Optional[bool] = None
+
+
 class DockerMetaEphemeral(PackageMetaEphemeral):
     pass
 
@@ -215,6 +226,18 @@ class SnapMeta(PackageMeta):
     ephemeral: SnapMetaEphemeral = Field(default_factory=SnapMetaEphemeral)  # type: ignore[assignment]
 
 
+class CliStaticMeta(PackageMeta):
+    """Metadata for redis-cli-static package."""
+
+    serialization_hint: Literal["cli-static"] = "cli-static"  # type: ignore[assignment]
+    # remote_version field is for status display only (e.g. to pair with
+    # classify_remote_versions flag) actual decision is based on
+    # ephemeral.is_version_acceptable which is reset on each run to always
+    # reflect recent remote version
+    remote_version: Optional[str] = None
+    ephemeral: CliStaticMetaEphemeral = Field(default_factory=CliStaticMetaEphemeral)  # type: ignore[assignment]
+
+
 class DockerMeta(PackageMeta):
     """Metadata for Docker package."""
 
@@ -257,13 +280,20 @@ class Package(BaseModel):
     - serialization_hint="generic" -> PackageMeta
     - serialization_hint="homebrew" -> HomebrewMeta
     - serialization_hint="snap" -> SnapMeta
+    - serialization_hint="cli-static" -> CliStaticMeta
     - serialization_hint="docker" -> DockerMeta
     - serialization_hint="clientimage" -> ClientImageMeta
     - serialization_hint="clienttest" -> ClientTestMeta
     """
 
     meta: Union[
-        HomebrewMeta, SnapMeta, PackageMeta, DockerMeta, ClientImageMeta, ClientTestMeta
+        HomebrewMeta,
+        SnapMeta,
+        CliStaticMeta,
+        PackageMeta,
+        DockerMeta,
+        ClientImageMeta,
+        ClientTestMeta,
     ] = Field(default_factory=PackageMeta, discriminator="serialization_hint")
     build: Workflow = Field(default_factory=Workflow)
     publish: Optional[Workflow] = None
@@ -304,7 +334,13 @@ class ReleaseState(BaseModel):
     def _create_package_meta_from_config(
         package_config: Union[PackageConfig, PackageConfigClientTest],
     ) -> Union[
-        HomebrewMeta, SnapMeta, DockerMeta, ClientImageMeta, ClientTestMeta, PackageMeta
+        HomebrewMeta,
+        SnapMeta,
+        CliStaticMeta,
+        DockerMeta,
+        ClientImageMeta,
+        ClientTestMeta,
+        PackageMeta,
     ]:
         """Create appropriate PackageMeta subclass based on package_type.
 
@@ -327,6 +363,14 @@ class ReleaseState(BaseModel):
             )
         elif package_config.package_type == PackageType.SNAP:
             return SnapMeta(
+                repo=package_config.repo,
+                ref=package_config.ref,
+                package_type=package_config.package_type,
+                package_display_name=package_config.package_display_name,
+                publish_internal_release=package_config.publish_internal_release,
+            )
+        elif package_config.package_type == PackageType.CLI_STATIC:
+            return CliStaticMeta(
                 repo=package_config.repo,
                 ref=package_config.ref,
                 package_type=package_config.package_type,

@@ -31,10 +31,19 @@ from .behaviours import (
 )
 from .behaviours import TriggerWorkflow as TriggerWorkflow
 from .behaviours import UpdateWorkflowStatusUntilCompletion
+from .behaviours_cli_static import ClassifyCliStaticVersion
 from .behaviours_homebrew import ClassifyHomebrewVersion
 from .behaviours_snap import ClassifySnapVersion
 from .decorators import ConditionGuard, FlagGuard, StatusFlagGuard
-from .state import HomebrewMeta, Package, PackageMeta, ReleaseMeta, SnapMeta, Workflow
+from .state import (
+    CliStaticMeta,
+    HomebrewMeta,
+    Package,
+    PackageMeta,
+    ReleaseMeta,
+    SnapMeta,
+    Workflow,
+)
 
 
 class ParallelBarrier(Composite):
@@ -439,6 +448,30 @@ class ClassifySnapVersionGuarded(StatusFlagGuard):
             None if name == "" else name,
             ClassifySnapVersion(
                 "Classify Snap Version",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+            ),
+            package_meta.ephemeral,
+            "classify_remote_versions",
+            log_prefix=log_prefix,
+        )
+
+
+class ClassifyCliStaticVersionGuarded(StatusFlagGuard):
+    def __init__(
+        self,
+        name: str,
+        package_meta: CliStaticMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            None if name == "" else name,
+            ClassifyCliStaticVersion(
+                "Classify Cli Static Version",
                 package_meta,
                 release_meta,
                 github_client,
