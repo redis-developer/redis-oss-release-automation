@@ -87,6 +87,11 @@ class TestRedisVersion:
         version = RedisVersion.parse("8.2.1-m01")
         assert version.mainline_version == "8.2"
 
+    def test_multi_digit_minor_comparison(self) -> None:
+        """Test numeric ordering for multi-digit minor versions."""
+        assert RedisVersion.parse("8.10") > RedisVersion.parse("8.4.4")
+        assert RedisVersion.parse("8.10.0") > RedisVersion.parse("8.4.4")
+
     def test_string_representation(self) -> None:
         """Test string representation."""
         version1 = RedisVersion.parse("8.2.1")

@@ -2,7 +2,7 @@
 
 import functools
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -79,8 +79,13 @@ class RedisVersion(BaseModel):
         return suffix_weight
 
     @property
-    def sort_key(self) -> str:
-        return f"{self.major}.{self.minor}.{self.patch or 0}.{self.suffix_weight}{self.suffix}"
+    def sort_key(self) -> Tuple[int, int, int, str]:
+        return (
+            self.major,
+            self.minor,
+            self.patch or 0,
+            f"{self.suffix_weight}{self.suffix}",
+        )
 
     def __str__(self) -> str:
         version = f"{self.major}.{self.minor}"

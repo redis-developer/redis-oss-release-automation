@@ -40,6 +40,13 @@ def test_compare_operator_true() -> None:
     assert result.stdout == ""
 
 
+def test_compare_multi_digit_minor_version() -> None:
+    result = runner.invoke(app, ["compare", "8.10", ">", "8.4.4"])
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+
+
 def test_compare_operator_false() -> None:
     result = runner.invoke(app, ["compare", "8.2.1", "<", "8.2.1-rc1"])
 
