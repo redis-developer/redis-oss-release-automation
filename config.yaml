@@ -43,6 +43,16 @@ packages:
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10
     publish_inputs: {}
+  cli-static:
+    package_type: cli-static
+    repo: redis/redis-cli-static
+    build_workflow: release_build_and_test.yml
+    build_inputs: {}
+    build_timeout_minutes: 45
+    publish_internal_release: yes
+    publish_workflow: release_publish.yml
+    publish_timeout_minutes: 10
+    publish_inputs: {}
   homebrew:
     package_type: homebrew
     repo: redis/homebrew-redis

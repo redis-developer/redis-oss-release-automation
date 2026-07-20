@@ -5,6 +5,7 @@ Package-specific tree factories and factory functions.
 import logging
 from typing import Dict, Optional, Union
 
+from redis_release.bht.tree_factory_cli_static import CliStaticFactory
 from redis_release.bht.tree_factory_clientimage import ClientImageFactory
 from redis_release.bht.tree_factory_clienttest import ClientTestFactory
 from redis_release.bht.tree_factory_debian import DebianFactory
@@ -24,6 +25,7 @@ _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
     PackageType.DOCKER: DockerFactory(),
     PackageType.DEBIAN: DebianFactory(),
     PackageType.RPM: RPMFactory(),
+    PackageType.CLI_STATIC: CliStaticFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
     PackageType.SNAP: SnapFactory(),
     PackageType.CLIENTIMAGE: ClientImageFactory(),
