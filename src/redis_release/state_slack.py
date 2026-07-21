@@ -81,12 +81,16 @@ def init_slack_printer(
         logger.info(
             "Posting initial slack message to create a thread and save thread_ts to the release state"
         )
-        blocks = slack_printer.make_blocks(state)
-        slack_printer.update_message(blocks)
-        if state.meta.ephemeral.slack_channel_id is None:
-            state.meta.ephemeral.slack_channel_id = slack_channel_id
-        if slack_printer.message_ts is not None:
-            state.meta.ephemeral.slack_thread_ts = slack_printer.message_ts
+        try:
+            blocks = slack_printer.make_blocks(state)
+            slack_printer.update_message(blocks)
+            if state.meta.ephemeral.slack_channel_id is None:
+                state.meta.ephemeral.slack_channel_id = slack_channel_id
+            if slack_printer.message_ts is not None:
+                state.meta.ephemeral.slack_thread_ts = slack_printer.message_ts
+        except Exception:
+            slack_printer.stop()
+            raise
 
     return slack_printer
 
