@@ -46,6 +46,10 @@ packages:
   cli-static:
     package_type: cli-static
     repo: redis/redis-cli-static
+    description: |
+      statically built version of redis-cli tool published as separate package
+      used as a lightweight one-binary alternative for Linux/MacOS
+      shipped with shell installer, could be used without root
     # fixed release branch holding the authoritative .redis_version file used
     # to decide whether the release version is newer than the published one
     # (redis-cli-static's default/rolling branch, analogous to snap's master)
