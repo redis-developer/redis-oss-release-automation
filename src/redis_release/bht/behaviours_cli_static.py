@@ -109,7 +109,9 @@ class ClassifyCliStaticVersion(ReleaseAction):
             return
 
         if self.release_meta.tag == "unstable":
-            self.package_meta.ephemeral.is_version_acceptable = True
+            self.package_meta.ephemeral.is_version_acceptable = False
+            self.feedback_message = "Skip unstable release for cli-static"
+            self.logger.info(self.feedback_message)
             # remote_version must be set as it is a sign of successful classify step
             self.package_meta.remote_version = "unstable"
             return
