@@ -112,9 +112,7 @@ class NeedToReleaseFormula(LoggingAction):
             self.package_meta.ephemeral.skip_message = None
             return Status.SUCCESS
 
-        self.feedback_message = (
-            f"Skip formula for {tag} (< {MIN_FORMULA_VERSION[0]}.{MIN_FORMULA_VERSION[1]})"
-        )
+        self.feedback_message = f"Skip formula for {tag} (< {MIN_FORMULA_VERSION[0]}.{MIN_FORMULA_VERSION[1]})"
         self.package_meta.ephemeral.skip_message = self.feedback_message
         if self.log_once(
             "formula_need_to_release", self.package_meta.ephemeral.log_once_flags
