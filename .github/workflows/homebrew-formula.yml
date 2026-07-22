@@ -178,6 +178,7 @@ jobs:
           git config --global --add safe.directory "$WORKDIR/homebrew-core"
           cd "$WORKDIR/homebrew-core"
           brew tap "$tap" .
+          brew trust "$tap"
 
       - name: Download source archive
         uses: actions/download-artifact@v4

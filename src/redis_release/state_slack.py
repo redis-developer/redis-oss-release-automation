@@ -286,10 +286,11 @@ class SlackStatePrinter:
     ) -> List[Optional[Dict[str, Any]]]:
         subheader_with_emojis = ""
         if self.slack_format == SlackFormat.DEFAULT:
-            # Use "Test" label for clienttest package types instead of "Build"
+            # Use "Test" label for test-only package types instead of "Build"
             build_label = (
                 "Test"
-                if package.meta.package_type == PackageType.CLIENTTEST
+                if package.meta.package_type
+                in (PackageType.CLIENTTEST, PackageType.FORMULA)
                 else "Build"
             )
             build_with_emoji = f"*{build_label}:* {build_status_emoji}"
