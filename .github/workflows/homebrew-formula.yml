@@ -88,7 +88,7 @@ jobs:
           echo "Built $out ($sha)"
 
       - name: Upload source archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: redis-source-archive
           path: ${{ github.workspace }}/${{ steps.build.outputs.archive_name }}
@@ -181,7 +181,7 @@ jobs:
           brew trust "$tap"
 
       - name: Download source archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: redis-source-archive
           path: ${{ matrix.workdir || github.workspace }}/src

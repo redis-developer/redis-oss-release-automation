@@ -61,11 +61,11 @@ packages:
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10
     publish_inputs: {}
-  homebrew-cask:
+  homebrew:
     package_type: homebrew
     package_display_name: "Homebrew Cask"
     repo: redis/homebrew-redis
-    # homebrew cask has one fixed release branch: main
+    # homebrew has one fixed release branch: main
     ref: main
     build_workflow: release_build_and_test.yml
     build_inputs: {}
@@ -82,7 +82,7 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     ref: main
     build_workflow: homebrew-formula.yml
-    build_timeout_minutes: 120
+    build_timeout_minutes: 60
     build_inputs:
       formula_repo: redis-developer/homebrew-core
       formula_branch: redis-modernization-modules
