@@ -88,16 +88,19 @@ class NeedToReleaseFormula(LoggingAction):
         tag = self.release_meta.tag
         if tag == "unstable":
             self.feedback_message = "Test formula for unstable"
+            self.package_meta.ephemeral.skip_message = None
             return Status.SUCCESS
 
         if not tag:
             self.feedback_message = "Release tag is not set, skipping formula"
+            self.package_meta.ephemeral.skip_message = self.feedback_message
             return Status.FAILURE
 
         try:
             version = RedisVersion.parse(tag)
         except ValueError:
             self.feedback_message = f"Skip formula for non-version release {tag}"
+            self.package_meta.ephemeral.skip_message = self.feedback_message
             if self.log_once(
                 "formula_need_to_release", self.package_meta.ephemeral.log_once_flags
             ):
@@ -106,11 +109,13 @@ class NeedToReleaseFormula(LoggingAction):
 
         if (version.major, version.minor) >= MIN_FORMULA_VERSION:
             self.feedback_message = f"Test formula for {tag}"
+            self.package_meta.ephemeral.skip_message = None
             return Status.SUCCESS
 
         self.feedback_message = (
             f"Skip formula for {tag} (< {MIN_FORMULA_VERSION[0]}.{MIN_FORMULA_VERSION[1]})"
         )
+        self.package_meta.ephemeral.skip_message = self.feedback_message
         if self.log_once(
             "formula_need_to_release", self.package_meta.ephemeral.log_once_flags
         ):

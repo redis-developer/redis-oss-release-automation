@@ -133,6 +133,8 @@ class PackageMetaEphemeral(BaseModel):
     # error otherwise
     # Not used for status display, which examines the state and the flags for all steps explicitly
     root_node_status: Optional[common.Status] = None
+    # Reason a package was intentionally skipped (None = not skipped).
+    skip_message: Optional[str] = None
 
 
 class HomebrewMetaEphemeral(PackageMetaEphemeral):

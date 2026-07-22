@@ -465,11 +465,31 @@ class SlackStatePrinter:
 
             all_workflow_statuses.update({build_status, publish_status})
 
-            # skip if both build and publish are not started
-            if (
+            both_not_started = (
                 build_status == StepStatus.NOT_STARTED
                 and publish_status == StepStatus.NOT_STARTED
-            ):
+            )
+
+            # Render an explicit line for intentionally skipped packages
+            skip_message = package.meta.ephemeral.skip_message
+            if both_not_started and skip_message:
+                skip_emoji = self.get_step_status_emoji(StepStatus.NOT_STARTED)
+                self.blocks_append(
+                    blocks,
+                    [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"{skip_emoji} {formatted_name}\n_Skipped - {skip_message}_",
+                            },
+                        }
+                    ],
+                )
+                continue
+
+            # skip if both build and publish are not started
+            if both_not_started:
                 continue
 
             is_sucess = {build_status, publish_status}.issubset(

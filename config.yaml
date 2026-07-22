@@ -84,9 +84,8 @@ packages:
     build_workflow: homebrew-formula.yml
     build_timeout_minutes: 120
     build_inputs:
-      formula_repo: brew/homebrew-core
-      formula_branch: main
-      redis_repo: redis/redis
+      formula_repo: redis-developer/homebrew-core
+      formula_branch: redis-modernization-modules
   snap:
     package_type: snap
     repo: redis/redis-snap
