@@ -1,6 +1,10 @@
 from py_trees.behaviour import Behaviour
 
-from .behaviours_formula import DetectReleaseTypeFormula, FormulaWorkflowInputs
+from .behaviours_formula import (
+    DetectReleaseTypeFormula,
+    FormulaWorkflowInputs,
+    NeedToReleaseFormula,
+)
 from .state import PackageMeta, ReleaseMeta, Workflow
 from .tree_factory_generic import GenericPackageFactory
 
@@ -34,5 +38,16 @@ class FormulaFactory(GenericPackageFactory):
         log_prefix: str,
     ) -> Behaviour:
         return DetectReleaseTypeFormula(
+            name, package_meta, release_meta, log_prefix=log_prefix
+        )
+
+    def create_need_to_release_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        return NeedToReleaseFormula(
             name, package_meta, release_meta, log_prefix=log_prefix
         )

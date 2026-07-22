@@ -4,9 +4,6 @@ name: Homebrew formula testing
 # at it (url+sha256 only), then run brew test-bot + module sanity tests per platform.
 
 on:
-  push:
-    branches:
-      - formula-package
   workflow_dispatch:
     inputs:
       workflow_uuid:
@@ -61,7 +58,7 @@ jobs:
       archive_sha: ${{ steps.build.outputs.archive_sha }}
     steps:
       - name: Checkout redis source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.redis_repo }}
           ref: ${{ inputs.redis_version }}
