@@ -270,6 +270,7 @@ class ClassifyHomebrewVersion(ReleaseAction):
                 self.feedback_message = (
                     f"release {self.release_version} < cask {self.cask_version}"
                 )
+                self.package_meta.ephemeral.skip_message = self.feedback_message
             if self.log_once(
                 "homebrew_version_classified",
                 self.package_meta.ephemeral.log_once_flags,
