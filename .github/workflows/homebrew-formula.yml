@@ -1,0 +1,357 @@
+name: Homebrew formula testing
+
+# Build a redis+modules tarball from an arbitrary source repo/ref, point redis.rb
+# at it (url+sha256 only), then run brew test-bot + module sanity tests per platform.
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_uuid:
+        description: 'Optional UUID to identify this workflow run'
+        required: false
+      formula_repo:
+        description: 'GitHub repo holding redis.rb (a homebrew-core fork)'
+        required: false
+        type: string
+        default: 'brew/homebrew-core'
+      formula_branch:
+        description: 'Branch of the formula repo'
+        required: false
+        type: string
+        default: 'main'
+      redis_repo:
+        description: 'Redis SOURCE repo to build the version archive from'
+        required: false
+        type: string
+        default: 'redis/redis'
+      redis_version:
+        description: 'Source branch or tag to archive (e.g. unstable, 8.10-rc2)'
+        required: false
+        type: string
+        default: 'unstable'
+
+env:
+  HOMEBREW_DEVELOPER: 1
+  HOMEBREW_GITHUB_ACTIONS: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_FROM_API: 1
+  HOMEBREW_NO_BUILD_ERROR_ISSUES: 1
+  HOMEBREW_ARM64_TESTING: 1
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+permissions:
+  contents: read
+
+run-name: >-
+     Test homebrew formula
+     ${{ inputs.redis_version }}
+     ${{ github.event.inputs.workflow_uuid && format('| {0}', github.event.inputs.workflow_uuid) || '' }}
+jobs:
+  build_archive:
+    name: Build source archive
+    runs-on: ubuntu-latest
+    outputs:
+      archive_name: ${{ steps.build.outputs.archive_name }}
+      archive_sha: ${{ steps.build.outputs.archive_sha }}
+    steps:
+      - name: Checkout redis source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.redis_repo }}
+          ref: ${{ inputs.redis_version }}
+          path: redis-src
+
+      - name: Build source+modules tarball
+        id: build
+        working-directory: redis-src
+        env:
+          redis_version: ${{ inputs.redis_version }}
+        run: |
+          set -x
+          # Track module master branches when testing in-development core.
+          if [[ "$redis_version" == "unstable" ]]; then
+            yq -i '.modules[].ref = "master"' modules/modules.yaml
+          fi
+
+          safe_ref="${redis_version//\//-}"
+          out="${GITHUB_WORKSPACE}/redis-${safe_ref}.tar.gz"
+
+          # Detached HEAD after checkout, so archive the resolved commit; make tarball runs modules-update itself.
+          make tarball TAG="$(git rev-parse HEAD)" OUT_PATH="$out"
+
+          sha="$(sha256sum "$out" | awk '{print $1}')"
+          echo "archive_name=redis-${safe_ref}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "archive_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Built $out ($sha)"
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: redis-source-archive
+          path: ${{ github.workspace }}/${{ steps.build.outputs.archive_name }}
+          if-no-files-found: error
+          retention-days: 1
+
+  test_version:
+    needs: build_archive
+    strategy:
+      matrix:
+        include:
+          - name: "Linux x86_64"
+            runner: "ubuntu-latest"
+            container:
+              image: "ghcr.io/homebrew/brew:main"
+              options: "--user=linuxbrew -e GITHUB_ACTIONS_HOMEBREW_SELF_HOSTED"
+            workdir: "/github/home"
+            timeout: 2160
+          - name: "Linux arm64"
+            runner: "ubuntu-24.04-arm"
+            container:
+              image: "ghcr.io/homebrew/brew:main"
+              options: "--user=linuxbrew -e GITHUB_ACTIONS_HOMEBREW_SELF_HOSTED"
+            workdir: "/github/home"
+            timeout: 2160
+          - name: "macOS 26-arm64"
+            runner: "macos-26"
+            timeout: 60
+          - name: "macOS 15-arm64"
+            runner: "macos-15"
+            timeout: 60
+          - name: "macOS 14-arm64"
+            runner: "macos-14"
+            timeout: 60
+          - name: "macOS 14-x86_64"
+            runner: "macos-14-large"
+            timeout: 120
+      fail-fast: false
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: ${{ matrix.timeout }}
+    defaults:
+      run:
+        shell: /bin/bash -euo pipefail {0}
+        working-directory: ${{ matrix.workdir || github.workspace }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WORKDIR: ${{ matrix.workdir || github.workspace }}
+      BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
+      FORMULA_REPO: ${{ inputs.formula_repo }}
+      FORMULA_BRANCH: ${{ inputs.formula_branch }}
+      redis_repo: ${{ inputs.redis_repo }}
+      redis_version: ${{ inputs.redis_version }}
+      ARCHIVE_NAME: ${{ needs.build_archive.outputs.archive_name }}
+      ARCHIVE_SHA: ${{ needs.build_archive.outputs.archive_sha }}
+    steps:
+      - name: Set up container permissions
+        run: |
+          # linuxbrew needs write access + git safe.directory inside the container.
+          if [[ -f "/.dockerenv" ]] || ([[ -f /proc/1/cgroup ]] && grep -qE "actions_job|docker" /proc/1/cgroup); then
+            if [[ -n "$(command -v setfacl)" ]]; then
+              user=$(whoami)
+              for dir in "$HOME" "$WORKDIR" "/__w/_actions" "/__w/_temp"; do
+                if [[ -d "$dir" ]] && [[ ! -w "$dir" ]]; then
+                  sudo setfacl -Rm "d:u:$user:rwX,u:$user:rwX" "$dir"
+                fi
+              done
+            fi
+            git config --global --add safe.directory "$WORKDIR"
+            git config --global --add safe.directory "$WORKDIR/homebrew-core"
+            git config --global --add safe.directory /home/linuxbrew/.linuxbrew/Homebrew
+          fi
+
+      - name: Checkout and tap redis formula
+        run: |
+          # umask 022 so the cloned formula is 644 (world-writable fails FormulaAudit/Files).
+          umask 022
+          owner="${FORMULA_REPO%%/*}"
+          reponame="${FORMULA_REPO#*/}"
+          tap="${owner}/${reponame#homebrew-}"
+          echo "TAP=$tap" >> "$GITHUB_ENV"
+
+          git clone --depth 1 --branch "$FORMULA_BRANCH" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${FORMULA_REPO}.git" \
+            "$WORKDIR/homebrew-core"
+          git config --global --add safe.directory "$WORKDIR/homebrew-core"
+          cd "$WORKDIR/homebrew-core"
+          brew tap "$tap" .
+          brew trust "$tap"
+
+      - name: Download source archive
+        uses: actions/download-artifact@v7
+        with:
+          name: redis-source-archive
+          path: ${{ matrix.workdir || github.workspace }}/src
+
+      - name: Point formula at local archive
+        run: |
+          archive="$WORKDIR/src/$ARCHIVE_NAME"
+          test -f "$archive"
+
+          formula_path="$(brew formula "${TAP}/redis")"
+
+          # Rewrite only url+sha256; test-bot builds from source so the version line and bottle block aren't used.
+          # brew ruby: the container has no bare `ruby` on PATH; args via ARGV (brew ruby strips the env).
+          brew ruby -e '
+            path, url, sha = ARGV
+            s = File.read(path)
+            s.sub!(/^  url ".*?"/, %(  url "#{url}"))
+            s.sub!(/^  sha256 "[0-9a-f]+"/, %(  sha256 "#{sha}"))
+            File.write(path, s)
+          ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA"
+
+          grep -nE '^  (url|version|sha256) ' "$formula_path" || true
+
+          # Commit so `brew audit --git` sees a clean tree.
+          cd "$(brew --repository "$TAP")"
+          git config user.email "ci@local"
+          git config user.name "version-ci"
+          git add -A
+          git commit -q -m "test: redis from ${redis_repo}@${redis_version}"
+
+      - name: Create bottles directories
+        run: |
+          mkdir -p "$BOTTLES_DIR/redis"
+
+      - name: Setup Homebrew gems
+        run: |
+          brew install-bundler-gems --add-groups=ast,audit,bottle,formula_test,livecheck,style
+
+      - name: Verify redis formula source
+        run: |
+          brew info "${TAP}/redis"
+          brew formula "${TAP}/redis"
+
+      - name: Test-bot redis formula
+        run: |
+          # Skip audits that a local file:// url + unchanged version line would fail by mistake.
+          brew test-bot \
+            --tap "$TAP" \
+            --testing-formulae="${TAP}/redis" \
+            --added-formulae= --deleted-formulae= \
+            --only-formulae --skip-dependents \
+            --skip-online-checks --skip-stable-version-audit \
+            --skip-checksum-only-audit --skip-revision-audit \
+            --junit --only-json-tab --verbose
+        working-directory: ${{ matrix.workdir || github.workspace }}/bottles/redis
+
+      - name: Check installation
+        run: |
+          echo "=== Redis Version ==="
+          redis-server --version
+          redis-cli --version
+
+          echo ""
+          echo "=== Installation Location ==="
+          which redis-server
+          which redis-cli
+          ls -lh $(which redis-server)
+
+          echo ""
+          echo "=== Installed Libraries and Modules ==="
+          ls -lh $(brew --prefix redis)/lib || echo "Modules not found"
+
+          echo ""
+          echo "=== List Configuration files ==="
+          ls -al $(brew --prefix)/etc/redis.conf
+
+          echo ""
+          echo "=== Grep loadmodule config ==="
+          grep -E -B1 '^loadmodule' $(brew --prefix)/etc/redis.conf || echo "no loadmodule statements"
+
+          redis-server $(brew --prefix)/etc/redis.conf --daemonize yes
+          for i in {1..30}; do redis-cli ping && break || echo "Waiting for Redis... $i" && sleep 1; done
+
+          echo ""
+          echo "=== Verify Modules ==="
+          redis-cli module list
+          echo "=== All tests passed! ==="
+
+      - name: Test redistimeseries
+        shell: bash
+        run: |
+          redis-cli TS.CREATE redis:cpu:usage RETENTION 86400
+          redis-cli TS.ADD redis:cpu:usage "*" 80
+          redis-cli TS.ADD redis:cpu:usage "*" 65
+          redis-cli TS.ADD redis:cpu:usage "*" 70
+          result=$(redis-cli TS.RANGE redis:cpu:usage - + COUNT 3)
+          if echo "$result" | grep -q "80" && \
+              echo "$result" | grep -q "65" && \
+              echo "$result" | grep -q "70"; then
+            echo "redistimeseries test passed successfully"
+          else
+            echo "redistimeseries test failed: expected values not found in time series"
+            exit 1
+          fi
+      - name: Test ReJSON
+        shell: bash
+        run: |
+          redis-cli JSON.SET redis:config $ '{"maxmemory":"2gb","maxmemory-policy":"allkeys-lru"}'
+          result=$(redis-cli JSON.GET redis:config $.maxmemory-policy)
+          cleaned_result=$(echo $result | tr -d '[]"')
+          if [ "$cleaned_result" = "allkeys-lru" ]; then
+            echo "ReJSON test passed successfully"
+          else
+            echo "ReJSON test failed: expected 'allkeys-lru', got $result"
+            exit 1
+          fi
+      - name: Test RediSearch
+        shell: bash
+        run: |
+          redis-cli FT.CREATE redis_commands ON HASH PREFIX 1 cmd: SCHEMA name TEXT SORTABLE description TEXT
+          redis-cli HSET cmd:set name "SET" description "Set the string value of a key"
+          redis-cli HSET cmd:get name "GET" description "Get the value of a key"
+          result=$(redis-cli FT.SEARCH redis_commands "value")
+          if echo "$result" | grep -q "Set the string value of a key" && \
+              echo "$result" | grep -q "Get the value of a key"; then
+            echo "RediSearch test passed successfully"
+          else
+            echo "RediSearch test failed: expected commands not found in search results"
+            exit 1
+          fi
+
+      - name: Test RedisBloom
+        shell: bash
+        run: |
+          redis-cli BF.ADD popular_keys "redis:hash"
+          redis-cli BF.ADD popular_keys "redis:set"
+          [ "$(redis-cli BF.EXISTS popular_keys "redis:hash")" = "1" ] || \
+            { echo "RedisBloom test failed: 'redis:hash' not found"; exit 1; }
+          [ "$(redis-cli BF.EXISTS popular_keys "redis:list")" = "0" ] || \
+            { echo "RedisBloom test failed: 'redis:list' found unexpectedly"; exit 1; }
+          echo "RedisBloom test passed successfully"
+
+  result:
+    name: Create result artifact
+    needs: test_version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create result artifact
+        env:
+          FORMULA_REPO: ${{ inputs.formula_repo }}
+          FORMULA_BRANCH: ${{ inputs.formula_branch }}
+          REDIS_REPO: ${{ inputs.redis_repo }}
+          REDIS_VERSION: ${{ inputs.redis_version }}
+        shell: bash
+        run: |
+          cat > result.json << EOF
+          {
+            "formula_repo": "$FORMULA_REPO",
+            "formula_branch": "$FORMULA_BRANCH",
+            "redis_repo": "$REDIS_REPO",
+            "redis_version": "$REDIS_VERSION"
+          }
+          EOF
+
+          echo "Created result.json:"
+          cat result.json
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: result.json
+          retention-days: 90

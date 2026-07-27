@@ -22,6 +22,7 @@ class PackageType(str, Enum):
     RPM = "rpm"
     CLI_STATIC = "cli-static"
     HOMEBREW = "homebrew"
+    FORMULA = "formula"
     SNAP = "snap"
     CLIENTIMAGE = "clientimage"
     CLIENTTEST = "clienttest"

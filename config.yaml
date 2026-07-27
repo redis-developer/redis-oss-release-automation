@@ -63,6 +63,7 @@ packages:
     publish_inputs: {}
   homebrew:
     package_type: homebrew
+    package_display_name: "Homebrew Cask"
     repo: redis/homebrew-redis
     # homebrew has one fixed release branch: main
     ref: main
@@ -72,6 +73,19 @@ packages:
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10
     publish_inputs: {}
+  homebrew-formula:
+    package_type: formula
+    package_display_name: "Homebrew Formula Tests"
+    description: |
+      Tests a homebrew-core redis formula against a redis+modules source build.
+      Runs this repo's homebrew-formula.yml workflow, test-only (no publish).
+    repo: redis-developer/redis-oss-release-automation
+    ref: main
+    build_workflow: homebrew-formula.yml
+    build_timeout_minutes: 60
+    build_inputs:
+      formula_repo: redis-developer/homebrew-core
+      formula_branch: redis-modernization-modules
   snap:
     package_type: snap
     repo: redis/redis-snap

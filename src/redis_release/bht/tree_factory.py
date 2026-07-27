@@ -10,6 +10,7 @@ from redis_release.bht.tree_factory_clientimage import ClientImageFactory
 from redis_release.bht.tree_factory_clienttest import ClientTestFactory
 from redis_release.bht.tree_factory_debian import DebianFactory
 from redis_release.bht.tree_factory_docker import DockerFactory
+from redis_release.bht.tree_factory_formula import FormulaFactory
 from redis_release.bht.tree_factory_generic import GenericPackageFactory
 from redis_release.bht.tree_factory_homebrew import HomebrewFactory
 from redis_release.bht.tree_factory_rpm import RPMFactory
@@ -27,6 +28,7 @@ _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
     PackageType.RPM: RPMFactory(),
     PackageType.CLI_STATIC: CliStaticFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
+    PackageType.FORMULA: FormulaFactory(),
     PackageType.SNAP: SnapFactory(),
     PackageType.CLIENTIMAGE: ClientImageFactory(),
     PackageType.CLIENTTEST: ClientTestFactory(),

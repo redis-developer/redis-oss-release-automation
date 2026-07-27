@@ -262,6 +262,16 @@ class DisplayModelWithReleaseValidation(DisplayModelGeneric):
         return result
 
 
+class DisplayModelFormula(DisplayModelGeneric):
+    """DisplayModel for the homebrew-formula test package."""
+
+    def get_workflow_section(self, workflow: Workflow) -> Section:
+        """Label the workflow 'Test Workflow' instead of 'Build Workflow'."""
+        if workflow.workflow_type == WorkflowType.BUILD:
+            return Section(name="Test Workflow", is_workflow=True)
+        return super().get_workflow_section(workflow)
+
+
 class DisplayModelClientImage(DisplayModelGeneric):
     """DisplayModel for client image packages."""
 
@@ -379,6 +389,9 @@ def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
 
     if package_meta.package_type == PackageType.CLIENTTEST:
         return DisplayModelClientTest()
+
+    if package_meta.package_type == PackageType.FORMULA:
+        return DisplayModelFormula()
 
     # Default DisplayModel for all other package types
     return DisplayModelGeneric()
