@@ -82,6 +82,7 @@ packages:
     repo: redis-developer/redis-oss-release-automation
     ref: main
     build_workflow: homebrew-formula.yml
+    allow_custom_build: true
     build_timeout_minutes: 60
     build_inputs:
       formula_repo: redis-developer/homebrew-core
