@@ -113,11 +113,13 @@ class NeedToReleaseRPM(LoggingAction):
                 self.feedback_message = (
                     f"Skip release for RPM {str(self.release_version)} < 8.0"
                 )
+                self.package_meta.ephemeral.skip_message = self.feedback_message
                 result = Status.FAILURE
             else:
                 self.feedback_message = (
                     f"Need to release RPM version {str(self.release_version)}"
                 )
+                self.package_meta.ephemeral.skip_message = None
                 result = Status.SUCCESS
         else:
             self.feedback_message = "Failed to parse release version"
