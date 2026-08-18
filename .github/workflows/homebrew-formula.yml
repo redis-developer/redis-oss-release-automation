@@ -167,6 +167,7 @@ jobs:
         run: |
           # umask 022 so the cloned formula is 644 (world-writable fails FormulaAudit/Files).
           umask 022
+          brew update
           owner="${FORMULA_REPO%%/*}"
           reponame="${FORMULA_REPO#*/}"
           tap="${owner}/${reponame#homebrew-}"
