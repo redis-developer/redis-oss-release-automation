@@ -218,13 +218,15 @@ jobs:
           formula_path="$(brew formula "${TAP}/redis")"
 
           # Rewrite url+sha256+version; test-bot builds from source so the bottle block isn't used.
-          # version must be explicit: a file:// url named after a branch has no version to parse.
           # brew ruby: the container has no bare `ruby` on PATH; args via ARGV (brew ruby strips the env).
           brew ruby -e '
             path, url, sha, version = ARGV
             s = File.read(path)
             s.sub!(/^  version ".*?"\n/, "")
-            s.sub!(/^  url ".*?"/, %(  url "#{url}"\n  version "#{version}"))
+            url_line = %(  url "#{url}")
+            # Only set version when the url has none, else `brew audit` calls it redundant.
+            url_line += %(\n  version "#{version}") if Version.detect(url).null?
+            s.sub!(/^  url ".*?"/, url_line)
             s.sub!(/^  sha256 "[0-9a-f]+"/, %(  sha256 "#{sha}"))
             File.write(path, s)
           ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA" "$ARCHIVE_VERSION"
