@@ -56,6 +56,7 @@ jobs:
     outputs:
       archive_name: ${{ steps.build.outputs.archive_name }}
       archive_sha: ${{ steps.build.outputs.archive_sha }}
+      archive_version: ${{ steps.build.outputs.archive_version }}
     steps:
       - name: Checkout redis source
         uses: actions/checkout@v6
@@ -83,9 +84,17 @@ jobs:
           make tarball TAG="$(git rev-parse HEAD)" OUT_PATH="$out"
 
           sha="$(sha256sum "$out" | awk '{print $1}')"
+
+          # Branch refs give a version-less url, so the formula needs an explicit stand-in version.
+          case "$redis_version" in
+            [0-9]*.[0-9]*) ver="$redis_version" ;;
+            *)             ver="99.99.99" ;;
+          esac
+
           echo "archive_name=redis-${safe_ref}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "archive_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Built $out ($sha)"
+          echo "archive_version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Built $out ($sha) as version $ver"
 
       - name: Upload source archive
         uses: actions/upload-artifact@v7
@@ -145,6 +154,7 @@ jobs:
       redis_version: ${{ inputs.redis_version }}
       ARCHIVE_NAME: ${{ needs.build_archive.outputs.archive_name }}
       ARCHIVE_SHA: ${{ needs.build_archive.outputs.archive_sha }}
+      ARCHIVE_VERSION: ${{ needs.build_archive.outputs.archive_version }}
     steps:
       - name: Set up container permissions
         run: |
@@ -207,15 +217,17 @@ jobs:
 
           formula_path="$(brew formula "${TAP}/redis")"
 
-          # Rewrite only url+sha256; test-bot builds from source so the version line and bottle block aren't used.
+          # Rewrite url+sha256+version; test-bot builds from source so the bottle block isn't used.
+          # version must be explicit: a file:// url named after a branch has no version to parse.
           # brew ruby: the container has no bare `ruby` on PATH; args via ARGV (brew ruby strips the env).
           brew ruby -e '
-            path, url, sha = ARGV
+            path, url, sha, version = ARGV
             s = File.read(path)
-            s.sub!(/^  url ".*?"/, %(  url "#{url}"))
+            s.sub!(/^  version ".*?"\n/, "")
+            s.sub!(/^  url ".*?"/, %(  url "#{url}"\n  version "#{version}"))
             s.sub!(/^  sha256 "[0-9a-f]+"/, %(  sha256 "#{sha}"))
             File.write(path, s)
-          ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA"
+          ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA" "$ARCHIVE_VERSION"
 
           grep -nE '^  (url|version|sha256) ' "$formula_path" || true
 
