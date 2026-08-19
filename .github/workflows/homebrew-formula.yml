@@ -13,7 +13,7 @@ on:
         description: 'GitHub repo holding redis.rb (a homebrew-core fork)'
         required: false
         type: string
-        default: 'brew/homebrew-core'
+        default: 'Homebrew/homebrew-core'
       formula_branch:
         description: 'Branch of the formula repo'
         required: false
@@ -56,6 +56,7 @@ jobs:
     outputs:
       archive_name: ${{ steps.build.outputs.archive_name }}
       archive_sha: ${{ steps.build.outputs.archive_sha }}
+      archive_version: ${{ steps.build.outputs.archive_version }}
     steps:
       - name: Checkout redis source
         uses: actions/checkout@v6
@@ -83,9 +84,17 @@ jobs:
           make tarball TAG="$(git rev-parse HEAD)" OUT_PATH="$out"
 
           sha="$(sha256sum "$out" | awk '{print $1}')"
+
+          # Branch refs give a version-less url, so the formula needs an explicit stand-in version.
+          case "$redis_version" in
+            [0-9]*.[0-9]*) ver="$redis_version" ;;
+            *)             ver="99.99.99" ;;
+          esac
+
           echo "archive_name=redis-${safe_ref}.tar.gz" >> "$GITHUB_OUTPUT"
           echo "archive_sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Built $out ($sha)"
+          echo "archive_version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Built $out ($sha) as version $ver"
 
       - name: Upload source archive
         uses: actions/upload-artifact@v7
@@ -145,6 +154,7 @@ jobs:
       redis_version: ${{ inputs.redis_version }}
       ARCHIVE_NAME: ${{ needs.build_archive.outputs.archive_name }}
       ARCHIVE_SHA: ${{ needs.build_archive.outputs.archive_sha }}
+      ARCHIVE_VERSION: ${{ needs.build_archive.outputs.archive_version }}
     steps:
       - name: Set up container permissions
         run: |
@@ -163,13 +173,27 @@ jobs:
             git config --global --add safe.directory /home/linuxbrew/.linuxbrew/Homebrew
           fi
 
+      - name: Select a new enough Xcode
+        if: startsWith(matrix.runner, 'macos-14')
+        run: |
+          # macos-14 images default to Xcode 15.4 (Apple clang 15); RediSearch's C++ needs clang >= 16.
+          major="$(clang --version | sed -n '1s/.*version \([0-9]*\).*/\1/p')"
+          if (( major < 16 )); then
+            newest="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)"
+            if [[ -n "$newest" ]]; then
+              sudo xcode-select -s "$newest"
+            fi
+          fi
+          xcode-select -p
+          clang --version | head -1
+
       - name: Checkout and tap redis formula
         run: |
           # umask 022 so the cloned formula is 644 (world-writable fails FormulaAudit/Files).
           umask 022
-          owner="${FORMULA_REPO%%/*}"
-          reponame="${FORMULA_REPO#*/}"
-          tap="${owner}/${reponame#homebrew-}"
+          brew update
+          # Fixed local tap name: a derived homebrew/core can't be re-pointed at a local clone.
+          tap="redis-ci/core"
           echo "TAP=$tap" >> "$GITHUB_ENV"
 
           git clone --depth 1 --branch "$FORMULA_BRANCH" \
@@ -193,15 +217,19 @@ jobs:
 
           formula_path="$(brew formula "${TAP}/redis")"
 
-          # Rewrite only url+sha256; test-bot builds from source so the version line and bottle block aren't used.
+          # Rewrite url+sha256+version; test-bot builds from source so the bottle block isn't used.
           # brew ruby: the container has no bare `ruby` on PATH; args via ARGV (brew ruby strips the env).
           brew ruby -e '
-            path, url, sha = ARGV
+            path, url, sha, version = ARGV
             s = File.read(path)
-            s.sub!(/^  url ".*?"/, %(  url "#{url}"))
+            s.sub!(/^  version ".*?"\n/, "")
+            url_line = %(  url "#{url}")
+            # Only set version when the url has none, else `brew audit` calls it redundant.
+            url_line += %(\n  version "#{version}") if Version.detect(url).null?
+            s.sub!(/^  url ".*?"/, url_line)
             s.sub!(/^  sha256 "[0-9a-f]+"/, %(  sha256 "#{sha}"))
             File.write(path, s)
-          ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA"
+          ' "$formula_path" "file://${archive}" "$ARCHIVE_SHA" "$ARCHIVE_VERSION"
 
           grep -nE '^  (url|version|sha256) ' "$formula_path" || true
 
