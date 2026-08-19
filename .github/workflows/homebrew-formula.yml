@@ -13,7 +13,7 @@ on:
         description: 'GitHub repo holding redis.rb (a homebrew-core fork)'
         required: false
         type: string
-        default: 'brew/homebrew-core'
+        default: 'Homebrew/homebrew-core'
       formula_branch:
         description: 'Branch of the formula repo'
         required: false
@@ -182,9 +182,8 @@ jobs:
           # umask 022 so the cloned formula is 644 (world-writable fails FormulaAudit/Files).
           umask 022
           brew update
-          owner="${FORMULA_REPO%%/*}"
-          reponame="${FORMULA_REPO#*/}"
-          tap="${owner}/${reponame#homebrew-}"
+          # Fixed local tap name: a derived homebrew/core can't be re-pointed at a local clone.
+          tap="redis-ci/core"
           echo "TAP=$tap" >> "$GITHUB_ENV"
 
           git clone --depth 1 --branch "$FORMULA_BRANCH" \
