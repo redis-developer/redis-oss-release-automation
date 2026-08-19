@@ -163,6 +163,20 @@ jobs:
             git config --global --add safe.directory /home/linuxbrew/.linuxbrew/Homebrew
           fi
 
+      - name: Select a new enough Xcode
+        if: startsWith(matrix.runner, 'macos-14')
+        run: |
+          # macos-14 images default to Xcode 15.4 (Apple clang 15); RediSearch's C++ needs clang >= 16.
+          major="$(clang --version | sed -n '1s/.*version \([0-9]*\).*/\1/p')"
+          if (( major < 16 )); then
+            newest="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1 || true)"
+            if [[ -n "$newest" ]]; then
+              sudo xcode-select -s "$newest"
+            fi
+          fi
+          xcode-select -p
+          clang --version | head -1
+
       - name: Checkout and tap redis formula
         run: |
           # umask 022 so the cloned formula is 644 (world-writable fails FormulaAudit/Files).
