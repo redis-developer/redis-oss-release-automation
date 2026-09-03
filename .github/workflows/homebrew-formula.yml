@@ -104,37 +104,48 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  determine_runners:
+    name: Determine current Homebrew test runners
+    runs-on: ubuntu-latest
+    container:
+      image: "ghcr.io/homebrew/brew:main"
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@a657b8b0cd35d0f65cce41fce9b24cf054b49869 # 2026.08.24.1
+        with:
+          core: true
+          cask: false
+
+      - name: Determine runners and remap macOS entries to GitHub-hosted labels
+        id: build-matrix
+        run: |
+          brew update
+          # ohai prints a header line before the JSON; drop it.
+          runners="$(brew determine-test-runners redis | tail -n +2)"
+
+          # brew ruby strips the env, so pass the JSON via ARGV instead.
+          matrix="$(brew ruby -e '
+            require "json"
+            runners = JSON.parse(ARGV[0])
+            runners = runners.map do |r|
+              next r unless r["name"].start_with?("macOS ")
+              version = r["name"][/^macOS (\d+)-arm64$/, 1]
+              raise "Unexpected macOS runner name: #{r["name"]}" unless version
+              r.merge("runner" => "macos-#{version}")
+            end
+            puts runners.to_json
+          ' "$runners")"
+
+          echo "Resolved matrix: $matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   test_version:
-    needs: build_archive
+    needs: [build_archive, determine_runners]
     strategy:
       matrix:
-        include:
-          - name: "Linux x86_64"
-            runner: "ubuntu-latest"
-            container:
-              image: "ghcr.io/homebrew/brew:main"
-              options: "--user=linuxbrew -e GITHUB_ACTIONS_HOMEBREW_SELF_HOSTED"
-            workdir: "/github/home"
-            timeout: 2160
-          - name: "Linux arm64"
-            runner: "ubuntu-24.04-arm"
-            container:
-              image: "ghcr.io/homebrew/brew:main"
-              options: "--user=linuxbrew -e GITHUB_ACTIONS_HOMEBREW_SELF_HOSTED"
-            workdir: "/github/home"
-            timeout: 2160
-          - name: "macOS 26-arm64"
-            runner: "macos-26"
-            timeout: 60
-          - name: "macOS 15-arm64"
-            runner: "macos-15"
-            timeout: 60
-          - name: "macOS 14-arm64"
-            runner: "macos-14"
-            timeout: 60
-          - name: "macOS 14-x86_64"
-            runner: "macos-14-large"
-            timeout: 120
+        include: ${{ fromJson(needs.determine_runners.outputs.matrix) }}
       fail-fast: false
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
