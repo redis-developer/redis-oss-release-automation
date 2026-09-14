@@ -120,23 +120,49 @@ jobs:
 
       - name: Determine runners and remap macOS entries to GitHub-hosted labels
         id: build-matrix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           brew update
           # ohai prints a header line before the JSON; drop it.
           runners="$(brew determine-test-runners redis | tail -n +2)"
 
-          # brew ruby strips the env, so pass the JSON via ARGV instead.
+          # Homebrew's own fleet can pick up a new macOS tier before GitHub ships a hosted
+          # image for it; check actions/runner-images releases (sorted newest-first) for
+          # what actually exists. Extract just tag names via stdin: releases include full
+          # changelog bodies, which are too large to pass through argv without hitting E2BIG.
+          tags="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/actions/runner-images/releases?per_page=100" |
+            brew ruby -e 'require "json"; puts JSON.parse(STDIN.read).map { |r| r["tag_name"] }.to_json')"
+
+          # brew ruby strips the env, so pass both JSON blobs via ARGV instead.
           matrix="$(brew ruby -e '
             require "json"
             runners = JSON.parse(ARGV[0])
-            runners = runners.map do |r|
+            tags = JSON.parse(ARGV[1])
+
+            def released?(tags, image, version)
+              tags.any? { |t| t.start_with?("#{image}-#{version}-arm64/") || t.start_with?("#{image}-#{version}/") }
+            end
+
+            runners = runners.filter_map do |r|
               next r unless r["name"].start_with?("macOS ")
               version = r["name"][/^macOS (\d+)-arm64$/, 1]
               raise "Unexpected macOS runner name: #{r["name"]}" unless version
-              r.merge("runner" => "macos-#{version}")
+
+              if released?(tags, "macos", version)
+                r.merge("runner" => "macos-#{version}")
+              elsif released?(tags, "xcode", version)
+                warn "No GA macos-#{version} runner yet; using xcode-#{version} preview instead"
+                r.merge("runner" => "xcode-#{version}")
+              else
+                warn "Skipping macOS #{version}: no GitHub-hosted runner available yet"
+                nil
+              end
             end
+
             puts runners.to_json
-          ' "$runners")"
+          ' "$runners" "$tags")"
 
           echo "Resolved matrix: $matrix"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
