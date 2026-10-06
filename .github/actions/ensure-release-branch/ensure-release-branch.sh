@@ -95,8 +95,10 @@ else
     MAJOR=$(echo "$MAJOR_MINOR" | cut -d. -f1)
 
     # Find the previous existing release branch
-    execute_command --no-std -- git ls-remote --heads origin "release/$MAJOR.[0-9]"
-    BASE_BRANCH=$(echo "$last_cmd_stdout" | grep -oP 'release/\d+\.\d+' | sort -V | tail -n 1)
+    # Highest release/MAJOR.N below this version; must match multi-digit minors (e.g. 8.10)
+    execute_command --no-std -- git ls-remote --heads origin "release/$MAJOR.*"
+    BASE_BRANCH=$( { echo "$last_cmd_stdout" | grep -oP 'refs/heads/\Krelease/\d+\.\d+$'; echo "release/$MAJOR_MINOR"; } \
+        | sort -uV | awk -v cur="release/$MAJOR_MINOR" '$0 == cur { print prev; exit } { prev = $0 }')
 
     if [ -z "$BASE_BRANCH" ]; then
         echo "Error: Could not find a base branch for $RELEASE_BRANCH"
