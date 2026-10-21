@@ -84,7 +84,9 @@ packages:
     build_workflow: homebrew-formula.yml
     allow_custom_build: true
     build_timeout_minutes: 60
-    build_inputs: {}
+    build_inputs:
+      formula_repo: redis-developer/homebrew-core
+      formula_branch: tmp-redis-openssl4-fix
   snap:
     package_type: snap
     repo: redis/redis-snap
