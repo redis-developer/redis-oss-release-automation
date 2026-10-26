@@ -36,7 +36,8 @@ class LLMHandleConfirmation(ReleaseAction, LLMInputHelper, ArgsHelper):
 
     # model = "gpt-4.1-2025-04-14"
     # model = "gpt-5-nano"
-    model = "gpt-4.1-nano"
+    #model = "gpt-4.1-nano"
+    model = "gpt-6-luna"
 
     def __init__(
         self,
@@ -131,7 +132,7 @@ class LLMIntentDetector(ReleaseAction, LLMInputHelper):
 
     # model = "gpt-4.1-2025-04-14"
     # model = "gpt-5-nano"
-    model = "gpt-4.1-mini"
+    model = "gpt-6.1-sol"
 
     def __init__(
         self,
