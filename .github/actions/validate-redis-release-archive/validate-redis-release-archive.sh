@@ -13,11 +13,12 @@ if [ -z "$TAG" ]; then
 fi
 
 # Figure out the correct URL for the Redis release archive. Prefer a bundled
-# redis-full.tar.gz release asset (Redis core + modules) when published for this
-# tag; otherwise fall back to the plain tag source archive.
+# redis-full-<tag>.tar.gz (or legacy redis-full.tar.gz) release asset (Redis
+# core + modules) when published for this tag; otherwise fall back to the plain tag source archive.
 TEMP_ARCHIVE="/tmp/redis-${TAG}.tar.gz"
 REDIS_ARCHIVE_URL=""
 for URL in \
+    "https://github.com/redis/redis/releases/download/${TAG}/redis-full-${TAG}.tar.gz" \
     "https://github.com/redis/redis/releases/download/${TAG}/redis-full.tar.gz" \
     "https://github.com/redis/redis/archive/refs/tags/${TAG}.tar.gz"; do
     echo "Trying Redis archive URL: $URL"
