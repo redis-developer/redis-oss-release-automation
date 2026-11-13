@@ -21,6 +21,7 @@ class PackageType(str, Enum):
     DEBIAN = "debian"
     RPM = "rpm"
     CLI_STATIC = "cli-static"
+    ARCHLINUX = "archlinux"
     HOMEBREW = "homebrew"
     FORMULA = "formula"
     SNAP = "snap"

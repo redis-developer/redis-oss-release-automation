@@ -5,6 +5,7 @@ Package-specific tree factories and factory functions.
 import logging
 from typing import Dict, Optional, Union
 
+from redis_release.bht.tree_factory_archlinux import ArchlinuxFactory
 from redis_release.bht.tree_factory_cli_static import CliStaticFactory
 from redis_release.bht.tree_factory_clientimage import ClientImageFactory
 from redis_release.bht.tree_factory_clienttest import ClientTestFactory
@@ -27,6 +28,7 @@ _FACTORIES: Dict[PackageType, GenericPackageFactory] = {
     PackageType.DEBIAN: DebianFactory(),
     PackageType.RPM: RPMFactory(),
     PackageType.CLI_STATIC: CliStaticFactory(),
+    PackageType.ARCHLINUX: ArchlinuxFactory(),
     PackageType.HOMEBREW: HomebrewFactory(),
     PackageType.FORMULA: FormulaFactory(),
     PackageType.SNAP: SnapFactory(),
