@@ -70,7 +70,7 @@ packages:
       GA releases go to the stable [redis] repo, all other tags to [redis-testing]
     # fixed release branch whose .SRCINFO pkgver is the last GA version,
     # used to block downgrades of the stable [redis] repo
-    ref: master
+    ref: release-automation
     build_workflow: release_build_and_test.yml
     build_inputs: {}
     build_timeout_minutes: 90
