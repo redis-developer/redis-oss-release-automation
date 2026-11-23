@@ -4,10 +4,72 @@ from typing import Optional
 
 from py_trees.common import Status
 
-from redis_release.bht.behaviours import LoggingAction, ReleaseAction
+from redis_release.bht.behaviours import (
+    LoggingAction,
+    NeedToPublishRelease,
+    ReleaseAction,
+)
 from redis_release.bht.state import ArchlinuxMeta, ReleaseMeta, Workflow
 from redis_release.github_client_async import GitHubClientAsync
 from redis_release.models import RedisVersion, ReleaseType
+
+
+# Branch of the package repo whose recipe follows Redis unstable
+UNSTABLE_REF = "unstable"
+
+
+def archlinux_run_type(package_meta: ArchlinuxMeta, release_meta: ReleaseMeta) -> str:
+    """Kind of run the package workflows are asked for, same values as docker.
+
+    Only ``release`` is published. ``unstable``, ``custom`` and ``nightly``
+    build and test a package that stays a workflow artifact.
+    """
+    if release_meta.is_nightly_build:
+        return "nightly"
+    if release_meta.is_custom_build or package_meta.module_versions:
+        return "custom"
+    if release_meta.tag == "unstable":
+        return "unstable"
+    try:
+        RedisVersion.parse(release_meta.tag or "")
+    except ValueError:
+        return "custom"
+    return "release"
+
+
+class SelectArchlinuxRef(LoggingAction):
+    """Build non-version tags from the ``unstable`` branch of the package repo.
+
+    A version tag keeps the release branch from the config. ``unstable`` and
+    other non-version tags are built with the recipe that follows Redis
+    unstable.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        package_meta: ArchlinuxMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str = "",
+    ) -> None:
+        self.package_meta = package_meta
+        self.release_meta = release_meta
+        super().__init__(name=name, log_prefix=log_prefix)
+
+    def update(self) -> Status:
+        if self.release_meta.tag is None:
+            self.logger.error("Release tag is not set")
+            return Status.FAILURE
+        try:
+            RedisVersion.parse(self.release_meta.tag)
+        except ValueError:
+            if self.package_meta.ref != UNSTABLE_REF:
+                self.package_meta.ref = UNSTABLE_REF
+                self.logger.info(
+                    f"Tag {self.release_meta.tag} is not a version, "
+                    f"using {UNSTABLE_REF} branch"
+                )
+        return Status.SUCCESS
 
 
 class DetectReleaseTypeArchlinux(LoggingAction):
@@ -15,8 +77,7 @@ class DetectReleaseTypeArchlinux(LoggingAction):
 
     A release type forced in state wins. Otherwise a GA tag releases as public
     to the stable [redis] repo and every other version tag as internal to
-    [redis-testing]. ``unstable`` and non-version tags leave the release type
-    unset, ClassifyArchlinuxVersion skips them.
+    [redis-testing]. Runs that are not a release are internal.
     """
 
     def __init__(
@@ -40,26 +101,21 @@ class DetectReleaseTypeArchlinux(LoggingAction):
                 f"Release type for archlinux (from state): "
                 f"{self.package_meta.release_type}"
             )
-        elif self.release_meta.tag == "unstable":
-            self.feedback_message = "No release type for archlinux unstable tag"
+        elif archlinux_run_type(self.package_meta, self.release_meta) != "release":
+            self.package_meta.release_type = ReleaseType.INTERNAL
+            self.feedback_message = (
+                "Not a release run, setting release type for archlinux: "
+                f"{self.package_meta.release_type}"
+            )
         else:
-            try:
-                release_version = RedisVersion.parse(self.release_meta.tag)
-            except ValueError:
-                self.feedback_message = (
-                    f"No release type for archlinux non-version tag: "
-                    f"{self.release_meta.tag}"
-                )
-            else:
-                self.package_meta.release_type = (
-                    ReleaseType.PUBLIC
-                    if release_version.is_ga
-                    else ReleaseType.INTERNAL
-                )
-                self.feedback_message = (
-                    f"Detected release type for archlinux: "
-                    f"{self.package_meta.release_type}"
-                )
+            release_version = RedisVersion.parse(self.release_meta.tag)
+            self.package_meta.release_type = (
+                ReleaseType.PUBLIC if release_version.is_ga else ReleaseType.INTERNAL
+            )
+            self.feedback_message = (
+                f"Detected release type for archlinux: "
+                f"{self.package_meta.release_type}"
+            )
 
         if self.log_once(
             "release_type_detected", self.package_meta.ephemeral.log_once_flags
@@ -83,6 +139,12 @@ class ArchlinuxWorkflowInputs(ReleaseAction):
         super().__init__(name=f"{name} - archlinux", log_prefix=log_prefix)
 
     def update(self) -> Status:
+        self.workflow.inputs["run_type"] = archlinux_run_type(
+            self.package_meta, self.release_meta
+        )
+        if self.package_meta.module_versions:
+            for module, version in self.package_meta.module_versions.items():
+                self.workflow.inputs[f"{module.value}_version"] = version
         if self.package_meta.release_type is not None:
             self.workflow.inputs["release_type"] = self.package_meta.release_type.value
         if self.release_meta.tag is not None:
@@ -105,7 +167,8 @@ class ClassifyArchlinuxVersion(ReleaseAction):
     ``.SRCINFO`` file on ``repo@ref``, read back as the tag it was made from
     (``8.12rc2`` is ``8.12-rc2``). An internal release goes to
     [redis-testing], which takes any version, so it is always acceptable and
-    the file is not downloaded. ``unstable`` and non-version tags are skipped.
+    the file is not downloaded. A run that is not a release publishes nothing,
+    so it is acceptable as well.
 
     Reads ``release_type`` from state, so DetectReleaseTypeArchlinux must run
     first.
@@ -145,25 +208,18 @@ class ClassifyArchlinuxVersion(ReleaseAction):
             self.logger.error("Release tag is not set")
             return
 
-        if self.release_meta.tag == "unstable":
-            self.package_meta.ephemeral.is_version_acceptable = False
-            self.feedback_message = "Skip unstable release for archlinux"
-            self.logger.info(self.feedback_message)
+        run_type = archlinux_run_type(self.package_meta, self.release_meta)
+        if run_type != "release":
+            self.package_meta.ephemeral.is_version_acceptable = True
             # remote_version must be set as it is a sign of successful classify step
-            self.package_meta.remote_version = "unstable"
+            self.package_meta.remote_version = run_type
+            self.logger.info(
+                f"[green]Version acceptable: {run_type} run of "
+                f"{self.release_meta.tag} is built and tested only[/]"
+            )
             return
 
-        try:
-            self.release_version = RedisVersion.parse(self.release_meta.tag)
-        except ValueError:
-            # Non-version ref (e.g. custom build) must not move the released version
-            self.logger.info(
-                f"Release tag is not a version, skipping archlinux release: "
-                f"{self.release_meta.tag}"
-            )
-            self.package_meta.ephemeral.is_version_acceptable = False
-            self.package_meta.remote_version = "custom"
-            return
+        self.release_version = RedisVersion.parse(self.release_meta.tag)
 
         if self.package_meta.release_type is None:
             self.logger.error("Package release type is not set")
@@ -290,3 +346,15 @@ class NeedToReleaseArchlinux(LoggingAction):
         if self.package_meta.ephemeral.is_version_acceptable is True:
             return Status.SUCCESS
         return Status.FAILURE
+
+
+class NeedToPublishArchlinux(NeedToPublishRelease):
+    """Publish only release runs, other runs end after build and test."""
+
+    def update(self) -> Status:
+        assert isinstance(self.package_meta, ArchlinuxMeta)
+        run_type = archlinux_run_type(self.package_meta, self.release_meta)
+        if run_type != "release":
+            self.logger.debug(f"Skip publishing {run_type} run")
+            return Status.FAILURE
+        return super().update()

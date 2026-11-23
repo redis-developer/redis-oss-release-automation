@@ -257,6 +257,7 @@ class ArchlinuxMeta(PackageMeta):
     # ephemeral.is_version_acceptable which is reset on each run to always
     # reflect recent remote version
     remote_version: Optional[str] = None
+    module_versions: Optional[Dict[RedisModule, str]] = None
     ephemeral: ArchlinuxMetaEphemeral = Field(default_factory=ArchlinuxMetaEphemeral)  # type: ignore[assignment]
 
 

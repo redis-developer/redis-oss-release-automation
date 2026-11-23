@@ -7,7 +7,9 @@ from py_trees.decorators import Inverter
 from redis_release.bht.behaviours_archlinux import (
     ArchlinuxWorkflowInputs,
     DetectReleaseTypeArchlinux,
+    NeedToPublishArchlinux,
     NeedToReleaseArchlinux,
+    SelectArchlinuxRef,
 )
 from redis_release.bht.composites import (
     ClassifyArchlinuxVersionGuarded,
@@ -63,6 +65,12 @@ class ArchlinuxFactory(GenericPackageFactory, PackageWithValidation):
             memory=False,
             children=[
                 reset_package_state,
+                SelectArchlinuxRef(
+                    "Select Archlinux Ref",
+                    package_meta,
+                    release_meta,
+                    log_prefix=package_name,
+                ),
                 DetectReleaseTypeArchlinux(
                     "Detect Archlinux Release Type",
                     package_meta,
@@ -110,6 +118,17 @@ class ArchlinuxFactory(GenericPackageFactory, PackageWithValidation):
             cast(ArchlinuxMeta, package_meta),
             release_meta,
             log_prefix=log_prefix,
+        )
+
+    def create_need_to_publish_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        return NeedToPublishArchlinux(
+            name, package_meta, release_meta, log_prefix=log_prefix
         )
 
     def create_detect_release_type_behaviour(

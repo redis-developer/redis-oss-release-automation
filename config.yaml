@@ -71,6 +71,8 @@ packages:
     # fixed release branch whose .SRCINFO pkgver is the last GA version,
     # used to block downgrades of the stable [redis] repo
     ref: release-automation
+    # unstable, custom and nightly runs build and test only, nothing is published
+    allow_custom_build: true
     build_workflow: release_build_and_test.yml
     build_inputs: {}
     build_timeout_minutes: 90

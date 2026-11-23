@@ -283,7 +283,7 @@ class GenericPackageFactory(ABC):
         )
         not_need_to_publish = Inverter(
             "Not",
-            NeedToPublishRelease(
+            self.create_need_to_publish_behaviour(
                 "Need To Publish?",
                 package_meta,
                 release_meta,
@@ -305,6 +305,17 @@ class GenericPackageFactory(ABC):
                 workflow_result,
                 reset_publish_workflow_state,
             ],
+        )
+
+    def create_need_to_publish_behaviour(
+        self,
+        name: str,
+        package_meta: PackageMeta,
+        release_meta: ReleaseMeta,
+        log_prefix: str,
+    ) -> Behaviour:
+        return NeedToPublishRelease(
+            name, package_meta, release_meta, log_prefix=log_prefix
         )
 
     def create_workflow_with_result_tree_branch(

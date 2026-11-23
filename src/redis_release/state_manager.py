@@ -17,7 +17,7 @@ from rich.pretty import pretty_repr
 from redis_release.bht.state import ReleaseState, logger
 from redis_release.config import Config
 
-from .bht.state import DockerMeta, PackageType, ReleaseState
+from .bht.state import ArchlinuxMeta, DockerMeta, PackageType, ReleaseState
 from .logging_config import log_once
 from .models import ReleaseArgs
 
@@ -274,8 +274,7 @@ class StateManager:
                             )
             if self.args.module_versions:
                 for package in state.packages.values():
-                    if package.meta.package_type == PackageType.DOCKER:
-                        assert isinstance(package.meta, DockerMeta)
+                    if isinstance(package.meta, (DockerMeta, ArchlinuxMeta)):
                         if not quiet:
                             for module, version in self.args.module_versions.items():
                                 logger.info(
