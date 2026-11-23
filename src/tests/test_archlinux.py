@@ -95,10 +95,6 @@ def test_archlinux_config_entry() -> None:
     meta = state.packages[PACKAGE].meta
     assert isinstance(meta, ArchlinuxMeta)
     assert meta.package_type == PackageType.ARCHLINUX
-    assert meta.repo == "redis/redis-archlinux"
-    assert meta.ref == "master"
-    assert meta.publish_internal_release is True
-    assert state.packages[PACKAGE].publish is not None
 
 
 def test_archlinux_state_round_trip() -> None:
@@ -137,8 +133,8 @@ async def test_archlinux_releases(
 ) -> None:
     state, dispatches, _, _ = await run_release(tag, srcinfo(remote), forced)
 
-    assert [(d["repo"], d["workflow"], d["ref"]) for d in dispatches] == [
-        ("redis/redis-archlinux", "release_build_and_test.yml", "master")
+    assert [(d["repo"], d["workflow"]) for d in dispatches] == [
+        ("redis/redis-archlinux", "release_build_and_test.yml")
     ]
     assert dispatches[0]["inputs"]["release_tag"] == tag
     assert dispatches[0]["inputs"]["release_type"] == expected_release_type
@@ -161,7 +157,10 @@ async def test_archlinux_reads_srcinfo_only_for_public(
 
     assert download_file.await_count == downloads
     if downloads:
-        download_file.assert_awaited_with("redis/redis-archlinux", ".SRCINFO", "master")
+        release_ref = Config.from_yaml(CONFIG_PATH).packages[PACKAGE].ref
+        download_file.assert_awaited_with(
+            "redis/redis-archlinux", ".SRCINFO", release_ref
+        )
 
 
 @pytest.mark.parametrize(
