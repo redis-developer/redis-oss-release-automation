@@ -139,12 +139,6 @@ class ArchlinuxWorkflowInputs(ReleaseAction):
         super().__init__(name=f"{name} - archlinux", log_prefix=log_prefix)
 
     def update(self) -> Status:
-        self.workflow.inputs["run_type"] = archlinux_run_type(
-            self.package_meta, self.release_meta
-        )
-        if self.package_meta.module_versions:
-            for module, version in self.package_meta.module_versions.items():
-                self.workflow.inputs[f"{module.value}_version"] = version
         if self.package_meta.release_type is not None:
             self.workflow.inputs["release_type"] = self.package_meta.release_type.value
         if self.release_meta.tag is not None:
@@ -158,6 +152,19 @@ class ArchlinuxWorkflowInputs(ReleaseAction):
                 self.release_meta.ephemeral.slack_thread_ts
             )
         return Status.SUCCESS
+
+
+class ArchlinuxBuildWorkflowInputs(ArchlinuxWorkflowInputs):
+    """The build workflow also takes the run type and the module versions."""
+
+    def update(self) -> Status:
+        self.workflow.inputs["run_type"] = archlinux_run_type(
+            self.package_meta, self.release_meta
+        )
+        if self.package_meta.module_versions:
+            for module, version in self.package_meta.module_versions.items():
+                self.workflow.inputs[f"{module.value}_version"] = version
+        return super().update()
 
 
 class ClassifyArchlinuxVersion(ReleaseAction):

@@ -5,6 +5,7 @@ from py_trees.composites import Selector, Sequence
 from py_trees.decorators import Inverter
 
 from redis_release.bht.behaviours_archlinux import (
+    ArchlinuxBuildWorkflowInputs,
     ArchlinuxWorkflowInputs,
     DetectReleaseTypeArchlinux,
     NeedToPublishArchlinux,
@@ -96,7 +97,7 @@ class ArchlinuxFactory(GenericPackageFactory, PackageWithValidation):
         release_meta: ReleaseMeta,
         log_prefix: str,
     ) -> Behaviour:
-        return ArchlinuxWorkflowInputs(
+        return ArchlinuxBuildWorkflowInputs(
             name,
             workflow,
             cast(ArchlinuxMeta, package_meta),

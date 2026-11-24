@@ -292,3 +292,23 @@ def test_archlinux_publishes_only_release_runs(
     ).create_need_to_publish_behaviour("Need To Publish?", meta, state.meta, PACKAGE)
 
     assert need_to_publish.update() == expected
+
+
+def test_archlinux_publish_inputs_match_publish_workflow() -> None:
+    """release_publish.yml rejects any input it does not declare."""
+    state = ReleaseState.from_config(Config.from_yaml(CONFIG_PATH))
+    state.meta.tag = "8.12-rc3"
+    package = state.packages[PACKAGE]
+    assert isinstance(package.meta, ArchlinuxMeta)
+    package.meta.release_type = ReleaseType.INTERNAL
+    package.meta.module_versions = {RedisModule.SEARCH: "master"}
+
+    behaviour = get_factory(PackageType.ARCHLINUX).create_publish_workflow_inputs(
+        "Set Publish Workflow Inputs", package.publish, package.meta, state.meta, ""
+    )
+    behaviour.tick_once()
+
+    assert package.publish.inputs == {
+        "release_type": "internal",
+        "release_tag": "8.12-rc3",
+    }
