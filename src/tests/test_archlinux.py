@@ -302,13 +302,15 @@ def test_archlinux_publish_inputs_match_publish_workflow() -> None:
     assert isinstance(package.meta, ArchlinuxMeta)
     package.meta.release_type = ReleaseType.INTERNAL
     package.meta.module_versions = {RedisModule.SEARCH: "master"}
+    publish = package.publish
+    assert publish is not None
 
     behaviour = get_factory(PackageType.ARCHLINUX).create_publish_workflow_inputs(
-        "Set Publish Workflow Inputs", package.publish, package.meta, state.meta, ""
+        "Set Publish Workflow Inputs", publish, package.meta, state.meta, ""
     )
     behaviour.tick_once()
 
-    assert package.publish.inputs == {
+    assert publish.inputs == {
         "release_type": "internal",
         "release_tag": "8.12-rc3",
     }

@@ -2,6 +2,24 @@
 
 Guidance for coding agents working in this repository.
 
+## Before finishing any change
+
+Run what CI runs (`.github/workflows/validation.yml`), all three, on the whole
+repository. Do this for every change, including one that only touches tests.
+
+```
+uv run --all-extras black --check --diff .
+uv run --all-extras mypy .
+uv run --all-extras pytest src/tests packages/redis-version/tests
+```
+
+- `mypy .` type checks the tests as well as the sources. Checking only the
+  files you edited under `src/redis_release` misses errors in `src/tests`.
+- A passing test is not enough. `pytest` does not report type errors, so a
+  test can pass and still fail CI.
+- Fields such as `Package.publish` are `Optional`. Narrow them with an
+  `assert ... is not None` before use instead of silencing the checker.
+
 ## Adding a new package
 
 A package is one entry under `packages:` in `config.yaml` plus the code that
@@ -59,10 +77,4 @@ make sense for this package.
 GITHUB_TOKEN=$(gh auth token) uv run redis-release release-print <tag> --only-packages <package>
 ```
 
-Then run what CI runs (`.github/workflows/validation.yml`):
-
-```
-uv run --all-extras black --check --diff .
-uv run --all-extras mypy .
-uv run --all-extras pytest src/tests packages/redis-version/tests
-```
+Then run the checks in "Before finishing any change".
