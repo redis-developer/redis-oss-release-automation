@@ -43,6 +43,7 @@ def _detect(tag: Optional[str]) -> DetectReleaseTypeFedora:
 )
 def test_gate_by_version(tag: str, expected: bool) -> None:
     behaviour = _gate(tag)
+    behaviour.initialise()
     status = behaviour.update()
     if expected:
         assert status == Status.SUCCESS
@@ -56,12 +57,14 @@ def test_gate_by_version(tag: str, expected: bool) -> None:
 @pytest.mark.parametrize("tag", ["unstable", "custom-build-xyz", None])
 def test_gate_does_not_release_other_tags(tag: Optional[str]) -> None:
     behaviour = _gate(tag)
+    behaviour.initialise()
     assert behaviour.update() == Status.FAILURE
 
 
 def test_gate_clears_stale_skip_message_when_running() -> None:
     behaviour = _gate("8.12.0")
     behaviour.package_meta.ephemeral.skip_message = "stale from a previous run"
+    behaviour.initialise()
     assert behaviour.update() == Status.SUCCESS
     assert behaviour.package_meta.ephemeral.skip_message is None
 

@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 from py_trees.common import Status
 
@@ -6,10 +6,8 @@ from redis_release.bht.behaviours import LoggingAction
 from redis_release.bht.state import PackageMeta, ReleaseMeta
 from redis_release.models import RedisVersion, ReleaseType
 
-# The Fedora package sets config-rewrite-source-aware in redis.conf.
-# Redis has this option from 8.12.
-FEDORA_MIN_VERSION: Tuple[int, int] = (8, 12)
-FEDORA_MIN_VERSION_STR = ".".join(str(part) for part in FEDORA_MIN_VERSION)
+# The Fedora package sets config-rewrite-source-aware, which exists from 8.12 onward.
+MIN_FEDORA_VERSION = (8, 12)
 
 
 class DetectReleaseTypeFedora(LoggingAction):
@@ -44,8 +42,7 @@ class DetectReleaseTypeFedora(LoggingAction):
             result = Status.SUCCESS
             self.feedback_message = f"Release type for Fedora (from state): {self.package_meta.release_type}"
         elif self.release_version is not None:
-            # GA versions go to the public Copr project.
-            # Other versions go to the internal Copr project.
+            # Fedora only publishes GA versions to the public Copr project
             if self.release_version.is_ga:
                 self.package_meta.release_type = ReleaseType.PUBLIC
             else:
@@ -101,34 +98,34 @@ class NeedToReleaseFedora(LoggingAction):
         except ValueError as e:
             self.logger.error(f"Failed to parse release tag: {e}")
             return
+        pass
 
     def update(self) -> Status:
         result: Status = Status.FAILURE
-        if self.release_version is None:
-            # update() can run without initialise(), for example in a guard
-            self.initialise()
-
         if self.release_meta.tag is None:
             self.feedback_message = "Release tag is not set"
-        elif self.release_meta.tag == "unstable":
+            result = Status.FAILURE
+        if self.release_meta.tag == "unstable":
             self.feedback_message = "Skip unstable release for Fedora"
-        elif self.release_version is None:
-            self.feedback_message = "Failed to parse release version"
-        elif (
-            self.release_version.major,
-            self.release_version.minor,
-        ) < FEDORA_MIN_VERSION:
-            self.feedback_message = (
-                f"Skip release for Fedora {str(self.release_version)}"
-                f" < {FEDORA_MIN_VERSION_STR}"
-            )
-            self.package_meta.ephemeral.skip_message = self.feedback_message
+            result = Status.FAILURE
+
+        if self.release_version is not None:
+            if (
+                self.release_version.major,
+                self.release_version.minor,
+            ) < MIN_FEDORA_VERSION:
+                self.feedback_message = f"Skip release for Fedora {str(self.release_version)} < {MIN_FEDORA_VERSION[0]}.{MIN_FEDORA_VERSION[1]}"
+                self.package_meta.ephemeral.skip_message = self.feedback_message
+                result = Status.FAILURE
+            else:
+                self.feedback_message = (
+                    f"Need to release Fedora version {str(self.release_version)}"
+                )
+                self.package_meta.ephemeral.skip_message = None
+                result = Status.SUCCESS
         else:
-            self.feedback_message = (
-                f"Need to release Fedora version {str(self.release_version)}"
-            )
-            self.package_meta.ephemeral.skip_message = None
-            result = Status.SUCCESS
+            self.feedback_message = "Failed to parse release version"
+            result = Status.FAILURE
 
         if self.log_once("need_to_release", self.package_meta.ephemeral.log_once_flags):
             color_open = "" if result == Status.SUCCESS else "[yellow]"
