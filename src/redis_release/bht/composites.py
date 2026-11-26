@@ -31,11 +31,13 @@ from .behaviours import (
 )
 from .behaviours import TriggerWorkflow as TriggerWorkflow
 from .behaviours import UpdateWorkflowStatusUntilCompletion
+from .behaviours_archlinux import ClassifyArchlinuxVersion
 from .behaviours_cli_static import ClassifyCliStaticVersion
 from .behaviours_homebrew import ClassifyHomebrewVersion
 from .behaviours_snap import ClassifySnapVersion
 from .decorators import ConditionGuard, FlagGuard, StatusFlagGuard
 from .state import (
+    ArchlinuxMeta,
     CliStaticMeta,
     HomebrewMeta,
     Package,
@@ -472,6 +474,30 @@ class ClassifyCliStaticVersionGuarded(StatusFlagGuard):
             None if name == "" else name,
             ClassifyCliStaticVersion(
                 "Classify Cli Static Version",
+                package_meta,
+                release_meta,
+                github_client,
+                log_prefix=log_prefix,
+            ),
+            package_meta.ephemeral,
+            "classify_remote_versions",
+            log_prefix=log_prefix,
+        )
+
+
+class ClassifyArchlinuxVersionGuarded(StatusFlagGuard):
+    def __init__(
+        self,
+        name: str,
+        package_meta: ArchlinuxMeta,
+        release_meta: ReleaseMeta,
+        github_client: GitHubClientAsync,
+        log_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            None if name == "" else name,
+            ClassifyArchlinuxVersion(
+                "Classify Archlinux Version",
                 package_meta,
                 release_meta,
                 github_client,

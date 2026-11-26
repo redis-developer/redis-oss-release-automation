@@ -720,7 +720,7 @@ class GenericWorkflowInputs(ReleaseAction):
         self.workflow = workflow
         self.package_meta = package_meta
         self.release_meta = release_meta
-        super().__init__(name=f"{name} - debian", log_prefix=log_prefix)
+        super().__init__(name=name, log_prefix=log_prefix)
 
     def update(self) -> Status:
         if self.package_meta.release_type is not None:

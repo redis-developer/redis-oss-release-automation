@@ -13,6 +13,7 @@ from py_trees.common import Status
 from redis_release.models import RedisModule, WorkflowConclusion, WorkflowType
 
 from .bht.state import (
+    ArchlinuxMeta,
     CliStaticMeta,
     ClientImageMeta,
     ClientTestMeta,
@@ -241,8 +242,10 @@ class DisplayModelWithReleaseValidation(DisplayModelGeneric):
         Returns:
             List of Step and Section objects for the workflow, with release validation section and step prepended
         """
-        assert isinstance(package.meta, (HomebrewMeta, SnapMeta, CliStaticMeta)), (
-            f"DisplayModelWithReleaseValidation requires HomebrewMeta, SnapMeta or CliStaticMeta, "
+        assert isinstance(
+            package.meta, (HomebrewMeta, SnapMeta, CliStaticMeta, ArchlinuxMeta)
+        ), (
+            f"DisplayModelWithReleaseValidation requires HomebrewMeta, SnapMeta, CliStaticMeta or ArchlinuxMeta, "
             f"got {type(package.meta).__name__}"
         )
 
@@ -381,6 +384,7 @@ def get_display_model(package_meta: PackageMeta) -> DisplayModelGeneric:
         PackageType.HOMEBREW,
         PackageType.SNAP,
         PackageType.CLI_STATIC,
+        PackageType.ARCHLINUX,
     ):
         return DisplayModelWithReleaseValidation()
 

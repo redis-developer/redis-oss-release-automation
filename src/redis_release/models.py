@@ -22,6 +22,7 @@ class PackageType(str, Enum):
     RPM = "rpm"
     FEDORA = "fedora"
     CLI_STATIC = "cli-static"
+    ARCHLINUX = "archlinux"
     HOMEBREW = "homebrew"
     FORMULA = "formula"
     SNAP = "snap"

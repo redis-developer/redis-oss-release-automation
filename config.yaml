@@ -72,6 +72,25 @@ packages:
     publish_workflow: release_publish.yml
     publish_timeout_minutes: 10
     publish_inputs: {}
+  archlinux:
+    package_type: archlinux
+    package_display_name: "Arch Linux"
+    repo: redis/redis-archlinux
+    description: |
+      pacman repository for Arch Linux published to S3
+      GA releases go to the stable [redis] repo, all other tags to [redis-testing]
+    # fixed release branch whose .SRCINFO pkgver is the last GA version,
+    # used to block downgrades of the stable [redis] repo
+    ref: kms-signing
+    # unstable, custom and nightly runs build and test only, nothing is published
+    allow_custom_build: true
+    build_workflow: release_build_and_test.yml
+    build_inputs: {}
+    build_timeout_minutes: 90
+    publish_internal_release: yes
+    publish_workflow: release_publish.yml
+    publish_timeout_minutes: 10
+    publish_inputs: {}
   homebrew:
     package_type: homebrew
     package_display_name: "Homebrew Cask"
