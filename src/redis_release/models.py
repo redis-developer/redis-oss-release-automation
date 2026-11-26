@@ -20,6 +20,7 @@ class PackageType(str, Enum):
     DOCKER = "docker"
     DEBIAN = "debian"
     RPM = "rpm"
+    FEDORA = "fedora"
     CLI_STATIC = "cli-static"
     HOMEBREW = "homebrew"
     FORMULA = "formula"
